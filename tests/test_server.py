@@ -200,21 +200,34 @@ def test_upload_validation_errors(arcade):
     assert arcade.store.current("tidewater") is None
 
 
-def test_upload_size_cap(arcade):
-    response, _ = upload(arcade, body=b"x" * (1024 * 1024 + 1))
-    assert response.status == 413
-
-
-def test_upload_needs_a_content_length(arcade):
+def _raw(arcade, head):
     import socket
 
     sock = socket.create_connection(("127.0.0.1", arcade.port), timeout=10)
-    sock.sendall(
-        b"PUT /api/games/tidewater/versions/1 HTTP/1.1\r\nHost: %s\r\n"
-        b"Authorization: Bearer %s\r\nConnection: close\r\n\r\n" % (API.encode(), TOKEN.encode())
-    )
+    sock.sendall(head)
     reply = sock.recv(4096)
     sock.close()
+    return reply
+
+
+def test_upload_size_cap(arcade):
+    # Refused from the declared length alone, before the body is read: only
+    # the headers are sent, as a client streaming a huge upload would have.
+    reply = _raw(
+        arcade,
+        b"PUT /api/games/tidewater/versions/1 HTTP/1.1\r\nHost: %s\r\n"
+        b"Authorization: Bearer %s\r\nContent-Length: %d\r\n\r\n"
+        % (API.encode(), TOKEN.encode(), 1024 * 1024 + 1),
+    )
+    assert reply.startswith(b"HTTP/1.1 413")
+
+
+def test_upload_needs_a_content_length(arcade):
+    reply = _raw(
+        arcade,
+        b"PUT /api/games/tidewater/versions/1 HTTP/1.1\r\nHost: %s\r\n"
+        b"Authorization: Bearer %s\r\nConnection: close\r\n\r\n" % (API.encode(), TOKEN.encode()),
+    )
     assert reply.startswith(b"HTTP/1.1 411")
 
 
