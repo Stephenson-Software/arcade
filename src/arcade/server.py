@@ -31,7 +31,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, registry as registryModule
+from arcade import __version__, bundle, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -65,6 +65,8 @@ class Config(object):
         landingUrl,
         maxUploadBytes=DEFAULT_MAX_UPLOAD_BYTES,
         keep=5,
+        internalHost="arcade",
+        traefikService="arcade@docker",
     ):
         self.domain = domain.lower().strip(".")
         self.dataDirectory = dataDirectory
@@ -72,6 +74,10 @@ class Config(object):
         self.landingUrl = landingUrl
         self.maxUploadBytes = maxUploadBytes
         self.keep = keep
+        # The name other containers reach arcade by. Only a request addressed
+        # to it may read /traefik/dynamic.json; no public router sends that Host.
+        self.internalHost = internalHost.lower()
+        self.traefikService = traefikService
 
     @classmethod
     def fromEnvironment(cls, environ=None):
@@ -83,6 +89,8 @@ class Config(object):
             landingUrl=environ.get("ARCADE_LANDING_URL", "https://danielstephenson.dev/play"),
             maxUploadBytes=int(environ.get("ARCADE_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)),
             keep=int(environ.get("ARCADE_KEEP_VERSIONS", "5")),
+            internalHost=environ.get("ARCADE_INTERNAL_HOST", "arcade"),
+            traefikService=environ.get("ARCADE_TRAEFIK_SERVICE", "arcade@docker"),
         )
 
 
@@ -220,6 +228,15 @@ def makeHandler(arcade):
                 self._text(200, "ok")
                 return
             host = self._host()
+            if host == config.internalHost:
+                if read and path == "/traefik/dynamic.json":
+                    document = routers.providerDocument(
+                        arcade.registry.registry, config.domain, service=config.traefikService
+                    )
+                    self._json(200, document)
+                else:
+                    self._text(404, "Not found")
+                return
             if host == config.domain:
                 self._api(path, read)
                 return

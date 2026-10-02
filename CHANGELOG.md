@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.2.0] - 2026-10-01
+
+### Added
+
+- `GET /traefik/dynamic.json` on the internal hostname (`ARCADE_INTERNAL_HOST`, default `arcade`)
+  only: the games' routers as a Traefik HTTP-provider document, without `play.<base>`, which the
+  gateway routes with compose labels. A `games.yaml` change becomes routers and certificates
+  within one poll. Verified against Traefik v3.5.3, including that Traefik keeps the routers while
+  arcade is down.
+- `ARCADE_TRAEFIK_SERVICE` (default `arcade@docker`) and `hosts --games-only`.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added

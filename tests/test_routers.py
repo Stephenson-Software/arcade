@@ -70,3 +70,18 @@ def test_cli_hosts_check_registry_and_hash_token(tmp_path, capsys, monkeypatch):
     assert capsys.readouterr().out.strip() == TOKEN_SHA
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
     assert cli.main(["hash-token"]) == 2
+
+
+def test_the_provider_document_leaves_the_api_host_to_compose():
+    document = routers.providerDocument(_registry(), DOMAIN, service="arcade@file")
+    names = sorted(document["http"]["routers"])
+    assert names == ["arcade-overwinter", "arcade-tidewater", "arcade-tidewater-alias-1"]
+    assert {r["service"] for r in document["http"]["routers"].values()} == {"arcade@file"}
+    assert routers.providerDocument(registry.loads("games: []\n"), DOMAIN) == {}
+
+
+def test_cli_hosts_games_only(tmp_path, capsys):
+    games = tmp_path / "games.yaml"
+    games.write_text(registryText([game("tidewater", aliases=["t.example.org"])]))
+    assert cli.main(["hosts", "--registry", str(games), "--domain", DOMAIN, "--games-only"]) == 0
+    assert capsys.readouterr().out.split() == ["tidewater.play.example.com", "t.example.org"]

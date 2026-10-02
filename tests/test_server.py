@@ -282,3 +282,15 @@ def test_registry_changes_are_picked_up_and_bad_ones_ignored(arcade):
     os.utime(str(arcade.registryFile), ns=(stamp + 2 * 10 ** 9, stamp + 2 * 10 ** 9))
     response, data = request(arcade, "GET", newGame, "/")
     assert b"not been deployed" in data
+
+
+def test_traefik_reads_its_routers_on_the_internal_host_only(arcade):
+    response, data = request(arcade, "GET", "arcade:8080", "/traefik/dynamic.json")
+    assert response.status == 200
+    routersByName = json.loads(data)["http"]["routers"]
+    assert routersByName["arcade-tidewater"]["rule"] == "Host(`tidewater.play.example.com`)"
+    assert routersByName["arcade-tidewater"]["service"] == "arcade@docker"
+    assert "arcade-api" not in routersByName
+    assert request(arcade, "GET", "arcade", "/")[0].status == 404
+    for host in (API, TIDEWATER, "tidewater.example.org"):
+        assert request(arcade, "GET", host, "/traefik/dynamic.json")[0].status == 404

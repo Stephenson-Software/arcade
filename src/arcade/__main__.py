@@ -86,7 +86,7 @@ def routersCommand(arguments):
 
 def hostsCommand(arguments):
     loaded = registry.load(arguments.registry, domain=arguments.domain)
-    for _, host in routers.hosts(loaded, arguments.domain):
+    for _, host in routers.hosts(loaded, arguments.domain, includeApi=not arguments.games_only):
         print(host)
     return 0
 
@@ -123,6 +123,8 @@ def main(argv=None):
         command.add_argument("--domain", default=DEFAULT_DOMAIN)
         if name == "routers":
             command.add_argument("--check", metavar="FILE", help="exit 1 if FILE differs from the output")
+        else:
+            command.add_argument("--games-only", action="store_true", help="leave out play.<base> itself")
 
     check = commands.add_parser("check-registry", help="validate games.yaml")
     check.add_argument("registry")

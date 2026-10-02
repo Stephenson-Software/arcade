@@ -7,10 +7,13 @@ generated router: play.<base> (the API), each <slug>.play.<base>, and each
 alias. All point at the one arcade service, which compose.yml declares with
 labels (`arcade@docker`).
 
-The output is a Traefik file-provider document. It is written as JSON, which
-is valid YAML, so the gateway can drop it in its watched dynamic-config
-directory as a .yml file; `--check` lets the gateway's CI prove the committed
-file still matches games.yaml.
+Two ways to hand them to Traefik:
+
+- the HTTP provider (what the gateway uses): arcade serves providerDocument()
+  at /traefik/dynamic.json on its internal hostname, and Traefik polls it, so
+  a games.yaml change becomes routers and certificates with no Traefik edit;
+- a file-provider document from `python -m arcade routers` (JSON, which is
+  valid YAML), with `--check` for a CI that commits it.
 """
 
 import json
@@ -38,9 +41,13 @@ def _router(host, options):
     }
 
 
-def hosts(registry, domain):
-    """(routerName, host) for every host arcade answers, in a stable order."""
-    pairs = [("arcade-api", domain)]
+def hosts(registry, domain, includeApi=True):
+    """(routerName, host) for every host arcade answers, in a stable order.
+
+    includeApi=False leaves out play.<base> itself, for a gateway that routes
+    that one host with ordinary compose labels and takes only the games'
+    routers from arcade (the HTTP provider, below)."""
+    pairs = [("arcade-api", domain)] if includeApi else []
     for game in registry:
         pairs.append(("arcade-%s" % game.slug, "%s.%s" % (game.slug, domain)))
         for index, alias in enumerate(game.aliases, start=1):
@@ -48,13 +55,23 @@ def hosts(registry, domain):
     return pairs
 
 
-def generate(registry, domain, **overrides):
+def generate(registry, domain, includeApi=True, **overrides):
     options = dict(DEFAULTS)
     options.update(overrides)
     routers = {}
-    for name, host in hosts(registry, domain):
+    for name, host in hosts(registry, domain, includeApi=includeApi):
         routers[name] = _router(host, options)
     return {"http": {"routers": routers}}
+
+
+def providerDocument(registry, domain, **overrides):
+    """The JSON Traefik's HTTP provider polls from arcade: every game's
+    routers, without play.<base> (routed by compose labels). An empty registry
+    still yields a well-formed, empty document."""
+    generated = generate(registry, domain, includeApi=False, **overrides)
+    if not generated["http"]["routers"]:
+        return {}
+    return generated
 
 
 def render(registry, domain, **overrides):

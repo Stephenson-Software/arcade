@@ -100,18 +100,36 @@ curl -fsS -X POST -H "Authorization: Bearer $ARCADE_TOKEN" -d '{"version":"0.1.0
 ## Traefik routers (TLS option B)
 
 TLS-ALPN-01 cannot issue a wildcard certificate, so every host arcade answers gets its own
-generated `Host()` router and certificate:
+`Host()` router and certificate. The gateway routes `play.<base>` with ordinary compose labels
+(service `arcade`). arcade itself hands Traefik every **game's** routers through Traefik's
+[HTTP provider](https://doc.traefik.io/traefik/providers/http/):
 
-```sh
-python -m arcade routers --registry games.yaml --domain play.danielstephenson.dev > arcade.yml
-python -m arcade routers --registry games.yaml --check arcade.yml    # CI: exit 1 when stale
-python -m arcade hosts --registry games.yaml                         # for cert-check.sh
+```yaml
+# traefik.yml (static)
+providers:
+  http:
+    endpoint: "http://arcade:8080/traefik/dynamic.json"
+    pollInterval: "10s"
 ```
 
-The output is a Traefik file-provider document. It is JSON, which is valid YAML, so it can be saved
-as a `.yml` file. Every router points at `arcade@docker`, the service the gateway's compose labels
-declare. **When migrating a game that already has its own container,** add its alias in the same
-gateway change that removes that container's router, or Traefik will see two routers for one host.
+`/traefik/dynamic.json` answers only on the internal hostname (`ARCADE_INTERNAL_HOST`, default
+`arcade`). No public router sends that `Host`, so the document is never served to the internet. It
+contains one router per `<slug>.play.<base>` and per alias. Each router uses `websecure`,
+`secure-headers@file` and the `letsencrypt` resolver, and points at `ARCADE_TRAEFIK_SERVICE`
+(default `arcade@docker`). Adding a game to `games.yaml` therefore becomes a router and a
+certificate within one poll, with no Traefik or compose edit. If arcade is down, Traefik keeps the
+routers it last read; this was verified against Traefik v3.5.3.
+
+The same routers are available offline:
+
+```sh
+python -m arcade routers --registry games.yaml > arcade.yml       # a file-provider document
+python -m arcade routers --registry games.yaml --check arcade.yml  # exit 1 when stale
+python -m arcade hosts --registry games.yaml [--games-only]        # one host per line (cert-check)
+```
+
+**When migrating a game that already has its own container,** add its alias in the same gateway
+change that removes that container's router, or Traefik will see two routers for one host.
 
 ## Configuration
 
@@ -125,6 +143,8 @@ gateway change that removes that container's router, or Traefik will see two rou
 | `ARCADE_KEEP_VERSIONS` | `5` |
 | `ARCADE_HOST` / `ARCADE_PORT` | `0.0.0.0` / `8080` in the image |
 | `ARCADE_TRACE_KEY` | unset (no reporting) |
+| `ARCADE_INTERNAL_HOST` | `arcade` (the only host that may read `/traefik/dynamic.json`) |
+| `ARCADE_TRAEFIK_SERVICE` | `arcade@docker` |
 
 ### Usage reporting
 
