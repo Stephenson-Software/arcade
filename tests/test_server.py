@@ -2,7 +2,6 @@ import http.client
 import json
 import os
 import threading
-import time
 
 import pytest
 
@@ -273,13 +272,13 @@ def test_describe_endpoints(arcade):
 def test_registry_changes_are_picked_up_and_bad_ones_ignored(arcade):
     newGame = "newgame." + DOMAIN
     assert request(arcade, "GET", newGame, "/")[0].status == 404
-    time.sleep(0.01)
+    # Explicit, distinct mtimes: a coarse filesystem clock must not hide a change.
+    stamp = os.stat(str(arcade.registryFile)).st_mtime_ns
     arcade.registryFile.write_text(registryText([game("tidewater"), game("newgame")]))
-    os.utime(str(arcade.registryFile), None)
+    os.utime(str(arcade.registryFile), ns=(stamp + 10 ** 9, stamp + 10 ** 9))
     response, data = request(arcade, "GET", newGame, "/")
     assert b"not been deployed" in data
-    time.sleep(0.01)
     arcade.registryFile.write_text("games:\n  - slug: broken\n")
-    os.utime(str(arcade.registryFile), None)
+    os.utime(str(arcade.registryFile), ns=(stamp + 2 * 10 ** 9, stamp + 2 * 10 ** 9))
     response, data = request(arcade, "GET", newGame, "/")
     assert b"not been deployed" in data
