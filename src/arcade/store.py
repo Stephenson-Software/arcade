@@ -85,11 +85,40 @@ class Store(object):
             raise KeyError(name)
         return os.path.join(self.versionDirectory(slug, version), name)
 
-    def add(self, slug, version, files, activate=True):
-        """Store a validated bundle. files maps each BUNDLE_FILES name to bytes."""
+    def sitePath(self, slug, version, relative):
+        """The on-disk path of a static bundle's file, or None if the
+        relative path is unacceptable or the file is not there."""
+        from arcade.bundle import BundleError, checkSitePath
+
+        try:
+            relative = checkSitePath(relative)
+        except BundleError:
+            return None
+        if relative == _UPLOADED:
+            return None
+        root = self.versionDirectory(slug, version)
+        path = os.path.join(root, *relative.split("/"))
+        # Belt and braces: the joined path must still be inside the version.
+        if os.path.commonpath([os.path.realpath(root), os.path.realpath(path)]) != os.path.realpath(root):
+            return None
+        return path if os.path.isfile(path) else None
+
+    def add(self, slug, version, files, activate=True, static=False):
+        """Store a validated bundle. For a tak bundle, files maps each
+        BUNDLE_FILES name to bytes; for a static one (static=True), every
+        relative path to bytes, index.html and version.txt included."""
         if not VERSION_PATTERN.match(version):
             raise ValueError("bad version %r" % version)
-        if sorted(files) != sorted(BUNDLE_FILES):
+        if static:
+            from arcade.bundle import checkSitePath
+
+            for name in files:
+                checkSitePath(name)
+            if "index.html" not in files or "version.txt" not in files:
+                raise ValueError("a static bundle needs index.html and version.txt")
+            if _UPLOADED in files:
+                raise ValueError("%s is reserved" % _UPLOADED)
+        elif sorted(files) != sorted(BUNDLE_FILES):
             raise ValueError("a bundle is exactly %s" % ", ".join(BUNDLE_FILES))
         with self._lock:
             slugDirectory = self._slugDirectory(slug)
@@ -100,7 +129,9 @@ class Store(object):
             staging = tempfile.mkdtemp(prefix=".upload-", dir=slugDirectory)
             try:
                 for name, data in files.items():
-                    with open(os.path.join(staging, name), "wb") as out:
+                    target = os.path.join(staging, *name.split("/"))
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    with open(target, "wb") as out:
                         out.write(data)
                 with open(os.path.join(staging, _UPLOADED), "w") as stamp:
                     stamp.write(str(time.time_ns()))

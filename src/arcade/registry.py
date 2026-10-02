@@ -15,8 +15,22 @@ database").
         owner: dmccoystephenson              # optional
         token_sha256: "<64 hex chars>"       # sha256 of the upload token
         aliases: [tidewater.danielstephenson.dev]   # optional, flow list only
+        kind: tak                            # optional: tak (default) or static
+        isolation: on                        # optional: on/off (see below)
 
 `games: []` is an empty registry.
+
+kind (RFC 0012): `tak` is the original bundle - index.html + game.zip +
+version.txt, with /tak/ served from game.zip (RFC 0006). `static` is any
+directory with index.html at its root (a pygbag, Emscripten or plain
+HTML/JS build), served as files.
+
+isolation: whether responses carry COOP/COEP/CORP. A tak game needs it
+(SharedArrayBuffer carries its input) and may not turn it off; a static game
+defaults to off, because builds that load a runtime from a CDN without a
+Cross-Origin-Resource-Policy header (pygbag does) cannot run under
+require-corp. Turn it on for a static build that needs SharedArrayBuffer
+(an Emscripten build with pthreads).
 """
 
 import re
@@ -32,7 +46,9 @@ REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 RESERVED_SLUGS = frozenset(("play", "www", "api", "arcade", "admin", "static"))
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
-OPTIONAL_KEYS = ("owner", "aliases")
+OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation")
+KINDS = ("tak", "static")
+_SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
 KNOWN_KEYS = REQUIRED_KEYS + OPTIONAL_KEYS
 
 
@@ -41,15 +57,17 @@ class RegistryError(ValueError):
 
 
 class Game(object):
-    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases")
+    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation")
 
-    def __init__(self, slug, title, repo, tokenSha256, owner=None, aliases=()):
+    def __init__(self, slug, title, repo, tokenSha256, owner=None, aliases=(), kind="tak", isolation=None):
         self.slug = slug
         self.title = title
         self.repo = repo
         self.owner = owner
         self.tokenSha256 = tokenSha256
         self.aliases = tuple(aliases)
+        self.kind = kind
+        self.isolation = (kind == "tak") if isolation is None else bool(isolation)
 
     def __repr__(self):
         return "Game(%r)" % self.slug
@@ -216,6 +234,23 @@ def validate(entries, domain=None):
                     "line %d: alias %r is already claimed by %r" % (lineNumber, alias, aliasOwners[alias])
                 )
             aliasOwners[alias] = slug
+        kind = entry.get("kind", "tak")
+        if kind not in KINDS:
+            raise RegistryError(
+                "line %d: kind %r for %r must be one of %s" % (lineNumber, kind, slug, ", ".join(KINDS))
+            )
+        isolation = None
+        if "isolation" in entry:
+            isolation = _SWITCH.get(entry["isolation"].lower())
+            if isolation is None:
+                raise RegistryError(
+                    "line %d: isolation for %r must be on or off, got %r" % (lineNumber, slug, entry["isolation"])
+                )
+            if kind == "tak" and not isolation:
+                raise RegistryError(
+                    "line %d: %r is a tak game, which needs isolation (SharedArrayBuffer carries "
+                    "its input); it cannot be turned off" % (lineNumber, slug)
+                )
         games.append(
             Game(
                 slug=slug,
@@ -224,6 +259,8 @@ def validate(entries, domain=None):
                 tokenSha256=entry["token_sha256"],
                 owner=entry.get("owner"),
                 aliases=aliases,
+                kind=kind,
+                isolation=isolation,
             )
         )
     return Registry(games)

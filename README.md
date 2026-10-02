@@ -72,6 +72,19 @@ rm token.txt
 
 Only the hash is committed. Rotating a token is a registry PR plus a secret update.
 
+### Bundle kinds (RFC 0012)
+
+| `kind` | Upload | Served | `isolation` |
+|---|---|---|---|
+| `tak` (default) | exactly `index.html`, `game.zip`, `version.txt` | tak's routes; `/tak/` from the game's own `game.zip` | always on; cannot be turned off |
+| `static` | any tree with `index.html` and `version.txt` at its root (a pygbag, Emscripten or plain HTML/JS build) | as files; `/` and `…/` serve `index.html`; `.wasm` is `application/wasm` | **off** by default, `on` to opt in |
+
+The `static` kind defaults to no Cross-Origin headers because builds that fetch their runtime from a
+CDN without `Cross-Origin-Resource-Policy` (pygbag loads from `pygame-web.github.io`) cannot run
+under `require-corp`. Set `isolation: on` for a build that needs `SharedArrayBuffer`, such as
+Emscripten with pthreads. A static upload refuses links, absolute paths, `..` and empty segments,
+caps the file count at 10,000, and is subject to the same byte cap as a tak upload.
+
 ## The API (on `play.<base>`)
 
 | Method | Path | Does |

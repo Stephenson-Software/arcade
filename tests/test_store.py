@@ -86,3 +86,18 @@ def test_ignores_incomplete_version_directories(tmp_path):
     store.add("tidewater", "1", bundleFiles("1"))
     os.makedirs(str(tmp_path / "tidewater" / "2"))
     assert store.versions("tidewater") == ["1"]
+
+
+def test_static_bundles_keep_their_tree(tmp_path):
+    store = Store(str(tmp_path))
+    files = {"index.html": b"i", "version.txt": b"1\n", "a/b/c.wasm": b"w"}
+    store.add("rps", "1", files, static=True)
+    assert open(store.sitePath("rps", "1", "a/b/c.wasm"), "rb").read() == b"w"
+    for bad in ("../x", "a/../../x", "missing.js", ".uploaded", "a/b"):
+        assert store.sitePath("rps", "1", bad) is None
+    with pytest.raises(ValueError):
+        store.add("rps", "2", {"version.txt": b"2"}, static=True)
+    with pytest.raises(ValueError):
+        store.add("rps", "3", {"index.html": b"", "version.txt": b"3", ".uploaded": b"0"}, static=True)
+    with pytest.raises(Exception):
+        store.add("rps", "4", {"index.html": b"", "version.txt": b"4", "../x": b""}, static=True)

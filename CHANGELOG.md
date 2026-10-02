@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.3.0] - 2026-10-01
+
+### Added
+
+- Bundle kinds (RFC 0012): `kind: static` in `games.yaml` serves any uploaded tree with
+  `index.html` and `version.txt` at its root as files (pygbag, Emscripten, plain HTML/JS). Uploads
+  are validated before anything is written: no links, absolute paths, `..` or empty segments; at
+  most 10,000 files.
+- `isolation: on|off` per game: off by default for static games, so a build that loads a CDN
+  runtime without CORP works; tak games must keep it on. It is decided for each request, never
+  carried over a kept-alive connection. Verified with a real pygbag 0.9.3 build served through
+  arcade in Chromium.
+- `kind` and `isolation` in `GET /api/games…`; `.wasm`/`.mjs`/`.data`/`.apk` content types.
+
 ## [0.2.0] - 2026-10-01
 
 ### Added

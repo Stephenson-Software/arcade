@@ -29,6 +29,8 @@ def arcade(tmp_path):
             [
                 game("tidewater", aliases=["tidewater.example.org"]),
                 game("overwinter", token_sha256=OTHER_SHA),
+                game("rps", kind="static"),
+                game("pthreads", kind="static", isolation="on"),
             ]
         )
     )
@@ -264,7 +266,7 @@ def test_describe_endpoints(arcade):
     assert described["aliases"] == ["tidewater.example.org"]
     assert "token_sha256" not in data.decode() and "tokenSha256" not in data.decode()
     response, data = request(arcade, "GET", API, "/api/games")
-    assert [g["slug"] for g in json.loads(data)["games"]] == ["overwinter", "tidewater"]
+    assert [g["slug"] for g in json.loads(data)["games"]] == ["overwinter", "pthreads", "rps", "tidewater"]
     assert request(arcade, "GET", API, "/api/games/nope")[0].status == 404
     assert request(arcade, "GET", API, "/api/other")[0].status == 404
 
@@ -294,3 +296,70 @@ def test_traefik_reads_its_routers_on_the_internal_host_only(arcade):
     assert request(arcade, "GET", "arcade", "/")[0].status == 404
     for host in (API, TIDEWATER, "tidewater.example.org"):
         assert request(arcade, "GET", host, "/traefik/dynamic.json")[0].status == 404
+
+
+def _site(version):
+    return {
+        "index.html": ("<html>site %s</html>" % version).encode(),
+        "version.txt": (version + "\n").encode(),
+        "pkg/game.wasm": b"\0asm",
+        "pkg/index.html": b"nested index",
+        "rps.apk": b"apk",
+        "style.css": b"body{}",
+    }
+
+
+def test_static_game_is_served_as_files_without_isolation(arcade):
+    response, data = upload(arcade, slug="rps", version="0.1", body=tarBundle(_site("0.1")))
+    assert response.status == 201, data
+    assert json.loads(data)["kind"] == "static" and json.loads(data)["isolation"] is False
+    host = "rps." + DOMAIN
+    response, data = request(arcade, "GET", host, "/")
+    assert (response.status, data) == (200, b"<html>site 0.1</html>")
+    assert response.getheader("Content-Type") == "text/html; charset=utf-8"
+    for name, _ in ISOLATION_HEADERS:
+        assert response.getheader(name) is None, name
+    response, data = request(arcade, "GET", host, "/pkg/game.wasm")
+    assert (response.status, response.getheader("Content-Type"), data) == (200, "application/wasm", b"\0asm")
+    assert request(arcade, "GET", host, "/pkg/")[1] == b"nested index"
+    assert request(arcade, "GET", host, "/rps.apk")[0].getheader("Content-Type") == "application/octet-stream"
+    assert request(arcade, "GET", host, "/style.css")[0].getheader("Content-Type") == "text/css; charset=utf-8"
+    for path in ("/missing", "/pkg", "/../version.txt", "/.uploaded", "/pkg/../../x"):
+        assert request(arcade, "GET", host, path)[0].status == 404, path
+    assert arcade.reporter.events == [("page-served", {"slug": "rps"})]
+
+
+def test_static_game_with_isolation_on_sends_the_headers(arcade):
+    upload(arcade, slug="pthreads", version="1", body=tarBundle(_site("1")))
+    assertIsolated(request(arcade, "GET", "pthreads." + DOMAIN, "/")[0])
+
+
+def test_a_tak_bundle_is_refused_for_a_static_game_and_vice_versa(arcade):
+    response, data = upload(arcade, slug="rps", version="1.0.0")  # a tak bundle: no index at top? it has one
+    assert response.status == 201  # index.html + version.txt + game.zip is also a valid site
+    response, data = upload(arcade, slug="tidewater", version="2", body=tarBundle(_site("2")))
+    assert response.status == 400 and b"unexpected file" in data
+
+
+def test_isolation_is_decided_per_request_on_a_kept_alive_connection(arcade):
+    upload(arcade, slug="rps", version="1", body=tarBundle(_site("1")))
+    upload(arcade)
+    connection = http.client.HTTPConnection("127.0.0.1", arcade.port, timeout=10)
+    connection.request("GET", "/", headers={"Host": "rps." + DOMAIN})
+    first = connection.getresponse()
+    first.read()
+    assert first.getheader("Cross-Origin-Embedder-Policy") is None
+    connection.request("GET", "/", headers={"Host": TIDEWATER})
+    second = connection.getresponse()
+    second.read()
+    assertIsolated(second)
+    # Requests that never reach a game must not inherit the static game's
+    # choice either: the API host and an unknown host, each straight after it.
+    for host, path in ((API, "/api/games"), ("nope." + DOMAIN, "/")):
+        connection.request("GET", "/", headers={"Host": "rps." + DOMAIN})
+        connection.getresponse().read()
+        connection.request("GET", path, headers={"Host": host})
+        response = connection.getresponse()
+        response.read()
+        assertIsolated(response)
+    connection.close()

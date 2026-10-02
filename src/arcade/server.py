@@ -47,7 +47,13 @@ _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
 _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
 
 mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/css", ".css")
+# application/wasm is what lets a browser compile a module while it streams.
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("application/json", ".json")
+mimetypes.add_type("application/octet-stream", ".data")
+mimetypes.add_type("application/octet-stream", ".apk")
 
 
 def log(message):
@@ -180,9 +186,14 @@ def makeHandler(arcade):
                 return host
             return host.split(":", 1)[0].rstrip(".")
 
+        # Per response: a static game with isolation off sends no
+        # Cross-Origin headers (RFC 0012); everything else does.
+        isolate = True
+
         def end_headers(self):
-            for name, value in ISOLATION_HEADERS:
-                self.send_header(name, value)
+            if self.isolate:
+                for name, value in ISOLATION_HEADERS:
+                    self.send_header(name, value)
             super().end_headers()
 
         def _send(self, status, body=b"", contentType="text/plain; charset=utf-8", headers=()):
@@ -223,6 +234,9 @@ def makeHandler(arcade):
             self._dispatch(read=False)
 
         def _dispatch(self, read):
+            # Reset every request: one handler serves a whole keep-alive
+            # connection, and a proxy may reuse it across hosts.
+            self.isolate = True
             path = self._path()
             if path == "/healthz" and read:
                 self._text(200, "ok")
@@ -252,9 +266,13 @@ def makeHandler(arcade):
         # --- games ----------------------------------------------------------
 
         def _game(self, game, path):
+            self.isolate = game.isolation
             version = arcade.store.current(game.slug)
             if version is None:
                 self._text(404, "%s has not been deployed yet." % game.title)
+                return
+            if game.kind == "static":
+                self._static(game, version, path)
                 return
             if path in INDEX_PATHS:
                 self._file(game.slug, version, "index.html", "text/html; charset=utf-8")
@@ -276,6 +294,27 @@ def makeHandler(arcade):
                 self._cached(data, contentType, '"%s-%s"' % (version, name))
                 return
             self._text(404, "Not found")
+
+        def _static(self, game, version, path):
+            relative = path.lstrip("/")
+            if relative == "" or relative.endswith("/"):
+                relative += "index.html"
+            stored = arcade.store.sitePath(game.slug, version, relative)
+            if stored is None:
+                self._text(404, "Not found")
+                return
+            try:
+                with open(stored, "rb") as served:
+                    data = served.read()
+            except OSError:
+                self._text(404, "Not found")
+                return
+            contentType = mimetypes.guess_type(relative)[0] or "application/octet-stream"
+            if contentType.startswith("text/") and "charset" not in contentType:
+                contentType += "; charset=utf-8"
+            self._cached(data, contentType, '"%s-%s"' % (version, relative))
+            if relative == "index.html" and self.command == "GET":
+                arcade.report("page-served", game.slug)
 
         def _file(self, slug, version, name, contentType):
             try:
@@ -334,6 +373,8 @@ def makeHandler(arcade):
                 "repo": game.repo,
                 "url": "https://%s.%s/" % (game.slug, config.domain),
                 "aliases": list(game.aliases),
+                "kind": game.kind,
+                "isolation": game.isolation,
                 "current": arcade.store.current(game.slug),
                 "versions": arcade.store.versions(game.slug),
             }
@@ -389,8 +430,12 @@ def makeHandler(arcade):
                 self._json(413, {"error": "uploads are capped at %d bytes" % config.maxUploadBytes})
                 return
             data = self.rfile.read(length)
+            static = game.kind == "static"
             try:
-                files = bundle.unpack(data, version, config.maxUploadBytes)
+                if static:
+                    files = bundle.unpackStatic(data, version, config.maxUploadBytes)
+                else:
+                    files = bundle.unpack(data, version, config.maxUploadBytes)
             except bundle.BundleTooLarge as e:
                 self._json(413, {"error": str(e)})
                 return
@@ -399,7 +444,7 @@ def makeHandler(arcade):
                 return
             activate = parse_qs(urlparse(self.path).query).get("activate", ["true"])[0] != "false"
             try:
-                arcade.store.add(slug, version, files, activate=activate)
+                arcade.store.add(slug, version, files, activate=activate, static=static)
             except VersionExists:
                 self._json(409, {"error": "version %s already exists; versions are immutable" % version})
                 return

@@ -88,3 +88,34 @@ def test_load_reads_a_file(tmp_path):
     path = tmp_path / "games.yaml"
     path.write_text(registryText([game()]))
     assert registry.load(str(path)).get("tidewater").repo == "Stephenson-Software/Tidewater"
+
+
+def test_kind_and_isolation_defaults_and_overrides():
+    text = registryText(
+        [
+            game("tidewater"),
+            game("rps", kind="static"),
+            game("emscripten", kind="static", isolation="on"),
+            game("explicit", kind="tak", isolation="yes"),
+        ]
+    )
+    loaded = registry.loads(text)
+    assert (loaded.get("tidewater").kind, loaded.get("tidewater").isolation) == ("tak", True)
+    assert (loaded.get("rps").kind, loaded.get("rps").isolation) == ("static", False)
+    assert loaded.get("emscripten").isolation is True
+    assert loaded.get("explicit").isolation is True
+
+
+@pytest.mark.parametrize(
+    "extra, message",
+    [
+        ({"kind": "flash"}, "must be one of tak, static"),
+        ({"isolation": "maybe"}, "must be on or off"),
+        ({"isolation": "off"}, "needs isolation"),
+        ({"kind": "tak", "isolation": "no"}, "needs isolation"),
+    ],
+)
+def test_bad_kind_or_isolation_is_refused(extra, message):
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(registryText([game(**extra)]))
+    assert message in str(error.value)
