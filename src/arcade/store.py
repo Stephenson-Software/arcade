@@ -1,0 +1,145 @@
+# @author Daniel McCoy Stephenson
+"""Versioned bundles on disk (RFC 0006 §4).
+
+    <root>/<slug>/<version>/index.html
+    <root>/<slug>/<version>/game.zip
+    <root>/<slug>/<version>/version.txt
+    <root>/<slug>/<version>/.uploaded     (time.time_ns() at upload, for pruning)
+    <root>/<slug>/current                 (the live version's name)
+
+A version is written into a temporary directory and renamed into place, and
+`current` is replaced atomically, so a crash mid-upload leaves the previous
+version live. The last KEEP versions are kept; the current one never goes.
+"""
+
+import os
+import re
+import shutil
+import tempfile
+import threading
+import time
+
+VERSION_PATTERN = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
+BUNDLE_FILES = ("index.html", "game.zip", "version.txt")
+DEFAULT_KEEP = 5
+_UPLOADED = ".uploaded"
+_CURRENT = "current"
+
+
+class VersionExists(Exception):
+    pass
+
+
+class NoSuchVersion(Exception):
+    pass
+
+
+class Store(object):
+    def __init__(self, root, keep=DEFAULT_KEEP):
+        if keep < 1:
+            raise ValueError("keep must be at least 1")
+        self.root = root
+        self.keep = keep
+        self._lock = threading.Lock()
+        os.makedirs(root, exist_ok=True)
+
+    def _slugDirectory(self, slug):
+        return os.path.join(self.root, slug)
+
+    def versionDirectory(self, slug, version):
+        if not VERSION_PATTERN.match(version):
+            raise NoSuchVersion(version)
+        return os.path.join(self._slugDirectory(slug), version)
+
+    def versions(self, slug):
+        """The slug's versions, oldest upload first."""
+        directory = self._slugDirectory(slug)
+        try:
+            names = os.listdir(directory)
+        except FileNotFoundError:
+            return []
+        found = []
+        for name in names:
+            if not VERSION_PATTERN.match(name) or name == _CURRENT:
+                continue
+            stamp = os.path.join(directory, name, _UPLOADED)
+            try:
+                with open(stamp, "r") as stampFile:
+                    found.append((int(stampFile.read().strip()), name))
+            except (OSError, ValueError):
+                continue  # not a complete version directory
+        return [name for _, name in sorted(found)]
+
+    def current(self, slug):
+        try:
+            with open(os.path.join(self._slugDirectory(slug), _CURRENT), "r") as currentFile:
+                version = currentFile.read().strip()
+        except FileNotFoundError:
+            return None
+        if not version or not os.path.isdir(self.versionDirectory(slug, version)):
+            return None
+        return version
+
+    def filePath(self, slug, version, name):
+        if name not in BUNDLE_FILES:
+            raise KeyError(name)
+        return os.path.join(self.versionDirectory(slug, version), name)
+
+    def add(self, slug, version, files, activate=True):
+        """Store a validated bundle. files maps each BUNDLE_FILES name to bytes."""
+        if not VERSION_PATTERN.match(version):
+            raise ValueError("bad version %r" % version)
+        if sorted(files) != sorted(BUNDLE_FILES):
+            raise ValueError("a bundle is exactly %s" % ", ".join(BUNDLE_FILES))
+        with self._lock:
+            slugDirectory = self._slugDirectory(slug)
+            os.makedirs(slugDirectory, exist_ok=True)
+            final = os.path.join(slugDirectory, version)
+            if os.path.exists(final):
+                raise VersionExists(version)
+            staging = tempfile.mkdtemp(prefix=".upload-", dir=slugDirectory)
+            try:
+                for name, data in files.items():
+                    with open(os.path.join(staging, name), "wb") as out:
+                        out.write(data)
+                with open(os.path.join(staging, _UPLOADED), "w") as stamp:
+                    stamp.write(str(time.time_ns()))
+                os.rename(staging, final)
+            except BaseException:
+                shutil.rmtree(staging, ignore_errors=True)
+                raise
+            if activate:
+                self._writeCurrent(slug, version)
+            self._prune(slug)
+
+    def setCurrent(self, slug, version):
+        with self._lock:
+            if version not in self.versions(slug):
+                raise NoSuchVersion(version)
+            self._writeCurrent(slug, version)
+
+    def _writeCurrent(self, slug, version):
+        slugDirectory = self._slugDirectory(slug)
+        handle, temporary = tempfile.mkstemp(prefix=".current-", dir=slugDirectory)
+        try:
+            with os.fdopen(handle, "w") as out:
+                out.write(version + "\n")
+            os.replace(temporary, os.path.join(slugDirectory, _CURRENT))
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+
+    def _prune(self, slug):
+        versions = self.versions(slug)
+        live = self.current(slug)
+        excess = len(versions) - self.keep
+        for version in versions:
+            if excess <= 0:
+                break
+            if version == live:
+                continue
+            shutil.rmtree(os.path.join(self._slugDirectory(slug), version), ignore_errors=True)
+            excess -= 1

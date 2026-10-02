@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -v
+      - name: The example registry is valid
+        run: PYTHONPATH=src python -m arcade check-registry examples/games.yaml
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t arcade:ci .
+      - name: The image serves its health check
+        run: |
+          mkdir -p cfg && cp examples/games.yaml cfg/games.yaml
+          docker run -d --name arcade -p 8080:8080 -v "$PWD/cfg:/config:ro" arcade:ci
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/healthz
+          test "$(docker inspect -f '{{.State.Running}}' arcade)" = true

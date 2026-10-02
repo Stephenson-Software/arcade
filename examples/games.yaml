@@ -1,0 +1,12 @@
+# The registry arcade reads (RFC 0006 §3). The real one lives in the gateway
+# repository; this is an example. Generate a token, give it to the game's repo as
+# the ARCADE_TOKEN secret, and commit only its hash:
+#   python3 -c "import secrets; print(secrets.token_urlsafe(32))" > token.txt
+#   python -m arcade hash-token < token.txt
+games:
+  - slug: tidewater
+    title: Tidewater
+    repo: Stephenson-Software/Tidewater
+    owner: dmccoystephenson
+    token_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    aliases: [tidewater.danielstephenson.dev]

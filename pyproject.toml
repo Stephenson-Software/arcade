@@ -1,0 +1,20 @@
+[project]
+name = "arcade"
+dynamic = ["version"]
+description = "One static host for every browser game (Stephenson-Software RFC 0006)."
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+
+[tool.setuptools.dynamic]
+version = {attr = "arcade.__version__"}
+
+[tool.black]
+line-length = 110
+# src/arcade/trace_client.py is vendored byte-for-byte from
+# https://github.com/Stephenson-Software/trace-client-python and kept that way
+# so it stays diffable against upstream.
+force-exclude = '''
+/(
+    src/arcade/trace_client\.py
+)$
+'''
