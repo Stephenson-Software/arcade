@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.3.1] - 2026-10-02
+
+### Fixed
+
+- A version named `current` is refused. It used to collide with the pointer file and leave that
+  game, and `GET /api/games` for every game, failing. An unreadable pointer now reads as "nothing
+  deployed" instead of raising.
+- A static upload holding a top-level `.uploaded`, or a path that is both a file and a directory,
+  gets a 400 instead of a dropped connection. Any storage error is answered as a 400.
+- Static ETags hash the file path, so names with quotes or non-Latin-1 characters are served.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added

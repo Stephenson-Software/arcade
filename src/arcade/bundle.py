@@ -213,6 +213,17 @@ def unpackStatic(data, version, maxBytes, maxFiles=DEFAULT_MAX_FILES):
     for required in ("index.html", "version.txt"):
         if required not in files:
             raise BundleError("a static bundle needs %s at its top level" % required)
+    if ".uploaded" in files:
+        raise BundleError(".uploaded is reserved by arcade at the top level")
+    # A path cannot be both a file and a directory ("a" and "a/b").
+    directories = set()
+    for name in files:
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            directories.add("/".join(parts[:depth]))
+    clashes = sorted(directories.intersection(files))
+    if clashes:
+        raise BundleError("%r is both a file and a directory in the bundle" % clashes[0])
     try:
         stated = files["version.txt"].decode("utf-8").strip()
     except UnicodeDecodeError:

@@ -19,7 +19,9 @@ import tempfile
 import threading
 import time
 
-VERSION_PATTERN = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
+VERSION_PATTERN = re.compile(r"^(?!current$)[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
+# "current" is the name of the pointer file beside the versions, so it can
+# never be a version: a directory by that name would break the slug for good.
 BUNDLE_FILES = ("index.html", "game.zip", "version.txt")
 DEFAULT_KEEP = 5
 _UPLOADED = ".uploaded"
@@ -74,7 +76,11 @@ class Store(object):
         try:
             with open(os.path.join(self._slugDirectory(slug), _CURRENT), "r") as currentFile:
                 version = currentFile.read().strip()
-        except FileNotFoundError:
+        except OSError:
+            # Missing, or unreadable for any reason: nothing is live. One
+            # game's broken pointer must never take down the whole API.
+            return None
+        if not VERSION_PATTERN.match(version):
             return None
         if not version or not os.path.isdir(self.versionDirectory(slug, version)):
             return None

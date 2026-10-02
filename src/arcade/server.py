@@ -312,7 +312,10 @@ def makeHandler(arcade):
             contentType = mimetypes.guess_type(relative)[0] or "application/octet-stream"
             if contentType.startswith("text/") and "charset" not in contentType:
                 contentType += "; charset=utf-8"
-            self._cached(data, contentType, '"%s-%s"' % (version, relative))
+            # The path is hashed, not quoted: a file name may hold a quote or
+            # characters a Latin-1 header cannot carry.
+            tag = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16]
+            self._cached(data, contentType, '"%s-%s"' % (version, tag))
             if relative == "index.html" and self.command == "GET":
                 arcade.report("page-served", game.slug)
 
@@ -447,6 +450,11 @@ def makeHandler(arcade):
                 arcade.store.add(slug, version, files, activate=activate, static=static)
             except VersionExists:
                 self._json(409, {"error": "version %s already exists; versions are immutable" % version})
+                return
+            except (ValueError, OSError) as e:
+                # Validation should have caught it; if not, still answer.
+                log("%s %s upload could not be stored: %s" % (slug, version, e))
+                self._json(400, {"error": "the bundle could not be stored: %s" % e})
                 return
             log("%s %s uploaded (%d bytes)%s" % (slug, version, length, " and made current" if activate else ""))
             self._json(201, self._describe(game))

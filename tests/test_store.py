@@ -101,3 +101,15 @@ def test_static_bundles_keep_their_tree(tmp_path):
         store.add("rps", "3", {"index.html": b"", "version.txt": b"3", ".uploaded": b"0"}, static=True)
     with pytest.raises(Exception):
         store.add("rps", "4", {"index.html": b"", "version.txt": b"4", "../x": b""}, static=True)
+
+
+def test_current_is_not_a_version_name_and_a_broken_pointer_is_survivable(tmp_path):
+    store = Store(str(tmp_path))
+    with pytest.raises(ValueError):
+        store.add("tidewater", "current", bundleFiles("current"))
+    store.add("tidewater", "1", bundleFiles("1"))
+    # A pointer that cannot be read (here: replaced by a directory) reads as
+    # "nothing deployed", not an exception that takes the API down.
+    os.remove(str(tmp_path / "tidewater" / "current"))
+    os.makedirs(str(tmp_path / "tidewater" / "current"))
+    assert store.current("tidewater") is None

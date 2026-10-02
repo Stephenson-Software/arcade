@@ -363,3 +363,33 @@ def test_isolation_is_decided_per_request_on_a_kept_alive_connection(arcade):
         response.read()
         assertIsolated(response)
     connection.close()
+
+
+def test_a_version_named_current_is_refused_and_cannot_break_the_api(arcade):
+    response, data = upload(arcade, version="current", body=tarBundle(bundleFiles("current")))
+    assert response.status == 400, data
+    assert upload(arcade)[0].status == 201
+    response, data = request(arcade, "GET", API, "/api/games")
+    assert response.status == 200
+    assert request(arcade, "GET", TIDEWATER, "/")[0].status == 200
+
+
+def test_bad_static_trees_get_a_400_not_a_dropped_connection(arcade):
+    for extra in ({".uploaded": b"0"}, {"a": b"file", "a/b": b"nested under a file"}):
+        files = _site("9")
+        files.update(extra)
+        response, data = upload(arcade, slug="rps", version="9", body=tarBundle(files))
+        assert response.status == 400, (extra, data)
+    assert arcade.store.versions("rps") == []
+
+
+def test_odd_file_names_are_served_with_a_safe_etag(arcade):
+    files = _site("1")
+    files['we"ird name.txt'] = b"q"
+    files["café-☃.txt"] = b"u"
+    assert upload(arcade, slug="rps", version="1", body=tarBundle(files))[0].status == 201
+    for path in ('/we%22ird%20name.txt', "/caf%C3%A9-%E2%98%83.txt"):
+        response, data = request(arcade, "GET", "rps." + DOMAIN, path)
+        assert response.status == 200, path
+        etag = response.getheader("ETag")
+        assert etag.startswith('"') and etag.endswith('"') and '"' not in etag[1:-1]
