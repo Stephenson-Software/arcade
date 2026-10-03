@@ -16,7 +16,7 @@ database.
 
 | Host | What it serves |
 |---|---|
-| `play.<base>` | the upload API (below); `/` redirects to the portal |
+| `play.<base>` | the upload API (below); `/` is a landing page listing every game (see below) |
 | `<slug>.play.<base>` | the game registered under that slug |
 | an alias from the registry | the same game, at an older hostname, so that origin's saves are kept |
 | anything else | 404 |
@@ -86,6 +86,16 @@ under `require-corp`. Set `isolation: on` for a build that needs `SharedArrayBuf
 Emscripten with pthreads. A static upload refuses links, absolute paths, `..` and empty segments,
 caps the file count at 10,000, and is subject to the same byte cap as a tak upload.
 
+## The landing page
+
+`https://play.<base>/` (and `/index.html`) is a small HTML page generated from the registry on each
+request: every game by title, linked to `https://<slug>.play.<base>/` (a game with nothing deployed is
+listed as "Coming soon", unlinked), and a prominent "Browse all games" link to `ARCADE_LANDING_URL`.
+It has no script and makes no external request (its `Content-Security-Policy` is
+`default-src 'none'; style-src 'unsafe-inline'; …`), follows the visitor's light/dark setting, is laid
+out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
+`ARCADE_LANDING_MODE=redirect` to answer `/` with the old 302 to `ARCADE_LANDING_URL` instead.
+
 ## The API (on `play.<base>`)
 
 | Method | Path | Does |
@@ -152,7 +162,8 @@ change that removes that container's router, or Traefik will see two routers for
 | `ARCADE_DOMAIN` | `play.danielstephenson.dev` |
 | `ARCADE_DATA` | `/data` (back this up; losing it is recoverable by each game re-running its deploy) |
 | `ARCADE_REGISTRY` | `/config/games.yaml` |
-| `ARCADE_LANDING_URL` | `https://danielstephenson.dev/play` |
+| `ARCADE_LANDING_URL` | `https://danielstephenson.dev/play` (the portal: the landing page's "Browse all games" link, or the redirect target) |
+| `ARCADE_LANDING_MODE` | `page` (serve the landing page at `/`) or `redirect` (a 302 to `ARCADE_LANDING_URL`, as before 0.6.0) |
 | `ARCADE_MAX_UPLOAD_BYTES` | `67108864` (64 MiB, compressed and unpacked) |
 | `ARCADE_KEEP_VERSIONS` | `5` |
 | `ARCADE_HOST` / `ARCADE_PORT` | `0.0.0.0` / `8080` in the image |

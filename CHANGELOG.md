@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.6.0] - 2026-10-03
+
+### Added
+
+- A landing page at `https://play.<base>/` (and `/index.html`) instead of the 302 to the portal: a
+  small static HTML page generated from the registry, listing every game by title and linking it to
+  `https://<slug>.play.<base>/` (a game with nothing deployed is listed as "Coming soon", unlinked),
+  with a prominent "Browse all games" link to `ARCADE_LANDING_URL`. No script and no external request
+  (enforced by its CSP), light and dark, phone-first; `Cache-Control: public, max-age=60`.
+- `ARCADE_LANDING_MODE`: `page` (default) or `redirect`, which keeps the old 302 to
+  `ARCADE_LANDING_URL`. Any other value refuses to start. The API is unchanged.
+
 ## [0.5.0] - 2026-10-02
 
 ### Changed
