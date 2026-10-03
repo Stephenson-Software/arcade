@@ -39,7 +39,13 @@ WEB_FILES = {"/web/game.zip": "game.zip", "/web/version.txt": "version.txt"}
 ISOLATION_HEADERS = (
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Cross-Origin-Embedder-Policy", "require-corp"),
-    ("Cross-Origin-Resource-Policy", "same-origin"),
+    # cross-origin, not same-origin: the portal (another origin) embeds games
+    # in an iframe, and a cross-origin-isolated parent may only load a child
+    # document whose CORP allows it. Measured in Chromium: with same-origin
+    # the embedded tak game is blocked; with cross-origin it boots isolated.
+    # Every file here is public, so letting other origins load them costs
+    # nothing; COOP and COEP, which give the game its isolation, are unchanged.
+    ("Cross-Origin-Resource-Policy", "cross-origin"),
 )
 DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 # User agents that are not a person opening a game: crawlers, link-preview
@@ -80,6 +86,7 @@ class Config(object):
         keep=5,
         internalHost="arcade",
         traefikService="arcade@docker",
+        traefikMiddlewares=("secure-headers@file",),
     ):
         self.domain = domain.lower().strip(".")
         self.dataDirectory = dataDirectory
@@ -91,6 +98,7 @@ class Config(object):
         # to it may read /traefik/dynamic.json; no public router sends that Host.
         self.internalHost = internalHost.lower()
         self.traefikService = traefikService
+        self.traefikMiddlewares = tuple(traefikMiddlewares)
 
     @classmethod
     def fromEnvironment(cls, environ=None):
@@ -104,6 +112,11 @@ class Config(object):
             keep=int(environ.get("ARCADE_KEEP_VERSIONS", "5")),
             internalHost=environ.get("ARCADE_INTERNAL_HOST", "arcade"),
             traefikService=environ.get("ARCADE_TRAEFIK_SERVICE", "arcade@docker"),
+            traefikMiddlewares=tuple(
+                name.strip()
+                for name in environ.get("ARCADE_TRAEFIK_MIDDLEWARES", "secure-headers@file").split(",")
+                if name.strip()
+            ),
         )
 
 
@@ -265,7 +278,10 @@ def makeHandler(arcade):
             if host == config.internalHost:
                 if read and path == "/traefik/dynamic.json":
                     document = routers.providerDocument(
-                        arcade.registry.registry, config.domain, service=config.traefikService
+                        arcade.registry.registry,
+                        config.domain,
+                        service=config.traefikService,
+                        middlewares=config.traefikMiddlewares,
                     )
                     self._json(200, document)
                 else:

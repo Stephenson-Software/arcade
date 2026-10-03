@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.5.0] - 2026-10-02
+
+### Changed
+
+- Game responses send `Cross-Origin-Resource-Policy: cross-origin` (was `same-origin`), so the
+  portal can embed a game in an iframe: a cross-origin-isolated parent page may only load a child
+  document whose CORP allows it. Measured in Chromium: with `same-origin` the embedded tak game was
+  blocked, and with `cross-origin` it booted isolated. COOP/COEP, which give a game its isolation,
+  are unchanged, and every file served is public.
+
+### Added
+
+- `ARCADE_TRAEFIK_MIDDLEWARES` (comma-separated, default `secure-headers@file`): the middlewares on
+  every generated game router. The gateway uses a framing-allowing set for games.
+
 ## [0.4.0] - 2026-10-02
 
 ### Added

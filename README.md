@@ -32,7 +32,8 @@ unchanged:
 | anything else | 404 |
 
 Every response, errors included, carries `Cross-Origin-Opener-Policy: same-origin`,
-`Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: same-origin`. Files
+`Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: cross-origin`
+(cross-origin so that the portal can embed a game in an iframe). Files
 are sent with an `ETag` and `Cache-Control: no-cache`, so a returning player revalidates instead of
 downloading again. `/healthz` answers `ok` on any host.
 
@@ -158,6 +159,7 @@ change that removes that container's router, or Traefik will see two routers for
 | `ARCADE_TRACE_KEY` | unset (no reporting) |
 | `ARCADE_INTERNAL_HOST` | `arcade` (the only host that may read `/traefik/dynamic.json`) |
 | `ARCADE_TRAEFIK_SERVICE` | `arcade@docker` |
+| `ARCADE_TRAEFIK_MIDDLEWARES` | `secure-headers@file` (comma-separated; the gateway sets a set that lets the portal frame games) |
 
 ### Usage reporting
 

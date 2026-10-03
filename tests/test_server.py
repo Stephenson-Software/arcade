@@ -414,3 +414,31 @@ def test_page_loads_are_counted_bots_are_not_and_the_api_shares_counts(arcade):
     # Writes are not opened to other origins.
     response, _ = upload(arcade, version="9.9.9")
     assert response.getheader("Access-Control-Allow-Origin") is None
+
+
+def test_game_documents_may_be_embedded_by_other_origins():
+    # The portal frames games; a cross-origin-isolated parent needs the child's
+    # CORP to allow it. Isolation itself (COOP/COEP) is unchanged.
+    assert ("Cross-Origin-Resource-Policy", "cross-origin") in ISOLATION_HEADERS
+    assert ("Cross-Origin-Embedder-Policy", "require-corp") in ISOLATION_HEADERS
+
+
+def test_the_traefik_middlewares_are_configurable(tmp_path):
+    registryPath = tmp_path / "games.yaml"
+    registryPath.write_text(registryText([game("tidewater")]))
+    config = Config.fromEnvironment({
+        "ARCADE_DOMAIN": DOMAIN, "ARCADE_DATA": str(tmp_path / "d"), "ARCADE_REGISTRY": str(registryPath),
+        "ARCADE_TRAEFIK_MIDDLEWARES": "game-headers@file, rate-limit@file",
+    })
+    instance = Arcade(config)
+    server = makeServer(instance, "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    instance.port = server.server_address[1]
+    try:
+        _, data = request(instance, "GET", "arcade", "/traefik/dynamic.json")
+        assert json.loads(data)["http"]["routers"]["arcade-tidewater"]["middlewares"] == ["game-headers@file", "rate-limit@file"]
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert Config.fromEnvironment({}).traefikMiddlewares == ("secure-headers@file",)
