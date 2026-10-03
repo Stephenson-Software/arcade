@@ -19,13 +19,15 @@ import tempfile
 import threading
 import time
 
-VERSION_PATTERN = re.compile(r"^(?!current$)[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
-# "current" is the name of the pointer file beside the versions, so it can
-# never be a version: a directory by that name would break the slug for good.
+VERSION_PATTERN = re.compile(r"^(?!(?:current|plays)$)[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
+# "current" (the pointer) and "plays" (the counter) are files beside the
+# versions, so neither can be a version: a directory by that name would break
+# the slug for good.
 BUNDLE_FILES = ("index.html", "game.zip", "version.txt")
 DEFAULT_KEEP = 5
 _UPLOADED = ".uploaded"
 _CURRENT = "current"
+_PLAYS = "plays"
 
 
 class VersionExists(Exception):
@@ -148,6 +150,33 @@ class Store(object):
             if activate:
                 self._writeCurrent(slug, version)
             self._prune(slug)
+
+    def plays(self, slug):
+        """How many times the game's page has been served to a person."""
+        try:
+            with open(os.path.join(self._slugDirectory(slug), _PLAYS), "r") as counter:
+                return max(0, int(counter.read().strip()))
+        except (OSError, ValueError):
+            return 0
+
+    def addPlay(self, slug):
+        """Count one play. Written atomically, so a crash never leaves a
+        half-written counter; a counter that cannot be read restarts at 0."""
+        with self._lock:
+            slugDirectory = self._slugDirectory(slug)
+            os.makedirs(slugDirectory, exist_ok=True)
+            count = self.plays(slug) + 1
+            handle, temporary = tempfile.mkstemp(prefix=".plays-", dir=slugDirectory)
+            try:
+                with os.fdopen(handle, "w") as out:
+                    out.write("%d\n" % count)
+                os.replace(temporary, os.path.join(slugDirectory, _PLAYS))
+            except BaseException:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+                raise
 
     def setCurrent(self, slug, version):
         with self._lock:

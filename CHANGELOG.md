@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [0.4.0] - 2026-10-02
+
+### Added
+
+- Play counts: each time a person loads a game's page (a GET of its index; crawlers, link
+  previewers and scripts are excluded by User-Agent), arcade adds one to an atomically written
+  counter beside that game's versions. `GET /api/games…` reports it as `plays`. Nothing about the
+  visitor is stored.
+- `GET /api/games` and `GET /api/games/<slug>` send `Access-Control-Allow-Origin: *`, so the
+  portal can show play counts from the browser. Uploads and rollback stay same-origin.
+- `plays`, like `current`, can no longer be used as a version name.
+
 ## [0.3.1] - 2026-10-02
 
 ### Fixed

@@ -113,3 +113,27 @@ def test_current_is_not_a_version_name_and_a_broken_pointer_is_survivable(tmp_pa
     os.remove(str(tmp_path / "tidewater" / "current"))
     os.makedirs(str(tmp_path / "tidewater" / "current"))
     assert store.current("tidewater") is None
+
+
+def test_plays_are_counted_per_game_and_survive_a_new_store(tmp_path):
+    store = Store(str(tmp_path))
+    assert store.plays("tidewater") == 0
+    store.addPlay("tidewater")
+    store.addPlay("tidewater")
+    store.addPlay("cave")
+    assert (store.plays("tidewater"), store.plays("cave")) == (2, 1)
+    assert Store(str(tmp_path)).plays("tidewater") == 2
+    # The counter never becomes a version, and "plays" cannot be one.
+    store.add("tidewater", "1", bundleFiles("1"))
+    assert store.versions("tidewater") == ["1"]
+    with pytest.raises(ValueError):
+        store.add("tidewater", "plays", bundleFiles("plays"))
+
+
+def test_an_unreadable_counter_reads_as_zero_and_recovers(tmp_path):
+    store = Store(str(tmp_path))
+    os.makedirs(str(tmp_path / "cave"))
+    (tmp_path / "cave" / "plays").write_text("not a number")
+    assert store.plays("cave") == 0
+    store.addPlay("cave")
+    assert store.plays("cave") == 1

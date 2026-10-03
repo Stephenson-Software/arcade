@@ -91,7 +91,7 @@ caps the file count at 10,000, and is subject to the same byte cap as a tak uplo
 |---|---|---|
 | `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding exactly `index.html`, `game.zip`, `version.txt`. It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap; **400** for a missing or extra file, a `version.txt` that disagrees with `<version>`, or a `game.zip` without tak's four assets. |
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. **404** for a version not on disk. |
-| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, current, versions. Needs no token and never shows hashes. |
+| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. |
 
 The token is `Authorization: Bearer <token>`, and each game's token deploys only that game. An
 unknown slug and a wrong token both get 403. The last `ARCADE_KEEP_VERSIONS` (5) versions per game

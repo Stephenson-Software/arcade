@@ -42,6 +42,13 @@ ISOLATION_HEADERS = (
     ("Cross-Origin-Resource-Policy", "same-origin"),
 )
 DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
+# User agents that are not a person opening a game: crawlers, link-preview
+# fetchers and scripts. Their page loads are not counted as plays.
+_NOT_A_PERSON = re.compile(
+    r"bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|curl|wget|python|"
+    r"go-http-client|java/|okhttp|headless|lighthouse|monitor|uptime",
+    re.I,
+)
 _API_GAME = re.compile(r"^/api/games/([a-z0-9-]+)$")
 _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
 _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
@@ -169,6 +176,16 @@ class Arcade(object):
         if self.reporter is not None:
             self.reporter.report(name, tags={"slug": slug})
 
+    def played(self, slug, userAgent):
+        """A person loaded the game's page: count it, and report it to trace."""
+        if not userAgent or _NOT_A_PERSON.search(userAgent):
+            return
+        try:
+            self.store.addPlay(slug)
+        except OSError as e:
+            log("could not count a play of %s: %s" % (slug, e))
+        self.report("page-served", slug)
+
 
 def makeHandler(arcade):
     config = arcade.config
@@ -209,9 +226,12 @@ def makeHandler(arcade):
         def _text(self, status, message):
             self._send(status, (message + "\n").encode("utf-8"))
 
-        def _json(self, status, payload):
+        def _json(self, status, payload, public=False):
             body = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-            self._send(status, body, "application/json")
+            # Public reads (the game list, with play counts) may be fetched by
+            # the portal from another origin; writes never are.
+            headers = (("Access-Control-Allow-Origin", "*"),) if public else ()
+            self._send(status, body, "application/json", headers)
 
         def log_message(self, *args):
             pass  # the API logs what matters itself; game traffic is not logged
@@ -277,7 +297,7 @@ def makeHandler(arcade):
             if path in INDEX_PATHS:
                 self._file(game.slug, version, "index.html", "text/html; charset=utf-8")
                 if self.command == "GET":
-                    arcade.report("page-served", game.slug)
+                    arcade.played(game.slug, self.headers.get("User-Agent"))
                 return
             if path in WEB_FILES:
                 name = WEB_FILES[path]
@@ -317,7 +337,7 @@ def makeHandler(arcade):
             tag = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16]
             self._cached(data, contentType, '"%s-%s"' % (version, tag))
             if relative == "index.html" and self.command == "GET":
-                arcade.report("page-served", game.slug)
+                arcade.played(game.slug, self.headers.get("User-Agent"))
 
         def _file(self, slug, version, name, contentType):
             try:
@@ -349,7 +369,7 @@ def makeHandler(arcade):
                 return
             if read and path == "/api/games":
                 registry = arcade.registry.registry
-                self._json(200, {"games": [self._describe(game) for game in registry]})
+                self._json(200, {"games": [self._describe(game) for game in registry]}, public=True)
                 return
             match = _API_GAME.match(path)
             if match and read:
@@ -357,7 +377,7 @@ def makeHandler(arcade):
                 if game is None:
                     self._json(404, {"error": "no such game"})
                     return
-                self._json(200, self._describe(game))
+                self._json(200, self._describe(game), public=True)
                 return
             match = _API_VERSION.match(path)
             if match and self.command == "PUT":
@@ -380,6 +400,7 @@ def makeHandler(arcade):
                 "isolation": game.isolation,
                 "current": arcade.store.current(game.slug),
                 "versions": arcade.store.versions(game.slug),
+                "plays": arcade.store.plays(game.slug),
             }
 
         def _authorise(self, slug):

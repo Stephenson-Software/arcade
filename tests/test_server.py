@@ -55,7 +55,9 @@ def arcade(tmp_path):
 
 def request(arcade, method, host, path, body=None, headers=None):
     connection = http.client.HTTPConnection("127.0.0.1", arcade.port, timeout=10)
-    allHeaders = {"Host": host}
+    # A browser's User-Agent unless a test says otherwise: arcade counts a
+    # page load as a play only when a person (not a script) made it.
+    allHeaders = {"Host": host, "User-Agent": "Mozilla/5.0 (test browser)"}
     allHeaders.update(headers or {})
     connection.request(method, path, body=body, headers=allHeaders)
     response = connection.getresponse()
@@ -393,3 +395,22 @@ def test_odd_file_names_are_served_with_a_safe_etag(arcade):
         assert response.status == 200, path
         etag = response.getheader("ETag")
         assert etag.startswith('"') and etag.endswith('"') and '"' not in etag[1:-1]
+
+
+def test_page_loads_are_counted_bots_are_not_and_the_api_shares_counts(arcade):
+    upload(arcade)
+    request(arcade, "GET", TIDEWATER, "/", headers={"User-Agent": "Mozilla/5.0 (iPhone) Safari"})
+    request(arcade, "GET", TIDEWATER, "/play", headers={"User-Agent": "Mozilla/5.0"})
+    request(arcade, "HEAD", TIDEWATER, "/")
+    request(arcade, "GET", TIDEWATER, "/web/game.zip")
+    for bot in ("Googlebot/2.1", "facebookexternalhit/1.1", "curl/8.5", "Discordbot/2.0", ""):
+        request(arcade, "GET", TIDEWATER, "/", headers={"User-Agent": bot})
+    response, data = request(arcade, "GET", API, "/api/games/tidewater")
+    assert json.loads(data)["plays"] == 2
+    assert response.getheader("Access-Control-Allow-Origin") == "*"
+    response, data = request(arcade, "GET", API, "/api/games")
+    assert {g["slug"]: g["plays"] for g in json.loads(data)["games"]}["tidewater"] == 2
+    assert response.getheader("Access-Control-Allow-Origin") == "*"
+    # Writes are not opened to other origins.
+    response, _ = upload(arcade, version="9.9.9")
+    assert response.getheader("Access-Control-Allow-Origin") is None
