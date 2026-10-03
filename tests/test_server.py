@@ -91,10 +91,61 @@ def test_unknown_hosts_are_404_and_still_isolated(arcade):
         assertIsolated(response)
 
 
-def test_the_api_host_redirects_to_the_portal(arcade):
+def test_the_api_host_serves_a_landing_page_listing_every_game(arcade):
+    upload(arcade, "tidewater", "1.0.0")
+    response, data = request(arcade, "GET", API, "/")
+    assert response.status == 200
+    assert response.getheader("Content-Type") == "text/html; charset=utf-8"
+    page = data.decode("utf-8")
+    # A deployed game is linked at its own host; one with nothing deployed is listed, unlinked.
+    assert '<a href="https://tidewater.%s/">' % DOMAIN in page
+    for slug in ("overwinter", "rps", "pthreads"):
+        assert "https://%s.%s/" % (slug, DOMAIN) not in page
+    assert page.count("<li>") == 4
+    assert "Coming soon" in page
+    assert '<a class="browse" href="https://example.com/play">Browse all games' in page
+    assert response.getheader("Cache-Control") == "public, max-age=60"
+    assert "default-src 'none'" in response.getheader("Content-Security-Policy")
+
+
+def test_the_landing_page_makes_no_external_requests(arcade):
+    _, data = request(arcade, "GET", API, "/index.html")
+    page = data.decode("utf-8")
+    assert "<script" not in page
+    assert "<img" not in page
+    assert 'rel="stylesheet"' not in page
+    assert "@import" not in page and "url(" not in page
+    # Phone-friendly, and both colour schemes.
+    assert 'name="viewport"' in page
+    assert "prefers-color-scheme: dark" in page
+
+
+def test_the_landing_page_follows_the_registry(arcade):
+    arcade.registryFile.write_text(registryText([game("tidewater"), game("newgame")]))
+    os.utime(str(arcade.registryFile), ns=(10**18, 10**18))
+    arcade.registry.refresh()
+    _, data = request(arcade, "GET", API, "/")
+    assert data.decode("utf-8").count("<li>") == 2
+
+
+def test_head_on_the_landing_page_has_no_body(arcade):
+    response, data = request(arcade, "HEAD", API, "/")
+    assert response.status == 200
+    assert data == b""
+
+
+def test_redirect_mode_keeps_the_old_302(arcade):
+    arcade.config.landingMode = "redirect"
     response, _ = request(arcade, "GET", API, "/")
     assert response.status == 302
     assert response.getheader("Location") == "https://example.com/play"
+
+
+def test_landing_mode_is_validated():
+    with pytest.raises(ValueError):
+        Config("d", "/tmp", "/tmp/r", "https://x", landingMode="iframe")
+    assert Config.fromEnvironment({}).landingMode == "page"
+    assert Config.fromEnvironment({"ARCADE_LANDING_MODE": "Redirect"}).landingMode == "redirect"
 
 
 def test_a_registered_game_before_any_deploy(arcade):

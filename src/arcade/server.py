@@ -3,7 +3,9 @@
 
 One process answers two kinds of host:
 
-  play.<base>               the upload API, and / redirecting to the portal
+  play.<base>               the upload API, and / a page listing every game
+                            (or, with ARCADE_LANDING_MODE=redirect, a 302 to
+                            the portal)
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
   <alias>                   a game's old hostname (registry `aliases`)
 
@@ -31,7 +33,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, registry as registryModule, routers
+from arcade import __version__, bundle, landing, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -47,6 +49,7 @@ ISOLATION_HEADERS = (
     # nothing; COOP and COEP, which give the game its isolation, are unchanged.
     ("Cross-Origin-Resource-Policy", "cross-origin"),
 )
+LANDING_MODES = ("page", "redirect")
 DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 # User agents that are not a person opening a game: crawlers, link-preview
 # fetchers and scripts. Their page loads are not counted as plays.
@@ -87,11 +90,18 @@ class Config(object):
         internalHost="arcade",
         traefikService="arcade@docker",
         traefikMiddlewares=("secure-headers@file",),
+        landingMode="page",
     ):
         self.domain = domain.lower().strip(".")
         self.dataDirectory = dataDirectory
         self.registryPath = registryPath
+        # The portal: where `/` redirects in "redirect" mode, and what the
+        # landing page's "Browse all games" links to in "page" mode.
         self.landingUrl = landingUrl
+        landingMode = (landingMode or "page").strip().lower()
+        if landingMode not in LANDING_MODES:
+            raise ValueError("ARCADE_LANDING_MODE must be one of %s, not %r" % ("/".join(LANDING_MODES), landingMode))
+        self.landingMode = landingMode
         self.maxUploadBytes = maxUploadBytes
         self.keep = keep
         # The name other containers reach arcade by. Only a request addressed
@@ -108,6 +118,7 @@ class Config(object):
             dataDirectory=environ.get("ARCADE_DATA", "/data"),
             registryPath=environ.get("ARCADE_REGISTRY", "/config/games.yaml"),
             landingUrl=environ.get("ARCADE_LANDING_URL", "https://danielstephenson.dev/play"),
+            landingMode=environ.get("ARCADE_LANDING_MODE", "page"),
             maxUploadBytes=int(environ.get("ARCADE_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)),
             keep=int(environ.get("ARCADE_KEEP_VERSIONS", "5")),
             internalHost=environ.get("ARCADE_INTERNAL_HOST", "arcade"),
@@ -381,7 +392,7 @@ def makeHandler(arcade):
 
         def _api(self, path, read):
             if read and path in ("/", "/index.html"):
-                self._send(302, b"", headers=(("Location", config.landingUrl),))
+                self._landing()
                 return
             if read and path == "/api/games":
                 registry = arcade.registry.registry
@@ -404,6 +415,29 @@ def makeHandler(arcade):
                 self._rollback(match.group(1))
                 return
             self._json(404, {"error": "not found"})
+
+        def _landing(self):
+            if config.landingMode == "redirect":
+                self._send(302, b"", headers=(("Location", config.landingUrl),))
+                return
+            body = landing.render(
+                arcade.registry.registry,
+                config.domain,
+                config.landingUrl,
+                deployed=lambda slug: arcade.store.current(slug) is not None,
+            )
+            self._send(
+                200,
+                body,
+                "text/html; charset=utf-8",
+                headers=(
+                    ("Content-Security-Policy", landing.CSP),
+                    ("X-Content-Type-Options", "nosniff"),
+                    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+                    # Generated from the registry, which can change at any time.
+                    ("Cache-Control", "public, max-age=60"),
+                ),
+            )
 
         def _describe(self, game):
             return {
