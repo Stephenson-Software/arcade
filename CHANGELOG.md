@@ -3,6 +3,15 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `GET /version.json` on `play.<base>`: `{"version": "<arcade.__version__>"}` with
+  `Content-Type: application/json` and `Cache-Control: no-store`, so a deploy can be verified by the
+  version it reports. It is answered on the API host only, never on a game's host, so it cannot
+  shadow a static game's own `/version.json`.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added
