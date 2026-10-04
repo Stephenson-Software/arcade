@@ -5,7 +5,8 @@ One process answers two kinds of host:
 
   play.<base>               the upload API, and / a page listing every game
                             (or, with ARCADE_LANDING_MODE=redirect, a 302 to
-                            the portal)
+                            the portal), and /version.json: the running
+                            arcade's own version, {"version": "<x.y.z>"}
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
   <alias>                   a game's old hostname (registry `aliases`)
 
@@ -394,6 +395,9 @@ def makeHandler(arcade):
             if read and path in ("/", "/index.html"):
                 self._landing()
                 return
+            if read and path == "/version.json":
+                self._version()
+                return
             if read and path == "/api/games":
                 registry = arcade.registry.registry
                 self._json(200, {"games": [self._describe(game) for game in registry]}, public=True)
@@ -415,6 +419,14 @@ def makeHandler(arcade):
                 self._rollback(match.group(1))
                 return
             self._json(404, {"error": "not found"})
+
+        def _version(self):
+            # The version of the code this process is running, so a deploy can
+            # be verified by the version it reports. Only on the API host: on a
+            # game's host /version.json belongs to the game (a static site may
+            # ship its own), so it is never answered there.
+            body = json.dumps({"version": __version__}).encode("utf-8")
+            self._send(200, body, "application/json", headers=(("Cache-Control", "no-store"),))
 
         def _landing(self):
             if config.landingMode == "redirect":

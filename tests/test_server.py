@@ -5,6 +5,7 @@ import threading
 
 import pytest
 
+from arcade import __version__ as arcade_version
 from arcade.server import ISOLATION_HEADERS, Arcade, Config, makeServer
 from helpers import ASSETS, OTHER_SHA, OTHER_TOKEN, TOKEN, bundleFiles, game, registryText, tarBundle
 
@@ -82,6 +83,28 @@ def assertIsolated(response):
 def test_health_on_any_host(arcade):
     response, data = request(arcade, "GET", "localhost:8080", "/healthz")
     assert (response.status, data) == (200, b"ok\n")
+
+
+def test_the_api_host_reports_the_running_version(arcade):
+    for method in ("GET", "HEAD"):
+        response, data = request(arcade, method, API, "/version.json")
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "application/json"
+        assert response.getheader("Cache-Control") == "no-store"
+        if method == "GET":
+            assert json.loads(data) == {"version": arcade_version}
+        else:
+            assert data == b""
+
+
+def test_version_json_on_a_game_host_belongs_to_the_game(arcade):
+    site = dict(_site("0.1"), **{"version.json": b'{"game": "rps"}'})
+    assert upload(arcade, slug="rps", version="0.1", body=tarBundle(site))[0].status == 201
+    response, data = request(arcade, "GET", "rps." + DOMAIN, "/version.json")
+    assert (response.status, data) == (200, b'{"game": "rps"}')
+    upload(arcade)
+    for host in (TIDEWATER, "tidewater.example.org", "nope." + DOMAIN, "localhost"):
+        assert request(arcade, "GET", host, "/version.json")[0].status == 404, host
 
 
 def test_unknown_hosts_are_404_and_still_isolated(arcade):
