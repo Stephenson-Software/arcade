@@ -119,3 +119,21 @@ def test_bad_kind_or_isolation_is_refused(extra, message):
     with pytest.raises(registry.RegistryError) as error:
         registry.loads(registryText([game(**extra)]))
     assert message in str(error.value)
+
+
+def test_canonical_is_optional_and_kept():
+    loaded = registry.loads(
+        registryText([game(), game("ferry", canonical="https://example.com/play/night-ferry")]), domain=DOMAIN
+    )
+    assert loaded.get("tidewater").canonical is None
+    assert loaded.get("ferry").canonical == "https://example.com/play/night-ferry"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["http://example.com/play/x", "example.com/play/x", "https://example.com/a b", 'https://example.com/"x', "https://"],
+)
+def test_a_canonical_that_is_not_a_plain_https_url_is_refused(value):
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(registryText([game(canonical=value)]), domain=DOMAIN)
+    assert "must be an https URL" in str(error.value)

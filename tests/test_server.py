@@ -28,9 +28,9 @@ def arcade(tmp_path):
     registryPath.write_text(
         registryText(
             [
-                game("tidewater", aliases=["tidewater.example.org"]),
+                game("tidewater", aliases=["tidewater.example.org"], canonical="https://example.com/play/tidewater"),
                 game("overwinter", token_sha256=OTHER_SHA),
-                game("rps", kind="static"),
+                game("rps", kind="static", canonical="https://example.com/play/rps"),
                 game("pthreads", kind="static", isolation="on"),
             ]
         )
@@ -516,3 +516,44 @@ def test_the_traefik_middlewares_are_configurable(tmp_path):
         server.shutdown()
         server.server_close()
     assert Config.fromEnvironment({}).traefikMiddlewares == ("secure-headers@file",)
+
+
+
+def test_a_game_with_a_canonical_page_names_it_on_html_only(arcade):
+    link = '<https://example.com/play/rps>; rel="canonical"'
+    upload(arcade, slug="rps", version="1", body=tarBundle(_site("1")))
+    host = "rps." + DOMAIN
+    assert request(arcade, "GET", host, "/")[0].getheader("Link") == link
+    assert request(arcade, "HEAD", host, "/")[0].getheader("Link") == link
+    assert request(arcade, "GET", host, "/pkg/")[0].getheader("Link") == link
+    assert request(arcade, "GET", host, "/style.css")[0].getheader("Link") is None
+    assert request(arcade, "GET", host, "/missing")[0].getheader("Link") is None
+
+
+def test_a_tak_game_and_its_alias_send_the_canonical_link(arcade):
+    link = '<https://example.com/play/tidewater>; rel="canonical"'
+    upload(arcade)
+    assert request(arcade, "GET", TIDEWATER, "/")[0].getheader("Link") == link
+    assert request(arcade, "GET", "tidewater.example.org", "/")[0].getheader("Link") == link
+    assert request(arcade, "GET", TIDEWATER, "/version.txt")[0].getheader("Link") is None
+    assert request(arcade, "GET", TIDEWATER, "/tak/boot.js")[0].getheader("Link") is None
+
+
+def test_no_canonical_means_no_link_even_on_a_reused_connection(arcade):
+    upload(arcade, slug="rps", version="1", body=tarBundle(_site("1")))
+    upload(arcade, slug="pthreads", version="1", body=tarBundle(_site("1")))
+    connection = http.client.HTTPConnection("127.0.0.1", arcade.port, timeout=10)
+    connection.request("GET", "/", headers={"Host": "rps." + DOMAIN})
+    first = connection.getresponse()
+    first.read()
+    assert first.getheader("Link") is not None
+    # The API host is not a game, so only the per-request reset clears it.
+    connection.request("GET", "/", headers={"Host": API})
+    second = connection.getresponse()
+    second.read()
+    connection.request("GET", "/", headers={"Host": "pthreads." + DOMAIN})
+    third = connection.getresponse()
+    third.read()
+    connection.close()
+    assert second.getheader("Link") is None
+    assert third.getheader("Link") is None

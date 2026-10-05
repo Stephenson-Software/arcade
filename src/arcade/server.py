@@ -231,6 +231,9 @@ def makeHandler(arcade):
         # Per response: a static game with isolation off sends no
         # Cross-Origin headers (RFC 0012); everything else does.
         isolate = True
+        # Per response: the game's canonical page, sent as a Link header on
+        # HTML so search engines index one address for it, not every host.
+        canonical = None
 
         def end_headers(self):
             if self.isolate:
@@ -244,6 +247,8 @@ def makeHandler(arcade):
             self.send_header("Content-Length", str(len(body)))
             for name, value in headers:
                 self.send_header(name, value)
+            if self.canonical and contentType.startswith("text/html"):
+                self.send_header("Link", '<%s>; rel="canonical"' % self.canonical)
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
@@ -282,6 +287,7 @@ def makeHandler(arcade):
             # Reset every request: one handler serves a whole keep-alive
             # connection, and a proxy may reuse it across hosts.
             self.isolate = True
+            self.canonical = None
             path = self._path()
             if path == "/healthz" and read:
                 self._text(200, "ok")
@@ -315,6 +321,7 @@ def makeHandler(arcade):
 
         def _game(self, game, path):
             self.isolate = game.isolation
+            self.canonical = game.canonical
             version = arcade.store.current(game.slug)
             if version is None:
                 self._text(404, "%s has not been deployed yet." % game.title)
