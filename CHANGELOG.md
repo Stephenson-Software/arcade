@@ -7,6 +7,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Optional `canonical:` registry field: the game's main public page, as an https URL. When it is set,
+  every HTML response for the game, on its slug host and on its aliases, carries
+  `Link: <url>; rel="canonical"`. Search engines then index one address for the game instead of
+  splitting it across `<slug>.play.<base>`, old alias hosts and the portal page that frames it.
+  Non-HTML files and games without the field send no Link header.
 - `GET /version.json` on `play.<base>`: `{"version": "<arcade.__version__>"}` with
   `Content-Type: application/json` and `Cache-Control: no-store`, so a deploy can be verified by the
   version it reports. It is answered on the API host only, never on a game's host, so it cannot

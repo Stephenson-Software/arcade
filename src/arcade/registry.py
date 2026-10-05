@@ -17,6 +17,7 @@ database").
         aliases: [tidewater.danielstephenson.dev]   # optional, flow list only
         kind: tak                            # optional: tak (default) or static
         isolation: on                        # optional: on/off (see below)
+        canonical: https://example.com/play/tidewater   # optional (see below)
 
 `games: []` is an empty registry.
 
@@ -31,6 +32,12 @@ defaults to off, because builds that load a runtime from a CDN without a
 Cross-Origin-Resource-Policy header (pygbag does) cannot run under
 require-corp. Turn it on for a static build that needs SharedArrayBuffer
 (an Emscripten build with pthreads).
+
+canonical: the game's main public page, as an https URL. A game can be reached
+at its slug host, its aliases and the portal page that frames it, so search
+engines see the same game at several addresses. When set, every HTML response
+for the game carries `Link: <url>; rel="canonical"`, which names one address
+as the original. Leave it out and no Link header is sent.
 """
 
 import re
@@ -41,12 +48,14 @@ HOSTNAME_PATTERN = re.compile(
     r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
 REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# An absolute https URL with nothing a Link header would have to escape.
+CANONICAL_PATTERN = re.compile(r"^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?$")
 
 # Labels the service itself uses or that would be confusing as a game.
 RESERVED_SLUGS = frozenset(("play", "www", "api", "arcade", "admin", "static"))
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
-OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation")
+OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical")
 KINDS = ("tak", "static")
 _SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
 KNOWN_KEYS = REQUIRED_KEYS + OPTIONAL_KEYS
@@ -57,9 +66,11 @@ class RegistryError(ValueError):
 
 
 class Game(object):
-    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation")
+    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical")
 
-    def __init__(self, slug, title, repo, tokenSha256, owner=None, aliases=(), kind="tak", isolation=None):
+    def __init__(
+        self, slug, title, repo, tokenSha256, owner=None, aliases=(), kind="tak", isolation=None, canonical=None
+    ):
         self.slug = slug
         self.title = title
         self.repo = repo
@@ -68,6 +79,7 @@ class Game(object):
         self.aliases = tuple(aliases)
         self.kind = kind
         self.isolation = (kind == "tak") if isolation is None else bool(isolation)
+        self.canonical = canonical
 
     def __repr__(self):
         return "Game(%r)" % self.slug
@@ -251,6 +263,11 @@ def validate(entries, domain=None):
                     "line %d: %r is a tak game, which needs isolation (SharedArrayBuffer carries "
                     "its input); it cannot be turned off" % (lineNumber, slug)
                 )
+        canonical = entry.get("canonical")
+        if canonical is not None and not CANONICAL_PATTERN.match(canonical):
+            raise RegistryError(
+                "line %d: canonical for %r must be an https URL, got %r" % (lineNumber, slug, canonical)
+            )
         games.append(
             Game(
                 slug=slug,
@@ -261,6 +278,7 @@ def validate(entries, domain=None):
                 aliases=aliases,
                 kind=kind,
                 isolation=isolation,
+                canonical=canonical,
             )
         )
     return Registry(games)
