@@ -7,6 +7,14 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Share-preview metadata on the landing page: `og:type`, `og:site_name`, `og:title`,
+  `og:description`, `og:url` (`https://play.<base>/`) and a `summary` `twitter:card` with its title
+  and description, so a shared link to `play.<base>` unfurls with a title and description. No
+  `og:image` is set, as the repository has no image to point at.
+- `GET /robots.txt` on `play.<base>`: `User-agent: *` / `Allow: /` as `text/plain`. Like
+  `/version.json`, it is answered on the API host only, never on a game's host, so it cannot shadow
+  a static game's own `/robots.txt`.
+
 - Optional `canonical:` registry field: the game's main public page, as an https URL. When it is set,
   every HTML response for the game, on its slug host and on its aliases, carries
   `Link: <url>; rel="canonical"`. Search engines then index one address for the game instead of

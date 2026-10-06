@@ -107,6 +107,24 @@ def test_version_json_on_a_game_host_belongs_to_the_game(arcade):
         assert request(arcade, "GET", host, "/version.json")[0].status == 404, host
 
 
+def test_the_api_host_serves_robots_txt_allowing_all(arcade):
+    for method in ("GET", "HEAD"):
+        response, data = request(arcade, method, API, "/robots.txt")
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "text/plain; charset=utf-8"
+        assert data == (b"User-agent: *\nAllow: /\n" if method == "GET" else b"")
+
+
+def test_robots_txt_on_a_game_host_belongs_to_the_game(arcade):
+    site = dict(_site("0.1"), **{"robots.txt": b"User-agent: *\nDisallow: /secret\n"})
+    assert upload(arcade, slug="rps", version="0.1", body=tarBundle(site))[0].status == 201
+    response, data = request(arcade, "GET", "rps." + DOMAIN, "/robots.txt")
+    assert (response.status, data) == (200, b"User-agent: *\nDisallow: /secret\n")
+    upload(arcade)
+    for host in (TIDEWATER, "tidewater.example.org", "nope." + DOMAIN, "localhost"):
+        assert request(arcade, "GET", host, "/robots.txt")[0].status == 404, host
+
+
 def test_unknown_hosts_are_404_and_still_isolated(arcade):
     for host in ("example.com", "nope." + DOMAIN, "a.b." + DOMAIN, ""):
         response, _ = request(arcade, "GET", host, "/")
