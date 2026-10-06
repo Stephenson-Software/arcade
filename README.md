@@ -104,6 +104,7 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. **404** for a version not on disk. |
 | `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
+| `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
 
 The token is `Authorization: Bearer <token>`, and each game's token deploys only that game. An
 unknown slug and a wrong token both get 403. The last `ARCADE_KEEP_VERSIONS` (5) versions per game

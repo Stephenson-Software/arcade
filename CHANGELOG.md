@@ -8,9 +8,13 @@ All notable changes to this project are documented in this file. The format is b
 ### Added
 
 - Share-preview metadata on the landing page: `og:type`, `og:site_name`, `og:title`,
-  `og:description`, `og:url` (`https://play.<base>/`) and a `summary` `twitter:card` with its title
-  and description, so a shared link to `play.<base>` unfurls with a title and description. No
-  `og:image` is set, as the repository has no image to point at.
+  `og:description`, `og:url` (`https://play.<base>/`) and a `twitter:card` with its title and
+  description, so a shared link to `play.<base>` unfurls with a title and description.
+- A share-preview image: `og:image` and `twitter:image` (`https://play.<base>/og.png`) with
+  `og:image:type`, `og:image:width` (1200), `og:image:height` (630) and alt text, and the Twitter
+  card is now `summary_large_image`. The image, `src/arcade/og.png`, is a 1200x630 PNG of the
+  page's name, description and domain in its dark colours. `GET /og.png` serves it as `image/png` on
+  the API host only, never on a game's host, so it cannot shadow a static game's own `/og.png`.
 - `GET /robots.txt` on `play.<base>`: `User-agent: *` / `Allow: /` as `text/plain`. Like
   `/version.json`, it is answered on the API host only, never on a game's host, so it cannot shadow
   a static game's own `/robots.txt`.

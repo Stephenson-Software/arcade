@@ -410,6 +410,12 @@ def makeHandler(arcade):
                 # belongs to the game.
                 self._send(200, landing.ROBOTS.encode("utf-8"), headers=(("Cache-Control", "public, max-age=3600"),))
                 return
+            if read and path == landing.OG_IMAGE_PATH:
+                # The landing page's share card. API host only, like robots.txt:
+                # on a game's host the path belongs to the game.
+                headers = (("Cache-Control", "public, max-age=86400"),)
+                self._send(200, landing.ogImage(), "image/png", headers=headers)
+                return
             if read and path == "/api/games":
                 registry = arcade.registry.registry
                 self._json(200, {"games": [self._describe(game) for game in registry]}, public=True)

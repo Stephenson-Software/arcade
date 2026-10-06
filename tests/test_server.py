@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from arcade import __version__ as arcade_version
+from arcade import landing
 from arcade.server import ISOLATION_HEADERS, Arcade, Config, makeServer
 from helpers import ASSETS, OTHER_SHA, OTHER_TOKEN, TOKEN, bundleFiles, game, registryText, tarBundle
 
@@ -123,6 +124,27 @@ def test_robots_txt_on_a_game_host_belongs_to_the_game(arcade):
     upload(arcade)
     for host in (TIDEWATER, "tidewater.example.org", "nope." + DOMAIN, "localhost"):
         assert request(arcade, "GET", host, "/robots.txt")[0].status == 404, host
+
+
+def test_the_api_host_serves_the_share_image(arcade):
+    with open(landing.OG_IMAGE_FILE, "rb") as handle:
+        expected = handle.read()
+    for method in ("GET", "HEAD"):
+        response, data = request(arcade, method, API, "/og.png")
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "image/png"
+        assert response.getheader("Content-Length") == str(len(expected))
+        assert data == (expected if method == "GET" else b"")
+
+
+def test_og_png_on_a_game_host_belongs_to_the_game(arcade):
+    site = dict(_site("0.1"), **{"og.png": b"the game's own card"})
+    assert upload(arcade, slug="rps", version="0.1", body=tarBundle(site))[0].status == 201
+    response, data = request(arcade, "GET", "rps." + DOMAIN, "/og.png")
+    assert (response.status, data) == (200, b"the game's own card")
+    upload(arcade)
+    for host in (TIDEWATER, "tidewater.example.org", "nope." + DOMAIN, "localhost"):
+        assert request(arcade, "GET", host, "/og.png")[0].status == 404, host
 
 
 def test_unknown_hosts_are_404_and_still_isolated(arcade):
