@@ -405,6 +405,11 @@ def makeHandler(arcade):
             if read and path == "/version.json":
                 self._version()
                 return
+            if read and path == "/robots.txt":
+                # API host only, like /version.json: on a game's host the path
+                # belongs to the game.
+                self._send(200, landing.ROBOTS.encode("utf-8"), headers=(("Cache-Control", "public, max-age=3600"),))
+                return
             if read and path == "/api/games":
                 registry = arcade.registry.registry
                 self._json(200, {"games": [self._describe(game) for game in registry]}, public=True)

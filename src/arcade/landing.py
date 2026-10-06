@@ -16,6 +16,16 @@ import html
 
 CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
 
+# Already HTML-escaped; shared by <title>, the description and the share-preview
+# tags (og:* and twitter:*). There is no og:image: the repository holds no image
+# to point at, and the CSP keeps the page itself free of any.
+TITLE = "Play &mdash; browser games by Daniel McCoy Stephenson"
+DESCRIPTION = "Browser games by Daniel McCoy Stephenson, served by arcade. Nothing to install."
+
+# Served at /robots.txt on the API host only. A game's host never answers it:
+# a static game may ship its own robots.txt and must not be shadowed.
+ROBOTS = "User-agent: *\nAllow: /\n"
+
 _STYLE = """
 :root { color-scheme: light dark; --bg: #f6f7f9; --fg: #1a1c20; --muted: #5b616b; --card: #ffffff;
   --line: #dde1e7; --accent: #3758d6; --accent-fg: #ffffff; }
@@ -77,9 +87,17 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Play &mdash; browser games by Daniel McCoy Stephenson</title>
-<meta name="description" content="Browser games by Daniel McCoy Stephenson, served by arcade. Nothing to install.">
+<title>%(title)s</title>
+<meta name="description" content="%(description)s">
 <link rel="canonical" href="https://%(domain)s/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Play">
+<meta property="og:title" content="%(title)s">
+<meta property="og:description" content="%(description)s">
+<meta property="og:url" content="https://%(domain)s/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="%(title)s">
+<meta name="twitter:description" content="%(description)s">
 <link rel="icon" href="data:,">
 <style>%(style)s</style>
 </head>
@@ -99,6 +117,8 @@ details for each game are on <a href="%(portal)s">%(portalLabel)s</a>.</footer>
 </html>
 """ % {
         "domain": escape(domain),
+        "title": TITLE,
+        "description": DESCRIPTION,
         "style": _STYLE,
         "portal": portal,
         "portalLabel": portalLabel,
