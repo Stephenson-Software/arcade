@@ -142,7 +142,7 @@ def main(argv=None):
     }
     try:
         return handlers[arguments.command](arguments)
-    except registry.RegistryError as e:
+    except (registry.RegistryError, OSError) as e:
         print("arcade: %s" % e, file=sys.stderr)
         return 1
 
