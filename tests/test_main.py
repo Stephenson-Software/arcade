@@ -111,6 +111,24 @@ def test_an_invalid_registry_is_reported_without_a_traceback(tmp_path, capsys, c
     assert "Traceback" not in captured.err
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["routers", "--registry", "{missing}", "--domain", DOMAIN],
+        ["hosts", "--registry", "{missing}", "--domain", DOMAIN],
+        ["check-registry", "{missing}"],
+    ],
+)
+def test_a_missing_registry_is_reported_without_a_traceback(tmp_path, capsys, argv):
+    missing = str(tmp_path / "absent.yaml")
+    assert cli.main([arg.format(missing=missing) for arg in argv]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("arcade: ")
+    assert missing in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_check_registry_refuses_an_alias_under_the_given_domain(tmp_path, capsys):
     games = tmp_path / "games.yaml"
     games.write_text(registryText([game("tidewater", aliases=["old.play.example.com"])]))
@@ -189,3 +207,13 @@ def test_serve_refuses_an_invalid_registry_before_binding(serveEnvironment, serv
     assert cli.main(["serve"]) == 1
     assert servers == []
     assert capsys.readouterr().err.startswith("arcade: ")
+
+
+def test_serve_refuses_a_missing_registry_before_binding(serveEnvironment, servers, monkeypatch, capsys):
+    serveEnvironment.unlink()
+    monkeypatch.setattr(cli, "_reporter", lambda: None)
+    assert cli.main(["serve"]) == 1
+    assert servers == []
+    err = capsys.readouterr().err
+    assert err.startswith("arcade: ")
+    assert str(serveEnvironment) in err

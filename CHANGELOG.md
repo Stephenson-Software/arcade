@@ -29,6 +29,12 @@ All notable changes to this project are documented in this file. The format is b
   version it reports. It is answered on the API host only, never on a game's host, so it cannot
   shadow a static game's own `/version.json`.
 
+### Fixed
+
+- A registry file that does not exist or cannot be read is reported by `routers`, `hosts`,
+  `check-registry` and `serve` as one `arcade: <message>` line on stderr (exit status 1, as before)
+  instead of a Python traceback, the same way an invalid registry already was.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added
