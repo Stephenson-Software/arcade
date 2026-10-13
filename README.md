@@ -69,9 +69,8 @@ The parser is deliberately strict: it accepts only this subset of YAML, and it r
 duplicate slugs, reserved slugs (`play`, `www`, `api`, `arcade`, `admin`, `static`), malformed
 hashes, aliases under the arcade's own domain or claimed twice, an unknown `kind`, an `isolation`
 other than on/off (or off for a tak game), and a `canonical` that is not an https URL, each with its
-line number. arcade picks up
-changes to the file without a restart. A file that stops parsing is logged and ignored, and the
-last good registry stays in force.
+line number. arcade picks up changes to the file without a restart. A file that stops parsing is
+logged and ignored, and the last good registry stays in force.
 
 ```sh
 python -m arcade check-registry games.yaml
