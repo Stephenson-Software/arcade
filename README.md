@@ -31,11 +31,16 @@ unchanged:
 | `/tak/<asset>` | that asset from **the game's own** `game.zip` (`src/tak/web/assets/`), so the kit's Python and JavaScript halves always match (RFC 0006 §5) |
 | anything else | 404 |
 
+A game's host is read-only: a `PUT` or `POST` to it gets 405. A game with nothing deployed answers
+404.
+
 Every response, errors included, carries `Cross-Origin-Opener-Policy: same-origin`,
 `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: cross-origin`
-(cross-origin so that the portal can embed a game in an iframe). Files
-are sent with an `ETag` and `Cache-Control: no-cache`, so a returning player revalidates instead of
-downloading again. `/healthz` answers `ok` on any host.
+(cross-origin so that the portal can embed a game in an iframe). The one exception is a `static`
+game with isolation off, which gets none of the three (see [Bundle kinds](#bundle-kinds-rfc-0012)).
+Files are sent with an `ETag` and `Cache-Control: no-cache`, so a returning player revalidates
+instead of downloading again. For a game with a `canonical:` URL, every HTML response also carries
+`Link: <url>; rel="canonical"`. `/healthz` answers `ok` on any host.
 
 ## The registry
 
@@ -50,13 +55,22 @@ games:
     owner: dmccoystephenson              # optional
     token_sha256: "<64 hex>"             # sha256 of the game's upload token
     aliases: [tidewater.danielstephenson.dev]   # optional
+    kind: tak                            # optional: tak (default) or static
+    isolation: on                        # optional: on/off (see Bundle kinds)
+    canonical: https://danielstephenson.dev/play/tidewater   # optional
 ```
+
+`canonical` is the game's main public page, as an https URL. A game can be reached at its slug
+host, its aliases and the portal page that frames it; when `canonical` is set, every HTML response
+for the game names this one address with a `Link: <url>; rel="canonical"` header, so search engines
+index it once. Leave it out and no Link header is sent.
 
 The parser is deliberately strict: it accepts only this subset of YAML, and it refuses unknown keys,
 duplicate slugs, reserved slugs (`play`, `www`, `api`, `arcade`, `admin`, `static`), malformed
-hashes, and aliases under the arcade's own domain, each with its line number. arcade picks up
-changes to the file without a restart. A file that stops parsing is logged and ignored, and the
-last good registry stays in force.
+hashes, aliases under the arcade's own domain or claimed twice, an unknown `kind`, an `isolation`
+other than on/off (or off for a tak game), and a `canonical` that is not an https URL, each with its
+line number. arcade picks up changes to the file without a restart. A file that stops parsing is
+logged and ignored, and the last good registry stays in force.
 
 ```sh
 python -m arcade check-registry games.yaml
@@ -100,11 +114,12 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 
 | Method | Path | Does |
 |---|---|---|
-| `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding exactly `index.html`, `game.zip`, `version.txt`. It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap; **400** for a missing or extra file, a `version.txt` that disagrees with `<version>`, or a `game.zip` without tak's four assets. |
-| `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. **404** for a version not on disk. |
-| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. |
+| `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap; **400** for a malformed `<version>`, a missing or extra file, a `version.txt` that disagrees with `<version>`, or a `game.zip` without tak's four assets. |
+| `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
+| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. **404** for an unknown slug. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
 | `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
+| `GET` | `/robots.txt` | `User-agent: *` / `Allow: /` as `text/plain`, with `Cache-Control: public, max-age=3600`. Answered on `play.<base>` only: on a game's host `/robots.txt` is the game's own path. |
 
 The token is `Authorization: Bearer <token>`, and each game's token deploys only that game. An
 unknown slug and a wrong token both get 403. The last `ARCADE_KEEP_VERSIONS` (5) versions per game
@@ -170,6 +185,8 @@ change that removes that container's router, or Traefik will see two routers for
 | `ARCADE_KEEP_VERSIONS` | `5` |
 | `ARCADE_HOST` / `ARCADE_PORT` | `0.0.0.0` / `8080` in the image |
 | `ARCADE_TRACE_KEY` | unset (no reporting) |
+| `ARCADE_TRACE_URL` | `https://trace.danielstephenson.dev` |
+| `ARCADE_TRACE_PROGRAM` | `arcade` |
 | `ARCADE_INTERNAL_HOST` | `arcade` (the only host that may read `/traefik/dynamic.json`) |
 | `ARCADE_TRAEFIK_SERVICE` | `arcade@docker` |
 | `ARCADE_TRAEFIK_MIDDLEWARES` | `secure-headers@file` (comma-separated; the gateway sets a set that lets the portal frame games) |
@@ -179,8 +196,9 @@ change that removes that container's router, or Traefik will see two routers for
 When `ARCADE_TRACE_KEY` is set, arcade reports to [trace](https://trace.danielstephenson.dev) as the
 program `arcade` (override with `ARCADE_TRACE_PROGRAM`) using the vendored
 [trace-client-python](https://github.com/Stephenson-Software/trace-client-python):
-`startup` once, and one `page-served` event tagged with the game's `slug` per game page served.
-That is a count of page loads, not of players. Nothing about the visitor is sent: no IP address,
+`startup` once, and one `page-served` event tagged with the game's `slug` per game page served to
+a person (the same User-Agent rule as `plays`: crawlers and scripts are not reported). That is a
+count of page loads, not of players. Nothing about the visitor is sent: no IP address,
 user agent or path beyond the slug. `TRACE_USAGE_REPORTING=off` or `DO_NOT_TRACK=1` turns it off,
 as for every trace client.
 

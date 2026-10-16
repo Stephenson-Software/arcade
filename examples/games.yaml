@@ -10,3 +10,6 @@ games:
     owner: dmccoystephenson
     token_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
     aliases: [tidewater.danielstephenson.dev]
+    kind: tak
+    isolation: on
+    canonical: https://danielstephenson.dev/play/tidewater
