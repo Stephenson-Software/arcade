@@ -597,3 +597,97 @@ def test_no_canonical_means_no_link_even_on_a_reused_connection(arcade):
     connection.close()
     assert second.getheader("Link") is None
     assert third.getheader("Link") is None
+
+
+def test_the_environment_defaults_are_the_documented_ones():
+    config = Config.fromEnvironment({})
+    assert config.domain == "play.danielstephenson.dev"
+    assert config.dataDirectory == "/data"
+    assert config.registryPath == "/config/games.yaml"
+    assert config.landingUrl == "https://danielstephenson.dev/play"
+    assert config.landingMode == "page"
+    assert config.maxUploadBytes == 64 * 1024 * 1024
+    assert config.keep == 5
+    assert config.internalHost == "arcade"
+    assert config.traefikService == "arcade@docker"
+
+
+def test_every_setting_is_read_from_the_environment():
+    config = Config.fromEnvironment(
+        {
+            "ARCADE_DOMAIN": "Play.Example.com.",
+            "ARCADE_DATA": "/srv/arcade",
+            "ARCADE_REGISTRY": "/etc/games.yaml",
+            "ARCADE_LANDING_URL": "https://example.com/games",
+            "ARCADE_LANDING_MODE": "redirect",
+            "ARCADE_MAX_UPLOAD_BYTES": "1000",
+            "ARCADE_KEEP_VERSIONS": "2",
+            "ARCADE_INTERNAL_HOST": "Arcade-Internal",
+            "ARCADE_TRAEFIK_SERVICE": "arcade@file",
+        }
+    )
+    # The domain and the internal host are compared with a lowercased Host.
+    assert config.domain == "play.example.com"
+    assert config.internalHost == "arcade-internal"
+    assert config.dataDirectory == "/srv/arcade"
+    assert config.registryPath == "/etc/games.yaml"
+    assert config.landingUrl == "https://example.com/games"
+    assert config.landingMode == "redirect"
+    assert config.maxUploadBytes == 1000
+    assert config.keep == 2
+    assert config.traefikService == "arcade@file"
+
+
+def _rollback(arcade, body, headers):
+    allHeaders = {"Content-Type": "application/json"}
+    allHeaders.update(headers)
+    return request(arcade, "POST", API, "/api/games/tidewater/current", body, allHeaders)
+
+
+def test_rollback_needs_a_token(arcade):
+    upload(arcade)
+    response, data = _rollback(arcade, json.dumps({"version": "1.0.0"}), {})
+    assert response.status == 401 and b"Bearer" in data
+    assert _rollback(arcade, json.dumps({"version": "1.0.0"}), {"Authorization": "Bearer "})[0].status == 401
+
+
+def test_a_rollback_body_over_4_kib_is_refused(arcade):
+    upload(arcade, version="1.0.0")
+    upload(arcade, version="2.0.0", query="?activate=false")
+    body = json.dumps({"version": "2.0.0", "padding": "x" * 4096})
+    response, _ = _rollback(arcade, body, {"Authorization": "Bearer " + TOKEN})
+    assert response.status == 413
+    assert arcade.store.current("tidewater") == "1.0.0"
+
+
+def test_an_empty_rollback_body_is_a_400(arcade):
+    upload(arcade)
+    response, data = _rollback(arcade, b"", {"Authorization": "Bearer " + TOKEN})
+    assert response.status == 400
+    assert json.loads(data)["error"] == 'expected a JSON body {"version": "<version>"}'
+
+
+def test_only_public_reads_are_readable_cross_origin(arcade):
+    response, _ = upload(arcade)
+    assert response.status == 201
+    assert response.getheader("Access-Control-Allow-Origin") is None
+    assert upload(arcade, token="wrong")[0].getheader("Access-Control-Allow-Origin") is None
+    for path in ("/api/games", "/api/games/tidewater"):
+        assert request(arcade, "GET", API, path)[0].getheader("Access-Control-Allow-Origin") == "*"
+    # An unknown slug and an unknown API path are errors, not public reads.
+    assert request(arcade, "GET", API, "/api/games/nope")[0].getheader("Access-Control-Allow-Origin") is None
+    assert request(arcade, "GET", API, "/api/other")[0].getheader("Access-Control-Allow-Origin") is None
+    assert request(arcade, "GET", API, "/version.json")[0].getheader("Access-Control-Allow-Origin") is None
+
+
+def test_api_errors_carry_the_isolation_headers(arcade):
+    responses = [
+        upload(arcade, token=None)[0],
+        upload(arcade, token="wrong")[0],
+        upload(arcade, body=b"not an archive")[0],
+        request(arcade, "GET", API, "/api/games/nope")[0],
+        request(arcade, "POST", API, "/api/games/tidewater/versions/1", b"")[0],
+    ]
+    assert [response.status for response in responses] == [401, 403, 400, 404, 404]
+    for response in responses:
+        assertIsolated(response)
