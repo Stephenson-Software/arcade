@@ -84,6 +84,92 @@ def test_invalid_entries_are_refused(entries, message):
     assert message in str(error.value)
 
 
+@pytest.mark.parametrize(
+    "text, line",
+    [
+        ("# comment\n\ngames:\n  - slug: tidewater\n    colour: blue\n", 5),
+        ("games:\n  - slug: tidewater\n\n\n      title: x\n", 5),
+        ('games:\n  - slug: "a\\"b"\n', 2),
+        ("game:\n", 1),
+    ],
+)
+def test_parse_errors_name_the_offending_line(text, line):
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(text)
+    assert str(error.value).startswith("line %d: " % line)
+
+
+def test_validation_errors_name_the_entry_line():
+    text = registryText([game(), game("other", repo="not-a-repo")])
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(text)
+    assert str(error.value).startswith("line 6: ")
+
+
+@pytest.mark.parametrize("slug", sorted(registry.RESERVED_SLUGS))
+def test_every_reserved_slug_is_refused(slug):
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(registryText([game(slug=slug)]))
+    assert "slug %r is reserved" % slug in str(error.value)
+
+
+def test_slug_length_limits():
+    assert registry.loads(registryText([game(slug="ab")])).get("ab") is not None
+    longest = "a" * 31
+    assert registry.loads(registryText([game(slug=longest)])).get(longest) is not None
+    for slug in ("a" * 32, "1abc", "ab_c"):
+        with pytest.raises(registry.RegistryError) as error:
+            registry.loads(registryText([game(slug=slug)]))
+        assert "must match" in str(error.value)
+
+
+def test_escaped_quotes_are_refused():
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads('games:\n  - slug: tidewater\n    title: "say \\"hi\\""\n')
+    assert "escaped quotes are not supported" in str(error.value)
+
+
+def test_quoted_values_and_hash_without_a_space_are_kept():
+    text = (
+        "games:\n"
+        "  - slug: 'tidewater'\n"
+        "    title: C#-ish # trailing comment\n"
+        "    repo: Stephenson-Software/Tidewater\n"
+        "    token_sha256: '%s'\n"
+        "    aliases: []\n" % TOKEN_SHA
+    )
+    tidewater = registry.loads(text).get("tidewater")
+    assert tidewater.title == "C#-ish"
+    assert tidewater.tokenSha256 == TOKEN_SHA
+    assert tidewater.aliases == ()
+
+
+@pytest.mark.parametrize("value, expected", [("ON", True), ("True", True), ("Yes", True), ("OFF", False)])
+def test_isolation_switch_is_case_insensitive(value, expected):
+    loaded = registry.loads(registryText([game(kind="static", isolation=value)]))
+    assert loaded.get("tidewater").isolation is expected
+
+
+def test_an_alias_repeated_within_one_entry_is_refused():
+    with pytest.raises(registry.RegistryError) as error:
+        registry.loads(registryText([game(aliases=["a.example.org", "A.example.org"])]))
+    assert "alias 'a.example.org' is already claimed by 'tidewater'" in str(error.value)
+
+
+def test_aliases_under_the_domain_are_only_refused_when_a_domain_is_given():
+    text = registryText([game(aliases=["x.play.example.com"])])
+    assert registry.loads(text).forAlias("x.play.example.com").slug == "tidewater"
+    with pytest.raises(registry.RegistryError):
+        registry.loads(text, domain=DOMAIN)
+
+
+def test_lookups_of_unknown_slugs_and_hosts_return_none():
+    loaded = registry.loads(registryText([game(aliases=["a.example.org"])]))
+    assert loaded.get("missing") is None
+    assert loaded.forAlias("b.example.org") is None
+    assert len(loaded) == 1
+
+
 def test_load_reads_a_file(tmp_path):
     path = tmp_path / "games.yaml"
     path.write_text(registryText([game()]))
