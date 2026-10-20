@@ -64,3 +64,73 @@ def test_the_share_preview_url_follows_the_configured_domain():
     page = landing.render(Registry([]), "play.danielstephenson.dev", "https://danielstephenson.dev/play").decode("utf-8")
     assert '<meta property="og:url" content="https://play.danielstephenson.dev/">' in page
     assert '<meta property="og:image" content="https://play.danielstephenson.dev/og.png">' in page
+
+
+def test_every_game_is_linked_at_its_own_host_by_default():
+    registry = games(("rps", "RPS"), ("tak", "Tak"))
+    page = landing.render(registry, "play.example.com", "https://example.com/play").decode("utf-8")
+    assert '<a href="https://rps.play.example.com/"><span class="title">RPS</span>' in page
+    assert '<span class="host">tak.play.example.com</span></a>' in page
+    assert "Coming soon" not in page
+    assert "Games served here (2)" in page
+
+
+def test_an_undeployed_game_is_listed_without_a_link_or_host():
+    asked = []
+
+    def deployed(slug):
+        asked.append(slug)
+        return slug == "rps"
+
+    page = landing.render(
+        games(("rps", "RPS"), ("soon", "Soon")), "play.example.com", "https://example.com/play", deployed
+    ).decode("utf-8")
+    assert sorted(asked) == ["rps", "soon"]
+    assert "soon.play.example.com" not in page
+    assert (
+        '<li><span class="soon"><span class="title">Soon</span><span class="host">Coming soon</span></span></li>'
+        in page
+    )
+    assert '<a href="https://rps.play.example.com/">' in page
+    # An undeployed game still counts towards the heading.
+    assert "Games served here (2)" in page
+
+
+def test_a_game_without_a_title_is_listed_by_its_slug():
+    registry = games(("untitled", None))
+    page = landing.render(registry, "play.example.com", "https://example.com/play").decode("utf-8")
+    assert '<span class="title">untitled</span>' in page
+
+
+def test_games_sort_by_title_ignoring_case_then_by_slug():
+    page = landing.render(
+        games(("b-two", "same"), ("a-one", "Same"), ("zed", "apple"), ("mid", None)),
+        "play.example.com",
+        "https://example.com/play",
+    ).decode("utf-8")
+    order = [page.index("https://%s.play.example.com/" % slug) for slug in ("zed", "mid", "a-one", "b-two")]
+    assert order == sorted(order)
+
+
+def test_the_portal_link_is_labelled_without_its_scheme_or_trailing_slash():
+    page = landing.render(Registry([]), "play.example.com", "https://example.com/games/").decode("utf-8")
+    assert 'class="browse" href="https://example.com/games/">Browse all games &rarr; example.com/games</a>' in page
+    assert 'on <a href="https://example.com/games/">example.com/games</a>.' in page
+
+
+def test_the_portal_url_is_escaped():
+    page = landing.render(Registry([]), "play.example.com", 'https://example.com/?a=1&b="2"').decode("utf-8")
+    assert 'href="https://example.com/?a=1&amp;b=&quot;2&quot;"' in page
+    assert 'b="2"' not in page
+
+
+def test_the_page_is_utf8_bytes():
+    page = landing.render(games(("cafe", "Café")), "play.example.com", "https://example.com/play")
+    assert isinstance(page, bytes)
+    assert "Café".encode("utf-8") in page
+    assert b'<meta charset="utf-8">' in page
+
+
+def test_game_url_is_the_slug_under_the_domain():
+    rps = games(("rps", "RPS")).get("rps")
+    assert landing.gameUrl(rps, "play.example.com") == "https://rps.play.example.com/"
