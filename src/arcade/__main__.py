@@ -3,8 +3,8 @@
 
     python -m arcade serve
     python -m arcade routers --registry games.yaml [--domain play.example.com] [--check FILE]
-    python -m arcade hosts --registry games.yaml [--domain ...]
-    python -m arcade check-registry games.yaml
+    python -m arcade hosts --registry games.yaml [--domain ...] [--games-only]
+    python -m arcade check-registry games.yaml [--domain ...]
     python -m arcade hash-token            (reads the token from stdin)
 """
 

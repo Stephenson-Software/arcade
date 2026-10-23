@@ -5,8 +5,9 @@ One process answers two kinds of host:
 
   play.<base>               the upload API, and / a page listing every game
                             (or, with ARCADE_LANDING_MODE=redirect, a 302 to
-                            the portal), and /version.json: the running
-                            arcade's own version, {"version": "<x.y.z>"}
+                            the portal), /version.json: the running arcade's
+                            own version, {"version": "<x.y.z>"}, and the
+                            landing page's /robots.txt and /og.png
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
   <alias>                   a game's old hostname (registry `aliases`)
 
@@ -18,9 +19,13 @@ container works unchanged here:
   /tak/<asset>                   -> from the current version's own game.zip
   everything else                -> 404
 
+A `static` game (RFC 0012) is served as a tree of files instead: / and any
+path ending in / serve that directory's index.html.
+
 Every response - errors included - carries the three Cross-Origin headers the
 kit requires; without them the page is not cross-origin isolated and
-SharedArrayBuffer does not exist.
+SharedArrayBuffer does not exist. The one exception is a `static` game with
+isolation off, whose responses carry none of the three.
 """
 
 import hashlib

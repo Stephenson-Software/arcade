@@ -98,7 +98,8 @@ The `static` kind defaults to no Cross-Origin headers because builds that fetch 
 CDN without `Cross-Origin-Resource-Policy` (pygbag loads from `pygame-web.github.io`) cannot run
 under `require-corp`. Set `isolation: on` for a build that needs `SharedArrayBuffer`, such as
 Emscripten with pthreads. A static upload refuses links, absolute paths, `..` and empty segments,
-caps the file count at 10,000, and is subject to the same byte cap as a tak upload.
+a top-level `.uploaded` (arcade's own upload-time marker) and a path that is both a file and a
+directory, caps the file count at 10,000, and is subject to the same byte cap as a tak upload.
 
 ## The landing page
 
@@ -114,7 +115,7 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 
 | Method | Path | Does |
 |---|---|---|
-| `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap; **400** for a malformed `<version>`, a missing or extra file, a `version.txt` that disagrees with `<version>`, or a `game.zip` without tak's four assets. |
+| `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap (the upload or its unpacked contents), or a `static` tree of more than 10,000 files; **400** for a malformed `<version>`, an upload that is neither a readable zip nor a readable tar, a missing, extra or repeated file, a link or other non-regular file, a refused path (see [Bundle kinds](#bundle-kinds-rfc-0012)), a `version.txt` that is not UTF-8 or disagrees with `<version>`, or a `game.zip` that is unreadable or lacks tak's four assets. |
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
 | `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. **404** for an unknown slug. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
