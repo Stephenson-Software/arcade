@@ -85,3 +85,77 @@ def test_cli_hosts_games_only(tmp_path, capsys):
     games.write_text(registryText([game("tidewater", aliases=["t.example.org"])]))
     assert cli.main(["hosts", "--registry", str(games), "--domain", DOMAIN, "--games-only"]) == 0
     assert capsys.readouterr().out.split() == ["tidewater.play.example.com", "t.example.org"]
+
+
+def test_every_alias_gets_its_own_numbered_router_in_registry_order():
+    loaded = registry.loads(
+        registryText([game("tidewater", aliases=["b.example.org", "a.example.org", "c.example.net"])]),
+        domain=DOMAIN,
+    )
+    assert routers.hosts(loaded, DOMAIN, includeApi=False) == [
+        ("arcade-tidewater", "tidewater.play.example.com"),
+        ("arcade-tidewater-alias-1", "b.example.org"),
+        ("arcade-tidewater-alias-2", "a.example.org"),
+        ("arcade-tidewater-alias-3", "c.example.net"),
+    ]
+
+
+def test_an_empty_registry_still_has_the_api_host():
+    empty = registry.loads("games: []\n")
+    assert routers.hosts(empty, DOMAIN) == [("arcade-api", "play.example.com")]
+    assert routers.hosts(empty, DOMAIN, includeApi=False) == []
+    assert routers.generate(empty, DOMAIN, includeApi=False) == {"http": {"routers": {}}}
+
+
+def test_overrides_replace_each_router_setting():
+    generated = routers.generate(
+        _registry(),
+        DOMAIN,
+        service="arcade@file",
+        entryPoint="https",
+        certResolver="staging",
+        middlewares=("game-headers@file", "rate-limit@file"),
+    )
+    assert generated["http"]["routers"]["arcade-api"] == {
+        "rule": "Host(`play.example.com`)",
+        "entryPoints": ["https"],
+        "service": "arcade@file",
+        "middlewares": ["game-headers@file", "rate-limit@file"],
+        "tls": {"certResolver": "staging"},
+    }
+
+
+def test_overrides_leave_the_defaults_alone():
+    routers.generate(_registry(), DOMAIN, service="arcade@file", middlewares=())
+    assert routers.DEFAULTS == {
+        "service": "arcade@docker",
+        "entryPoint": "websecure",
+        "certResolver": "letsencrypt",
+        "middlewares": ("secure-headers@file",),
+    }
+    generated = routers.generate(_registry(), DOMAIN)
+    assert generated["http"]["routers"]["arcade-overwinter"]["service"] == "arcade@docker"
+
+
+def test_routers_do_not_share_their_lists():
+    generated = routers.generate(_registry(), DOMAIN)
+    generated["http"]["routers"]["arcade-api"]["middlewares"].append("extra@file")
+    generated["http"]["routers"]["arcade-api"]["entryPoints"].append("web")
+    tidewater = generated["http"]["routers"]["arcade-tidewater"]
+    assert tidewater["middlewares"] == ["secure-headers@file"]
+    assert tidewater["entryPoints"] == ["websecure"]
+
+
+def test_render_includes_the_api_host_with_sorted_keys_and_a_trailing_newline():
+    text = routers.render(_registry(), DOMAIN, certResolver="staging")
+    assert text.startswith(routers.HEADER)
+    assert text.endswith("}\n")
+    document = json.loads(text[len(routers.HEADER) :])
+    assert document == routers.generate(_registry(), DOMAIN, certResolver="staging")
+    assert list(document["http"]["routers"]) == sorted(document["http"]["routers"])
+    assert document["http"]["routers"]["arcade-api"]["tls"] == {"certResolver": "staging"}
+
+
+def test_render_of_an_empty_registry_keeps_the_api_router():
+    text = routers.render(registry.loads("games: []\n"), DOMAIN)
+    assert list(json.loads(text[len(routers.HEADER) :])["http"]["routers"]) == ["arcade-api"]
