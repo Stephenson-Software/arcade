@@ -29,6 +29,15 @@ All notable changes to this project are documented in this file. The format is b
   version it reports. It is answered on the API host only, never on a game's host, so it cannot
   shadow a static game's own `/version.json`.
 
+### Changed
+
+- The share-preview image, `src/arcade/og.png`, is redrawn as a 3D scene: rows of arcade cabinets
+  on a checkered floor at night, each screen glowing a different colour, rendered with
+  [Strata](https://github.com/Preponderous-Software/strata), with the title and play domain over
+  it. Its alt text now describes the picture. It is drawn from `og-card/card.json` by
+  community-site-kit's `tools/og-card` as a 256-colour PNG (61 KB, under the 150 KB the tests
+  allow) and is pre-rendered, so nothing 3D runs on the landing page.
+
 ### Fixed
 
 - A registry file that does not exist or cannot be read is reported by `routers`, `hosts`,
