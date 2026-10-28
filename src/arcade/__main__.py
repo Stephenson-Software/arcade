@@ -16,6 +16,8 @@ from arcade import __version__, registry, routers
 from arcade.server import Arcade, Config, hashToken, log, makeServer
 
 DEFAULT_DOMAIN = "play.danielstephenson.dev"
+REGISTRY_HELP = "the games.yaml to read"
+DOMAIN_HELP = "the arcade's own domain, play.<base> (default: %s)" % DEFAULT_DOMAIN
 
 
 def _reporter():
@@ -119,16 +121,16 @@ def main(argv=None):
         ("hosts", "print every host arcade answers, one per line"),
     ):
         command = commands.add_parser(name, help=helpText)
-        command.add_argument("--registry", required=True)
-        command.add_argument("--domain", default=DEFAULT_DOMAIN)
+        command.add_argument("--registry", required=True, help=REGISTRY_HELP)
+        command.add_argument("--domain", default=DEFAULT_DOMAIN, help=DOMAIN_HELP)
         if name == "routers":
             command.add_argument("--check", metavar="FILE", help="exit 1 if FILE differs from the output")
         else:
             command.add_argument("--games-only", action="store_true", help="leave out play.<base> itself")
 
     check = commands.add_parser("check-registry", help="validate games.yaml")
-    check.add_argument("registry")
-    check.add_argument("--domain", default=DEFAULT_DOMAIN)
+    check.add_argument("registry", help=REGISTRY_HELP)
+    check.add_argument("--domain", default=DEFAULT_DOMAIN, help=DOMAIN_HELP)
 
     commands.add_parser("hash-token", help="print the sha256 of a token read from stdin")
 

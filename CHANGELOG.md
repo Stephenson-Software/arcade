@@ -43,6 +43,8 @@ All notable changes to this project are documented in this file. The format is b
 - A registry file that does not exist or cannot be read is reported by `routers`, `hosts`,
   `check-registry` and `serve` as one `arcade: <message>` line on stderr (exit status 1, as before)
   instead of a Python traceback, the same way an invalid registry already was.
+- `--help` for `routers`, `hosts` and `check-registry` now describes the registry argument and
+  `--domain` (naming its default, `play.danielstephenson.dev`) instead of listing them bare.
 
 ## [0.6.0] - 2026-10-03
 
