@@ -7,6 +7,13 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Pre-compressed files: every compressible file in an upload (`application/wasm`, HTML, JavaScript,
+  CSS, plain text, JSON, web manifests, SVG; 1 KiB or more) gets a `<name>.gz` sibling at gzip level
+  9, and a bundle's own `<name>.br` / `<name>.gz` are used as shipped. A request is answered from
+  the variant its `Accept-Encoding` prefers, with `Content-Encoding`, `Vary: Accept-Encoding` and a
+  per-variant `ETag`, so a compressing proxy in front no longer compresses multi-MB `.wasm` on every
+  response. Versions stored before this are backfilled lazily, one file at a time in a background
+  thread, the first time each file is requested.
 - Share-preview metadata on the landing page: `og:type`, `og:site_name`, `og:title`,
   `og:description`, `og:url` (`https://play.<base>/`) and a `twitter:card` with its title and
   description, so a shared link to `play.<base>` unfurls with a title and description.
@@ -30,6 +37,9 @@ All notable changes to this project are documented in this file. The format is b
   shadow a static game's own `/version.json`.
 
 ### Changed
+
+- Files are streamed in 64 KiB chunks instead of being read whole into memory for each response.
+  Ten parallel downloads of an 18 MB file peaked at 180 MB RSS before and 25 MB after.
 
 - The share-preview image, `src/arcade/og.png`, is redrawn as a 3D scene: rows of arcade cabinets
   on a checkered floor at night, each screen glowing a different colour, rendered with

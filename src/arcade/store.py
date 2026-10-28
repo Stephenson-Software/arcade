@@ -19,6 +19,8 @@ import tempfile
 import threading
 import time
 
+from arcade import precompress
+
 VERSION_PATTERN = re.compile(r"^(?!(?:current|plays)$)[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
 # "current" (the pointer) and "plays" (the counter) are files beside the
 # versions, so neither can be a version: a directory by that name would break
@@ -128,28 +130,35 @@ class Store(object):
                 raise ValueError("%s is reserved" % _UPLOADED)
         elif sorted(files) != sorted(BUNDLE_FILES):
             raise ValueError("a bundle is exactly %s" % ", ".join(BUNDLE_FILES))
-        with self._lock:
-            slugDirectory = self._slugDirectory(slug)
-            os.makedirs(slugDirectory, exist_ok=True)
-            final = os.path.join(slugDirectory, version)
-            if os.path.exists(final):
-                raise VersionExists(version)
-            staging = tempfile.mkdtemp(prefix=".upload-", dir=slugDirectory)
-            try:
-                for name, data in files.items():
-                    target = os.path.join(staging, *name.split("/"))
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with open(target, "wb") as out:
-                        out.write(data)
-                with open(os.path.join(staging, _UPLOADED), "w") as stamp:
-                    stamp.write(str(time.time_ns()))
+        slugDirectory = self._slugDirectory(slug)
+        final = os.path.join(slugDirectory, version)
+        if os.path.exists(final):
+            raise VersionExists(version)
+        os.makedirs(slugDirectory, exist_ok=True)
+        # Written and compressed outside the lock: gzipping a multi-MB .wasm
+        # at level 9 takes seconds, and the lock also guards play counting.
+        staging = tempfile.mkdtemp(prefix=".upload-", dir=slugDirectory)
+        try:
+            for name, data in files.items():
+                target = os.path.join(staging, *name.split("/"))
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, "wb") as out:
+                    out.write(data)
+            # Each compressible file's .gz sibling, once, so serving it never
+            # compresses anything (arcade.precompress).
+            precompress.precompressTree(staging)
+            with open(os.path.join(staging, _UPLOADED), "w") as stamp:
+                stamp.write(str(time.time_ns()))
+            with self._lock:
+                if os.path.exists(final):
+                    raise VersionExists(version)
                 os.rename(staging, final)
-            except BaseException:
-                shutil.rmtree(staging, ignore_errors=True)
-                raise
-            if activate:
-                self._writeCurrent(slug, version)
-            self._prune(slug)
+                if activate:
+                    self._writeCurrent(slug, version)
+                self._prune(slug)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
 
     def plays(self, slug):
         """How many times the game's page has been served to a person."""
