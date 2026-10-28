@@ -73,6 +73,16 @@ def test_a_subcommand_is_required(capsys):
     assert "usage: arcade" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["routers", "hosts", "check-registry"])
+def test_every_registry_argument_is_described_in_help(capsys, command):
+    with pytest.raises(SystemExit) as exit:
+        cli.main([command, "--help"])
+    assert exit.value.code == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "the games.yaml to read" in out
+    assert "the arcade's own domain, play.<base> (default: play.danielstephenson.dev)" in out
+
+
 def test_routers_prints_the_document_for_every_host(tmp_path, capsys):
     games = tmp_path / "games.yaml"
     games.write_text(registryText([game("tidewater")]))
