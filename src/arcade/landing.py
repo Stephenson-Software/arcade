@@ -23,16 +23,23 @@ TITLE = "Play &mdash; browser games by Daniel McCoy Stephenson"
 DESCRIPTION = "Browser games by Daniel McCoy Stephenson, served by arcade. Nothing to install."
 
 # The link-preview card named by og:image and twitter:image: og.png beside this
-# module, a 1200x630 image of the page's name, DESCRIPTION and the play domain
-# in the page's dark colours. It is served at /og.png on the API host only (a
-# game's host never answers it, like /robots.txt). The page itself never loads
-# it, so the CSP's "img-src data:" is unaffected. If the image is redrawn at
-# another size, change the dimensions here with it.
+# module, a 1200x630 picture of arcade cabinets rendered in 3D with Strata, with
+# the page's name and the play domain over it. It is drawn from og-card/card.json
+# (see og-card/README.md), and OG_IMAGE_ALT is that spec's alt text, word for
+# word: tests/test_landing.py fails if the two drift apart. It is served at
+# /og.png on the API host only (a game's host never answers it, like
+# /robots.txt). The page itself never loads it, so the CSP's "img-src data:" is
+# unaffected. If the image is redrawn at another size, change the dimensions
+# here with it.
 OG_IMAGE_PATH = "/og.png"
 OG_IMAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "og.png")
 OG_IMAGE_WIDTH = 1200
 OG_IMAGE_HEIGHT = 630
-OG_IMAGE_ALT = "Play: browser games by Daniel McCoy Stephenson, served by arcade. Nothing to install."
+OG_IMAGE_ALT = (
+    "Rows of arcade cabinets on a checkered floor at night, each screen glowing a different colour, "
+    "rendered in 3D with Strata. Over it: the title Play, the line \u201cBrowser games. Nothing to install.\u201d, "
+    "and the address play.danielstephenson.dev."
+)
 _ogImage = []
 
 

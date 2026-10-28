@@ -1,0 +1,21 @@
+{
+  "comment": "The landing page's link-preview card (src/arcade/og.png, served at /og.png). Rendered by community-site-kit tools/og-card; see og-card/README.md.",
+  "output": "../src/arcade/og.png",
+  "scene": "arcade",
+  "seed": 1,
+  "wordmark": "danielstephenson.dev",
+  "title": "Play",
+  "subtitle": "Browser games. Nothing to install.",
+  "url": "play.danielstephenson.dev",
+  "accent": "#748ffc",
+  "palette": [
+    "#4263eb",
+    "#7048e8",
+    "#1098ad",
+    "#f59f00",
+    "#e8590c",
+    "#0ca678"
+  ],
+  "alt": "Rows of arcade cabinets on a checkered floor at night, each screen glowing a different colour, rendered in 3D with Strata. Over it: the title Play, the line “Browser games. Nothing to install.”, and the address play.danielstephenson.dev.",
+  "colors": 256
+}

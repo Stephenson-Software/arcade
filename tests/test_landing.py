@@ -1,3 +1,5 @@
+import json
+import os
 import struct
 
 from arcade import landing
@@ -41,12 +43,12 @@ def test_the_page_carries_share_preview_tags_on_its_own_domain():
         '<meta property="og:image:type" content="image/png">',
         '<meta property="og:image:width" content="1200">',
         '<meta property="og:image:height" content="630">',
-        '<meta property="og:image:alt" content="Play: browser games by Daniel McCoy Stephenson',
+        '<meta property="og:image:alt" content="Rows of arcade cabinets on a checkered floor at night',
         '<meta name="twitter:card" content="summary_large_image">',
         '<meta name="twitter:title" content="Play &mdash;',
         '<meta name="twitter:description" content="Browser games',
         '<meta name="twitter:image" content="https://play.example.com/og.png">',
-        '<meta name="twitter:image:alt" content="Play: browser games',
+        '<meta name="twitter:image:alt" content="Rows of arcade cabinets',
     ):
         assert tag in page, tag
     assert "localhost" not in page
@@ -58,6 +60,14 @@ def test_the_share_image_is_a_png_of_the_size_the_tags_state():
     # IHDR follows the signature: big-endian width and height at bytes 16 and 20.
     assert struct.unpack(">II", data[16:24]) == (landing.OG_IMAGE_WIDTH, landing.OG_IMAGE_HEIGHT) == (1200, 630)
     assert len(data) < 150 * 1024
+
+
+def test_the_share_image_alt_text_is_its_card_spec_s():
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    with open(os.path.join(root, "og-card", "card.json"), encoding="utf-8") as handle:
+        spec = json.load(handle)
+    assert os.path.normpath(os.path.join(root, "og-card", spec["output"])) == os.path.normpath(landing.OG_IMAGE_FILE)
+    assert landing.OG_IMAGE_ALT == spec["alt"]
 
 
 def test_the_share_preview_url_follows_the_configured_domain():
