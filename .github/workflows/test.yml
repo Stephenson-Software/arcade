@@ -11,10 +11,18 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Python 3.8 is no longer installable by setup-python on the newest
+    # ubuntu-latest image (Ubuntu 26.04), so the 3.8 leg runs on 22.04. The job
+    # name is kept as "test (<version>)".
+    name: test (${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ['3.8', '3.12']
+        include:
+          - python-version: '3.8'
+            os: ubuntu-22.04
+          - python-version: '3.12'
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
