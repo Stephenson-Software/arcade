@@ -32,14 +32,13 @@ import hashlib
 import hmac
 import http.server
 import json
-import mimetypes
 import os
 import re
 import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, landing, registry as registryModule, routers
+from arcade import __version__, bundle, landing, precompress, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -68,14 +67,8 @@ _API_GAME = re.compile(r"^/api/games/([a-z0-9-]+)$")
 _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
 _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
 
-mimetypes.add_type("text/javascript", ".js")
-mimetypes.add_type("text/javascript", ".mjs")
-mimetypes.add_type("text/css", ".css")
-# application/wasm is what lets a browser compile a module while it streams.
-mimetypes.add_type("application/wasm", ".wasm")
-mimetypes.add_type("application/json", ".json")
-mimetypes.add_type("application/octet-stream", ".data")
-mimetypes.add_type("application/octet-stream", ".apk")
+# The Content-Types arcade adds to mimetypes (.wasm, .js, .data, ...) are
+# registered in arcade.precompress, which the store shares.
 
 
 def log(message):
@@ -190,6 +183,9 @@ class Arcade(object):
         self.registry = RegistryHolder(config.registryPath, config.domain)
         self.store = Store(config.dataDirectory, keep=config.keep)
         self.reporter = reporter
+        # Versions stored before arcade wrote .gz siblings get theirs the
+        # first time each file is asked for, one file at a time.
+        self.backfill = precompress.Backfill()
 
     def gameForHost(self, host):
         """The Game a request's Host header names, or None."""
@@ -350,7 +346,7 @@ def makeHandler(arcade):
                 if data is None:
                     self._text(404, "Not found")
                     return
-                contentType = mimetypes.guess_type(name)[0] or "application/octet-stream"
+                contentType = precompress.guessType(name)
                 self._cached(data, contentType, '"%s-%s"' % (version, name))
                 return
             self._text(404, "Not found")
@@ -363,41 +359,87 @@ def makeHandler(arcade):
             if stored is None:
                 self._text(404, "Not found")
                 return
-            try:
-                with open(stored, "rb") as served:
-                    data = served.read()
-            except OSError:
-                self._text(404, "Not found")
-                return
-            contentType = mimetypes.guess_type(relative)[0] or "application/octet-stream"
+            contentType = precompress.guessType(relative)
             if contentType.startswith("text/") and "charset" not in contentType:
                 contentType += "; charset=utf-8"
             # The path is hashed, not quoted: a file name may hold a quote or
             # characters a Latin-1 header cannot carry.
             tag = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16]
-            self._cached(data, contentType, '"%s-%s"' % (version, tag))
+            if not self._stream(stored, contentType, '"%s-%s"' % (version, tag)):
+                return
             if relative == "index.html" and self.command == "GET":
                 arcade.played(game.slug, self.headers.get("User-Agent"))
 
         def _file(self, slug, version, name, contentType):
+            self._stream(arcade.store.filePath(slug, version, name), contentType, '"%s-%s"' % (version, name))
+
+        def _stream(self, path, contentType, etag):
+            """Send a stored file - or its .br/.gz sibling, if the client
+            accepts it - in chunks, never read whole. False if it is missing
+            (a 404 has been sent)."""
+            canCompress = precompress.compressible(contentType)
+            if canCompress and precompress.needsGzip(path, contentType):
+                arcade.backfill.request(path)
+            chosen, encoding = precompress.choose(path, self.headers.get("Accept-Encoding"))
             try:
-                with open(arcade.store.filePath(slug, version, name), "rb") as stored:
-                    data = stored.read()
+                served = open(chosen, "rb")
             except OSError:
-                self._text(404, "Not found")
-                return
-            self._cached(data, contentType, '"%s-%s"' % (version, name))
+                if encoding is None:
+                    self._text(404, "Not found")
+                    return False
+                # The variant vanished between the check and the open.
+                chosen, encoding = path, None
+                try:
+                    served = open(chosen, "rb")
+                except OSError:
+                    self._text(404, "Not found")
+                    return False
+            with served:
+                size = os.fstat(served.fileno()).st_size
+                headers = []
+                if encoding is not None:
+                    # Each variant is its own representation, so its own tag.
+                    etag = etag[:-1] + ("-br" if encoding == "br" else "-gz") + '"'
+                    headers.append(("Content-Encoding", encoding))
+                if canCompress or encoding is not None or self._hasVariant(path):
+                    headers.append(("Vary", "Accept-Encoding"))
+                headers += [("ETag", etag), ("Cache-Control", "no-cache")]
+                if self.headers.get("If-None-Match") == etag:
+                    self._notModified(headers)
+                    return True
+                self.send_response(200)
+                self.send_header("Content-Type", contentType)
+                self.send_header("Content-Length", str(size))
+                for name, value in headers:
+                    self.send_header(name, value)
+                if self.canonical and contentType.startswith("text/html"):
+                    self.send_header("Link", '<%s>; rel="canonical"' % self.canonical)
+                self.end_headers()
+                if self.command != "HEAD":
+                    while True:
+                        chunk = served.read(precompress.CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            return True
+
+        @staticmethod
+        def _hasVariant(path):
+            return any(os.path.isfile(path + suffix) for _, suffix in precompress.ENCODINGS)
+
+        def _notModified(self, headers):
+            self.send_response(304)
+            for name, value in headers:
+                self.send_header(name, value)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def _cached(self, data, contentType, etag):
             # The URLs are not versioned, so every response is revalidated;
             # the ETag makes an unchanged file a 304 instead of a download.
             headers = (("ETag", etag), ("Cache-Control", "no-cache"))
             if self.headers.get("If-None-Match") == etag:
-                self.send_response(304)
-                for name, value in headers:
-                    self.send_header(name, value)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                self._notModified(headers)
                 return
             self._send(200, data, contentType, headers)
 

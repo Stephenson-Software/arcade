@@ -42,6 +42,24 @@ Files are sent with an `ETag` and `Cache-Control: no-cache`, so a returning play
 instead of downloading again. For a game with a `canonical:` URL, every HTML response also carries
 `Link: <url>; rel="canonical"`. `/healthz` answers `ok` on any host.
 
+### Compression
+
+Files are sent in 64 KiB chunks, never read whole, so a large `.data` or `.wasm` costs arcade no
+more memory than a small one. Compressible files (`application/wasm`, HTML, JavaScript, CSS, plain
+text, JSON, web manifests and SVG, 1 KiB or more) get a gzip copy, `<name>.gz` at level 9, written
+once when the version is uploaded. A version stored before this gets its copies lazily: the first
+request for a file is answered uncompressed and queues its `.gz`, which one background thread
+writes, one file at a time, atomically. A bundle that ships its own `<name>.br` or `<name>.gz` (as
+dotnet and Emscripten builds can) has those used as they are; brotli is not in the standard library,
+so arcade serves `.br` only when the bundle brings one.
+
+The variant is chosen by `Accept-Encoding` (q-values honoured; `br` before `gzip` when both are
+equally acceptable) and sent with `Content-Encoding`, `Vary: Accept-Encoding` and its own `ETag`
+(`"<version>-<file>-gz"` or `-br`; the uncompressed file keeps its old tag). `Content-Type` is that
+of the original file, so a `.wasm` is still `application/wasm` and compiles while it streams. A
+response that already carries `Content-Encoding` is passed through untouched by a compressing proxy
+such as Traefik's `compress` middleware. `Range` requests are not supported; the whole file is sent.
+
 ## The registry
 
 `games.yaml` lives in the gateway repository and is mounted read-only at `/config/games.yaml`.
