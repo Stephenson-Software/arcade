@@ -280,6 +280,26 @@ def test_etag_revalidation_and_head(arcade):
     assert response.status == 200
 
 
+def test_kit_assets_are_revalidated_by_etag(arcade):
+    upload(arcade)
+    response, _ = request(arcade, "GET", TIDEWATER, "/tak/boot.js")
+    etag = response.getheader("ETag")
+    assert etag == '"1.0.0-boot.js"'
+    assert response.getheader("Cache-Control") == "no-cache"
+    response, data = request(arcade, "GET", TIDEWATER, "/tak/boot.js", headers={"If-None-Match": etag})
+    assert (response.status, data) == (304, b"")
+    assert (response.getheader("ETag"), response.getheader("Cache-Control")) == (etag, "no-cache")
+    assertIsolated(response)
+    response, data = request(arcade, "HEAD", TIDEWATER, "/tak/boot.js")
+    assert response.status == 200 and data == b""
+    assert int(response.getheader("Content-Length")) == len(ASSETS["boot.js"])
+    # A new version's assets carry a new tag, so the old one no longer matches.
+    upload(arcade, version="1.1.0")
+    response, data = request(arcade, "GET", TIDEWATER, "/tak/boot.js", headers={"If-None-Match": etag})
+    assert (response.status, data) == (200, ASSETS["boot.js"])
+    assert response.getheader("ETag") == '"1.1.0-boot.js"'
+
+
 def test_games_are_read_only(arcade):
     response, _ = request(arcade, "PUT", TIDEWATER, "/", b"x")
     assert response.status == 405
@@ -400,6 +420,18 @@ def test_registry_changes_are_picked_up_and_bad_ones_ignored(arcade):
     os.utime(str(arcade.registryFile), ns=(stamp + 2 * 10 ** 9, stamp + 2 * 10 ** 9))
     response, data = request(arcade, "GET", newGame, "/")
     assert b"not been deployed" in data
+
+
+def test_a_registry_file_that_disappears_keeps_the_last_good_one(arcade):
+    upload(arcade)
+    stamp = os.stat(str(arcade.registryFile)).st_mtime_ns
+    arcade.registryFile.unlink()
+    response, data = request(arcade, "GET", TIDEWATER, "/web/version.txt")
+    assert (response.status, data) == (200, b"1.0.0\n")
+    # A file that comes back is read again.
+    arcade.registryFile.write_text(registryText([game("tidewater"), game("newgame")]))
+    os.utime(str(arcade.registryFile), ns=(stamp + 10 ** 9, stamp + 10 ** 9))
+    assert b"not been deployed" in request(arcade, "GET", "newgame." + DOMAIN, "/")[1]
 
 
 def test_traefik_reads_its_routers_on_the_internal_host_only(arcade):
@@ -649,6 +681,15 @@ def test_rollback_needs_a_token(arcade):
     response, data = _rollback(arcade, json.dumps({"version": "1.0.0"}), {})
     assert response.status == 401 and b"Bearer" in data
     assert _rollback(arcade, json.dumps({"version": "1.0.0"}), {"Authorization": "Bearer "})[0].status == 401
+
+
+def test_rollback_of_an_unknown_slug_looks_like_a_wrong_token(arcade):
+    body = json.dumps({"version": "1.0.0"})
+    response, data = request(
+        arcade, "POST", API, "/api/games/nonexistent/current", body, {"Authorization": "Bearer " + TOKEN}
+    )
+    assert response.status == 403
+    assert json.loads(data)["error"] == "this token cannot deploy that game"
 
 
 def test_a_rollback_body_over_4_kib_is_refused(arcade):
