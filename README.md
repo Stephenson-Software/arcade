@@ -1,5 +1,9 @@
 # arcade
 
+[![A 3D arcade hall at night: two rows of arcade cabinets face each other across a checkered aisle, one cabinet per game on play.danielstephenson.dev. Each screen shows that game's own picture and each marquee its title; side panels are violet, teal or orange by GitHub organisation. Roam stands alone at the far end of the aisle. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
+
+*Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the nearest cabinets have the most plays, and Roam is at the end of the aisle. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk down the aisle. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
+
 One static host for every browser game. arcade serves each game's page, bundle and kit assets at
 `<slug>.play.danielstephenson.dev`, with the cross-origin isolation headers the
 [tak](https://github.com/Stephenson-Software/tak) kit needs. A game deploys by uploading a versioned
@@ -236,6 +240,11 @@ ARCADE_DOMAIN=play.localhost ARCADE_DATA=/tmp/arcade ARCADE_REGISTRY=games.yaml 
 # upload as above to http://127.0.0.1:8080 with -H "Host: play.localhost",
 # then open http://<slug>.play.localhost:8080/
 ```
+
+The hall picture at the top of this README is regenerated with `tools/make_hall_media.py` (see its
+docstring for the one-off venv; it needs Pillow and the Strata Python binding, and reads only
+public URLs). It writes `docs/media/arcade-hall.png`, `docs/media/arcade-hall.gif` and
+`docs/media/arcade-hall.sources.json`.
 
 ## License
 
