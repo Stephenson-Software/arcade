@@ -1,0 +1,225 @@
+{
+  "registry": "https://play.danielstephenson.dev/api/games",
+  "read_at": "2026-10-29T23:28:17Z",
+  "strata": "0.7.0",
+  "order": "featured game first (end of the aisle), then by plays at read_at, most first",
+  "cabinets": [
+    {
+      "slug": "roam",
+      "title": "Roam",
+      "repo": "Preponderous-Software/roam",
+      "plays": 220,
+      "screen": "https://danielstephenson.dev/trailers/roam.jpg"
+    },
+    {
+      "slug": "env-lib-cpp",
+      "title": "env-lib-cpp",
+      "repo": "Preponderous-Software/env-lib-cpp",
+      "plays": 373,
+      "screen": "https://danielstephenson.dev/trailers/env-lib-cpp.jpg"
+    },
+    {
+      "slug": "tidewater",
+      "title": "Tidewater",
+      "repo": "Stephenson-Software/Tidewater",
+      "plays": 286,
+      "screen": "https://danielstephenson.dev/trailers/tidewater.jpg"
+    },
+    {
+      "slug": "fishe",
+      "title": "FishE",
+      "repo": "Stephenson-Software/FishE",
+      "plays": 260,
+      "screen": "https://danielstephenson.dev/trailers/fishe.jpg"
+    },
+    {
+      "slug": "beyond-nations",
+      "title": "Beyond Nations",
+      "repo": "Preponderous-Software/beyond-nations",
+      "plays": 226,
+      "screen": "https://danielstephenson.dev/trailers/beyond-nations.jpg"
+    },
+    {
+      "slug": "apex",
+      "title": "Apex",
+      "repo": "Preponderous-Software/apex",
+      "plays": 222,
+      "screen": "https://danielstephenson.dev/trailers/apex.jpg"
+    },
+    {
+      "slug": "overwinter",
+      "title": "Overwinter",
+      "repo": "Stephenson-Software/Overwinter",
+      "plays": 204,
+      "screen": "https://danielstephenson.dev/trailers/overwinter.jpg"
+    },
+    {
+      "slug": "orrery",
+      "title": "Orrery",
+      "repo": "Preponderous-Software/orrery",
+      "plays": 183,
+      "screen": "https://danielstephenson.dev/trailers/orrery.jpg"
+    },
+    {
+      "slug": "frog-hopper",
+      "title": "Frog Hopper",
+      "repo": "Stephenson-Software/Frog-Hopper-2D",
+      "plays": 155,
+      "screen": "https://danielstephenson.dev/trailers/frog-hopper-2d.jpg"
+    },
+    {
+      "slug": "atman",
+      "title": "Atman",
+      "repo": "Preponderous-Software/atman",
+      "plays": 153,
+      "screen": "https://danielstephenson.dev/trailers/atman.jpg"
+    },
+    {
+      "slug": "kindling",
+      "title": "Kindling",
+      "repo": "Preponderous-Software/kindling",
+      "plays": 149,
+      "screen": "https://danielstephenson.dev/trailers/kindling.jpg"
+    },
+    {
+      "slug": "ophidian",
+      "title": "Ophidian",
+      "repo": "Preponderous-Software/ophidian",
+      "plays": 149,
+      "screen": "https://danielstephenson.dev/trailers/ophidian.jpg"
+    },
+    {
+      "slug": "cave",
+      "title": "Cave",
+      "repo": "Stephenson-Software/Cave-Console-Game",
+      "plays": 146,
+      "screen": "https://danielstephenson.dev/trailers/cave-console-game.jpg"
+    },
+    {
+      "slug": "night-ferry",
+      "title": "Night Ferry",
+      "repo": "Stephenson-Software/Night-Ferry",
+      "plays": 137,
+      "screen": "https://danielstephenson.dev/trailers/night-ferry.jpg"
+    },
+    {
+      "slug": "steading",
+      "title": "steading",
+      "repo": "Preponderous-Software/steading",
+      "plays": 130,
+      "screen": "https://danielstephenson.dev/trailers/steading.jpg"
+    },
+    {
+      "slug": "microbiome",
+      "title": "Microbiome",
+      "repo": "Preponderous-Software/microbiome",
+      "plays": 128,
+      "screen": "https://danielstephenson.dev/trailers/microbiome.jpg"
+    },
+    {
+      "slug": "dice",
+      "title": "Simple Dice Throw",
+      "repo": "Stephenson-Software/simpleDiceThrow",
+      "plays": 127,
+      "screen": "https://danielstephenson.dev/trailers/simple-dice-throw.jpg"
+    },
+    {
+      "slug": "rock-paper-scissors",
+      "title": "Rock Paper Scissors",
+      "repo": "Stephenson-Software/Rock-Paper-Scissors-2D",
+      "plays": 124,
+      "screen": "https://danielstephenson.dev/trailers/rock-paper-scissors-2d.jpg"
+    },
+    {
+      "slug": "replay-player",
+      "title": "replay-player",
+      "repo": "Preponderous-Software/replay-player",
+      "plays": 121,
+      "screen": "https://danielstephenson.dev/trailers/replay-player.jpg"
+    },
+    {
+      "slug": "guess-my-word",
+      "title": "Guess My Word",
+      "repo": "Stephenson-Software/Guess-My-Word",
+      "plays": 116,
+      "screen": "https://danielstephenson.dev/trailers/guess-my-word.jpg"
+    },
+    {
+      "slug": "tic-tac-toe-sdl",
+      "title": "Tic Tac Toe (SDL)",
+      "repo": "Stephenson-Software/Tic-Tac-Toe-Using-SDL",
+      "plays": 116,
+      "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-using-sdl.jpg"
+    },
+    {
+      "slug": "sdl-sketches",
+      "title": "SDL Sketches",
+      "repo": "dmccoystephenson/sdl-sketches",
+      "plays": 113,
+      "screen": "https://danielstephenson.dev/trailers/sdl-sketches.jpg"
+    },
+    {
+      "slug": "interakt",
+      "title": "Interakt",
+      "repo": "Stephenson-Software/Interakt",
+      "plays": 111,
+      "screen": "https://danielstephenson.dev/trailers/interakt.jpg"
+    },
+    {
+      "slug": "sisyphus",
+      "title": "Sisyphus",
+      "repo": "Preponderous-Software/sisyphus",
+      "plays": 110,
+      "screen": "https://danielstephenson.dev/trailers/sisyphus.jpg"
+    },
+    {
+      "slug": "asn1-viz",
+      "title": "asn1-viz",
+      "repo": "Preponderous-Software/asn1-viz",
+      "plays": 109,
+      "screen": "https://danielstephenson.dev/trailers/asn1-viz.jpg"
+    },
+    {
+      "slug": "tic-tac-toe-java",
+      "title": "Tic Tac Toe (Java)",
+      "repo": "Stephenson-Software/Tic-Tac-Toe-Console-Game",
+      "plays": 107,
+      "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-console-game.jpg"
+    },
+    {
+      "slug": "kreatures",
+      "title": "Kreatures",
+      "repo": "Stephenson-Software/Kreatures",
+      "plays": 106,
+      "screen": "https://danielstephenson.dev/trailers/kreatures.jpg"
+    },
+    {
+      "slug": "familiar",
+      "title": "Familiar",
+      "repo": "Preponderous-Software/familiar",
+      "plays": 95,
+      "screen": "title card"
+    },
+    {
+      "slug": "tic-tac-toe-web",
+      "title": "Tic Tac Toe",
+      "repo": "dmccoystephenson/Tic-Tac-Toe-Web-App",
+      "plays": 91,
+      "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-web-app.jpg"
+    },
+    {
+      "slug": "viron-strata",
+      "title": "viron-strata",
+      "repo": "Preponderous-Software/viron-strata",
+      "plays": 87,
+      "screen": "https://raw.githubusercontent.com/Preponderous-Software/viron-strata/HEAD/docs/media/web-public.png"
+    },
+    {
+      "slug": "tic-tak-toe",
+      "title": "Tic-Tak-Toe",
+      "repo": "Stephenson-Software/Tic-Tak-Toe",
+      "plays": 73,
+      "screen": "https://danielstephenson.dev/trailers/tic-tak-toe.jpg"
+    }
+  ]
+}
