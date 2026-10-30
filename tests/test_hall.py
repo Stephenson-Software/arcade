@@ -487,3 +487,14 @@ def test_the_readme_gif_of_playing_from_the_hall_is_small():
     assert os.path.getsize(path) < 1024 * 1024
     with open(os.path.join(ROOT, "README.md")) as f:
         assert "docs/media/hall-play.gif" in f.read()
+
+
+def test_the_hall_has_a_map_that_can_be_toggled():
+    with open(os.path.join(hall.ASSETS, "index.html")) as f:
+        page = f.read()
+    assert 'id="map"' in page and 'id="map-btn"' in page and 'aria-controls="map"' in page
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        script = f.read()
+    # Remembered, opened by M, and a tap on it walks without turning (target only).
+    assert "arcade-hall.map" in script and 'e.key.toLowerCase() === "m"' in script
+    assert "kit.cam.yaw =" not in script.split("function drawMap")[1].split("function after")[0]

@@ -174,6 +174,10 @@ the portal keep their lists, and link here with "Walk the hall".
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
   refreshes them from the same sources as the picture, and draws a title-card poster (title, blurb,
   address) for a game with no public picture (Familiar).
+- **The map.** A "you are here" plan of the floor (top right; *Map* or `M` toggles it, remembered; open by
+  default on a desktop, closed on a phone, where it steps aside while the cabinet card shows): the room,
+  stage and counter, every cabinet in its org colour, and you with the way you look. Clicking or tapping a
+  cabinet on it walks there, without turning the view.
 - **Attract mode and sound.** Every few seconds one screen shows its game's title card instead of its
   poster, the nearest screens shimmer faintly (with baked-in scanlines), and the marquees' glow breathes;
   nothing moves under reduced motion. *Sound* (off by default, remembered) plays a quiet arcade hum, made

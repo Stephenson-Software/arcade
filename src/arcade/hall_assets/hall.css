@@ -89,3 +89,12 @@ body.touch #bar #look { display: none; }
 body.lite #bar a, body.lite #bar button, body.lite #help, body.lite #prompt, body.lite #card {
   -webkit-backdrop-filter: none; backdrop-filter: none; }
 body.lite { --panel: rgba(16, 12, 30, .92); }
+/* The map (hall.js drawMap): top right under the bar; on a phone, behind the Map button. */
+#map { position: fixed; z-index: 3; right: max(12px, env(safe-area-inset-right));
+  top: calc(max(8px, env(safe-area-inset-top)) + 54px); width: 180px; height: 180px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--panel); cursor: pointer; touch-action: none; }
+#bar #map-btn[aria-expanded="true"] { background: var(--accent); color: #120c26; border-color: transparent; }
+body.touch #map { width: 200px; height: 200px; }
+body.moving #map { visibility: hidden; }
+/* On a phone the card takes the same place: the map steps aside while you stand at a cabinet. */
+body.touch.at-cabinet #map { visibility: hidden; }

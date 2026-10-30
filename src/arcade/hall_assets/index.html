@@ -15,6 +15,7 @@
   <span id="where" aria-live="polite"></span>
   <button id="sound" type="button" aria-pressed="false" title="The hall's sound (off by default)">Sound off</button>
   <button id="look" type="button" title="Turn by moving the mouse (Esc to stop)">Mouse look</button>
+  <button id="map-btn" type="button" aria-expanded="false" aria-controls="map" title="Map of the hall (M)">Map</button>
   <button id="help-btn" type="button" aria-expanded="false" aria-controls="help">?</button>
 </header>
 <div id="help" hidden>
@@ -22,6 +23,7 @@
   <p class="touch">Left thumb on the stick walks &middot; drag anywhere else to look &middot; tap a cabinet or the floor to walk there &middot; tap the button to play</p>
   <label class="opt"><input id="bob" type="checkbox"> Head bob while walking</label>
 </div>
+<canvas id="map" hidden width="180" height="180" aria-label="Map of the hall: you are the white dot. Click a cabinet to walk to it."></canvas>
 <aside id="card" hidden aria-live="polite">
   <div id="card-org"></div>
   <h2 id="card-title"></h2>
