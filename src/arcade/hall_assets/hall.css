@@ -49,4 +49,5 @@ body.touch #prompt { left: auto; right: max(16px, env(safe-area-inset-right)); t
 #player-title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #player-frame { flex: 1; width: 100%; border: 0; display: block; background: #000; }
 .nojs { position: fixed; inset: auto 16px 16px; }
-@media (max-width: 480px) { #look { display: none; } #where { font-size: 12px; } }
+body.touch #bar #look { display: none; }
+@media (max-width: 480px) { #bar #look { display: none; } #where { font-size: 12px; } }

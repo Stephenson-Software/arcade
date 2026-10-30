@@ -138,6 +138,10 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 
 ## The hall
 
+![The walkable hall in a desktop browser: the aisle of cabinets from just inside the door, each screen showing its game's poster.](docs/media/hall-walk-desktop.png)
+
+<img src="docs/media/hall-walk-iphone.png" width="260" alt="The hall on an iPhone: standing at the Tidewater cabinet after tapping it, with the walking stick bottom left and a Tap to play Tidewater button bottom right."> <img src="docs/media/hall-walk-desktop-cabinet.png" width="480" alt="At the Tidewater cabinet on a desktop: the prompt reads E Play Tidewater.">
+
 `https://play.<base>/hall/` is the README picture made walkable, drawn live by
 [Strata](https://github.com/Preponderous-Software/strata)'s web kit. It is opt-in: the landing page and
 the portal keep their lists, and link here with "Walk the hall".

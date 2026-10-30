@@ -21,7 +21,7 @@
   const EYE = 1.62;                 // eye height, metres
   const WALK = 2.4, RUN = 4.6;      // m/s
   const SUBSTEP = 0.04;
-  const REACH = 1.75;               // within this of a cabinet's front you can play it
+  const REACH = 2.3;               // within this of a cabinet's front you can play it
   const FOV = 62;                   // vertical, degrees (hall3d/main.cpp's default)
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }

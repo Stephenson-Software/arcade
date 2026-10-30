@@ -277,7 +277,7 @@
   function startPlace() {
     const at = params.get("at") || params.get("play");
     const c = at && layout.cabinets.find((k) => k.slug === at);
-    if (c) { const f = W.front(c); return {x: f.x, z: f.z, yaw: f.yaw, pitch: 0.12}; }
+    if (c) { const f = W.front(c, standOff()); return {x: f.x, z: f.z, yaw: f.yaw, pitch: 0.12}; }
     const hash = location.hash.startsWith("#p=") ? parsePlace(location.hash.slice(3)) : null;
     return hash || parsePlace(session.get(POS_KEY)) || W.spawn(layout);
   }
@@ -398,6 +398,9 @@
 
   /* ---------------------------------------------- the frame, each tick */
   let lastNow = 0, lastSave = 0, lastPrompt = "";
+  // How far in front of a cabinet to stop: further on a tall, narrow
+  // (portrait phone) view, so the whole cabinet stays in sight.
+  function standOff() { return canvas.clientWidth < canvas.clientHeight ? 1.9 : 1.15; }
   function view() {
     return {x: me.x, y: W.EYE, z: me.z, yaw: kit.cam.yaw, pitch: kit.cam.pitch,
       aspect: canvas.clientWidth / Math.max(canvas.clientHeight, 1), fov: W.FOV};
@@ -494,7 +497,7 @@
         if (!hit || document.pointerLockElement === canvas) return;
         if (hit.cabinet) {
           if (near === hit.cabinet) { play(hit.cabinet); return; }
-          target = W.front(hit.cabinet);
+          target = W.front(hit.cabinet, standOff());
         } else if (hit.floor) {
           const p = W.resolve(hit.floor.x, hit.floor.z, world);
           target = {x: p.x, z: p.z};
@@ -525,7 +528,7 @@
     get layout() { return layout; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) { me = Object.assign({}, me, W.resolve(x, z, world)); if (yaw != null) kit.cam.yaw = me.yaw = yaw; if (pitch != null) kit.cam.pitch = pitch; },
-    walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c); return !!c; },
+    walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
     play(slug) { play(layout.cabinets.find((k) => k.slug === slug)); },
     back: closeFrame,
     howFor(slug) { const c = layout.cabinets.find((k) => k.slug === slug); return c ? canFrame(c) : null; },
