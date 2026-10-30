@@ -396,3 +396,30 @@ def test_the_move_into_a_game_and_back():
         timeout=120,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_attract_mode_glow_and_sound():
+    """tests/browser/hall_life_test.cjs (plain node): attract-mode timing,
+    the shimmer and glow ranges, scanlines, and sound off by default."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_life_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_the_hall_page_loads_its_scripts_in_order():
+    with open(os.path.join(hall.ASSETS, "index.html")) as f:
+        page = f.read()
+    order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall.js"]
+    at = [page.index('src="%s"' % name) for name in order]
+    assert at == sorted(at)
+    assert 'id="sound"' in page and 'aria-pressed="false"' in page

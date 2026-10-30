@@ -143,6 +143,37 @@
 
   /* ------------------------------------------------------ the scene */
   const screenSlot = (i) => 100 + i, marqueeSlot = (i) => 400 + i;
+  let scenePoints = null;
+  // A cabinet's screen, at a brightness (its vertex colour: the attract-mode shimmer).
+  function screenQuad(c, i, b) {
+    const [x0, y0, x1, y1, z] = layout.cabinet.screen, fr = c.fr, q = new MeshBuilder();
+    q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1), [b, b, b]);
+    mesh(screenSlot(i), q, screenSlot(i), 1 /* STRATA_MESH_UNLIT */);
+  }
+
+  /* Attract mode (hall-life.js): now and then a screen shows its game's title
+     card instead of its poster, the nearest screens shimmer faintly and the
+     marquees' glow breathes. Nothing moves under reduced motion. */
+  const LIFE_STEP = 1 / 12;
+  let lifeAt = -1, attractIdx = -1;
+  function life(t) {
+    if (reducedMotion || !scenePoints || t - lifeAt < LIFE_STEP) return;
+    lifeAt = t;
+    const cs = layout.cabinets;
+    let k = HallLife.attract(t, cs.length);
+    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing)) k = -1;
+    if (k !== attractIdx) {
+      if (attractIdx >= 0 && cs[attractIdx].posterPx) texture(screenSlot(attractIdx), SCREEN_TEX[0], SCREEN_TEX[1], cs[attractIdx].posterPx, TEX_MIPS | TEX_CLAMP);
+      if (k >= 0) texture(screenSlot(k), SCREEN_TEX[0], SCREEN_TEX[1], cs[k].titlePx, TEX_MIPS | TEX_CLAMP);
+      attractIdx = k;
+      state.attract = k >= 0 ? cs[k].slug : null;
+    }
+    cs.forEach((c, i) => {
+      if (me && Math.hypot(c.x - me.x, c.z - me.z) < 8) screenQuad(c, i, HallLife.flicker(t, i));
+      scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i);
+    });
+    rows(mod._hall_set_points, scenePoints);
+  }
   function buildScene() {
     const body = new MeshBuilder();
     const cab = layout.cabinet, items = [], points = [];
@@ -157,16 +188,18 @@
       items.push([3, ...P(-0.22, 1.17, 0.53), 0.07, 0.07, 0.07, 0.85, 0.12, 0.12]);
       [[0.95, 0.85, 0.2], c.colour, [0.25, 0.75, 0.35]].forEach((col, k) =>
         items.push([2, ...P(0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k), 0.07, 0.025, 0.07, ...col]));
+      c.glowPoint = points.length;
       points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
-      texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], titleCard(c), TEX_MIPS | TEX_CLAMP);
+      c.titlePx = titleCard(c);
+      texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], c.titlePx, TEX_MIPS | TEX_CLAMP);
       texture(marqueeSlot(i), MARQUEE_TEX[0], MARQUEE_TEX[1], marquee(c), TEX_MIPS | TEX_CLAMP);
-      for (const [rect, slot] of [[cab.screen, screenSlot(i)], [cab.marquee, marqueeSlot(i)]]) {
-        const [x0, y0, x1, y1, z] = rect, q = new MeshBuilder();
-        q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1));
-        mesh(slot, q, slot, 1 /* STRATA_MESH_UNLIT */);
-      }
+      screenQuad(c, i, 1);
+      const [x0, y0, x1, y1, z] = cab.marquee, q = new MeshBuilder();
+      q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1));
+      mesh(marqueeSlot(i), q, marqueeSlot(i), 1 /* STRATA_MESH_UNLIT */);
     });
+    scenePoints = points;
     mesh(0, body);
     buildRoom(points);
     rows(mod._hall_set_items, items);
@@ -272,8 +305,9 @@
           const s = Math.max(w / img.naturalWidth, h / img.naturalHeight);
           const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
           ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-          const px = pixels(ctx, w, h);
-          texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
+          const px = HallLife.scanlines(pixels(ctx, w, h), w, h);
+          c.posterPx = px;
+          if (i !== attractIdx) texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
           c.glow = glowOf(px);
           setLights();
           state.posters++;
@@ -398,12 +432,14 @@
         document.body.classList.remove("moving");
         $("back").focus();
         kit.running = false;  // the hall rests under the game
+        hum.pause(true);
         state.lastShown = playing.slug;
       } else if (e === "unload-frame") unloadFrame();
       else if (e === "navigate") location.assign(playing.url);
       else if (e === "switch") location.assign(switchUrl(playing));
       else if (e === "idle") {
         state.lastBack = playing ? playing.slug : null;
+        hum.pause(document.hidden);
         playing = null;
         document.body.classList.remove("moving");
         if (standAt) Object.assign(kit.cam, {yaw: standAt.yaw, pitch: standAt.pitch, tx: standAt.x, ty: standAt.y, tz: standAt.z});
@@ -428,6 +464,27 @@
     tr.back(nowMs());
   }
   $("back").addEventListener("click", closeFrame);
+
+  /* The hall's sound: off until asked for, remembered, quiet while a game plays. */
+  const SOUND_KEY = "arcade-hall.sound", hum = HallLife.hum(), soundBtn = $("sound");
+  function showSound() {
+    soundBtn.setAttribute("aria-pressed", String(hum.on));
+    soundBtn.textContent = hum.on ? "Sound on" : "Sound off";
+  }
+  soundBtn.addEventListener("click", () => {
+    hum.set(!hum.on);
+    StrataKit.store.set(SOUND_KEY, hum.on ? "1" : "0");
+    showSound();
+    canvas.focus({preventScroll: true});
+  });
+  // A remembered "on" still waits for a tap: browsers start sound only on one.
+  if (StrataKit.store.get(SOUND_KEY) === "1") {
+    const first = () => { if (!hum.on) { hum.set(true); showSound(); } };
+    window.addEventListener("pointerdown", first, {once: true, capture: true});
+    window.addEventListener("keydown", first, {once: true, capture: true});
+  }
+  document.addEventListener("visibilitychange", () => hum.pause(document.hidden || document.body.classList.contains("playing")));
+  showSound();
   // "Open full page": a short fade before the page goes.
   $("player-open").addEventListener("click", (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
@@ -539,6 +596,7 @@
   }
   function tick(t, now, dt) {
     if (!me) return;
+    life(t);
     if (tr) {
       const u = stepPlay(now);
       if (u.state !== "idle") {
@@ -708,6 +766,7 @@
     get move() { return tr ? tr.state : null; },
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
+    get sound() { return {on: hum.on, running: hum.running}; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) {
       me = Object.assign({}, me, W.resolve(x, z, world), {vx: 0, vz: 0, speed: 0});
