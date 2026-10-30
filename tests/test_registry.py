@@ -223,3 +223,15 @@ def test_a_canonical_that_is_not_a_plain_https_url_is_refused(value):
     with pytest.raises(registry.RegistryError) as error:
         registry.loads(registryText([game(canonical=value)]), domain=DOMAIN)
     assert "must be an https URL" in str(error.value)
+
+
+def test_added_is_an_optional_day():
+    loaded = registry.loads(registryText([game("tidewater", added="2026-10-24"), game("cave")]))
+    assert loaded.get("tidewater").added.isoformat() == "2026-10-24"
+    assert loaded.get("cave").added is None
+
+
+@pytest.mark.parametrize("bad", ["2026-13-01", "2026-02-30", "26-10-24", "2026-10-24T00:00:00Z", "yesterday"])
+def test_added_must_be_a_real_day(bad):
+    with pytest.raises(registry.RegistryError, match="line 2: added for 'tidewater' must be a date"):
+        registry.loads(registryText([game("tidewater", added=bad)]))

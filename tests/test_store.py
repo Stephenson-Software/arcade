@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 
@@ -68,7 +69,7 @@ def test_a_failed_write_leaves_nothing_behind(tmp_path, monkeypatch):
         store.add("tidewater", "1.1.0", bundleFiles("1.1.0"))
     monkeypatch.undo()
     assert store.current("tidewater") == "1.0.0"
-    assert sorted(os.listdir(str(tmp_path / "tidewater"))) == ["1.0.0", "current"]
+    assert sorted(os.listdir(str(tmp_path / "tidewater"))) == [".added", "1.0.0", "current"]
 
 
 def test_rejects_bad_versions_and_partial_bundles(tmp_path):
@@ -211,7 +212,7 @@ def test_a_failed_pointer_write_keeps_the_previous_version_live(tmp_path, monkey
         store.setCurrent("tidewater", "2")
     monkeypatch.undo()
     assert store.current("tidewater") == "1"
-    assert sorted(os.listdir(str(tmp_path / "tidewater"))) == ["1", "2", "current"]
+    assert sorted(os.listdir(str(tmp_path / "tidewater"))) == [".added", "1", "2", "current"]
 
 
 def test_a_failed_counter_write_keeps_the_count_and_leaves_no_temporary(tmp_path, monkeypatch):
@@ -233,7 +234,7 @@ def test_a_failed_static_write_leaves_nothing_behind(tmp_path, monkeypatch):
         store.add("rps", "2", {"index.html": b"i", "version.txt": b"2\n", "a/b.js": b"b"}, static=True)
     monkeypatch.undo()
     assert store.current("rps") == "1"
-    assert sorted(os.listdir(str(tmp_path / "rps"))) == ["1", "current"]
+    assert sorted(os.listdir(str(tmp_path / "rps"))) == [".added", "1", "current"]
 
 
 def test_prune_counts_per_game_and_keep_one_holds_only_the_live_version(tmp_path):
@@ -257,3 +258,60 @@ def test_site_path_refuses_a_link_out_of_the_version(tmp_path):
     os.symlink(str(outside), str(tmp_path / "data" / "rps" / "1" / "leak.txt"))
     assert store.sitePath("rps", "1", "leak.txt") is None
     assert store.sitePath("rps", "1", "index.html") is not None
+
+
+def test_the_first_upload_is_recorded_and_kept(tmp_path):
+    store = Store(str(tmp_path), keep=2)
+    assert store.added("tidewater") is None
+    store.add("tidewater", "1", bundleFiles("1"))
+    first = store.added("tidewater")
+    assert first is not None and abs(first / 1e9 - time.time()) < 60
+    # Later uploads, and pruning the first version away, leave it alone.
+    for version in ("2", "3", "4"):
+        store.add("tidewater", version, bundleFiles(version))
+    assert "1" not in store.versions("tidewater")
+    assert store.added("tidewater") == first
+
+
+def _setUploaded(store, slug, version, ns):
+    with open(os.path.join(store.versionDirectory(slug, version), ".uploaded"), "w") as f:
+        f.write(str(ns))
+
+
+def _forgetAdded(store, slug):
+    os.unlink(os.path.join(str(store.root), slug, ".added"))
+
+
+def test_a_slug_from_before_the_record_uses_its_oldest_version_while_none_was_pruned(tmp_path):
+    store = Store(str(tmp_path), keep=3)
+    store.add("tidewater", "1", bundleFiles("1"))
+    store.add("tidewater", "2", bundleFiles("2"))
+    _forgetAdded(store, "tidewater")
+    _setUploaded(store, "tidewater", "1", 1000 * 10 ** 9)
+    _setUploaded(store, "tidewater", "2", 2000 * 10 ** 9)
+    assert store.added("tidewater") == 1000 * 10 ** 9
+    # The next upload writes it down, so pruning cannot lose it.
+    store.add("tidewater", "3", bundleFiles("3"))
+    store.add("tidewater", "4", bundleFiles("4"))
+    assert "1" not in store.versions("tidewater")
+    assert store.added("tidewater") == 1000 * 10 ** 9
+
+
+def test_a_slug_pruned_before_the_record_is_unknown_and_not_made_new(tmp_path):
+    store = Store(str(tmp_path), keep=2)
+    store.add("tidewater", "1", bundleFiles("1"))
+    store.add("tidewater", "2", bundleFiles("2"))
+    _forgetAdded(store, "tidewater")
+    # As many versions as are kept: the first may be long gone.
+    assert store.added("tidewater") is None
+    store.add("tidewater", "3", bundleFiles("3"))
+    assert store.added("tidewater") is None
+    assert ".added" not in os.listdir(os.path.join(str(tmp_path), "tidewater"))
+
+
+def test_added_is_never_a_version(tmp_path):
+    store = Store(str(tmp_path))
+    store.add("tidewater", "1", bundleFiles("1"))
+    assert store.versions("tidewater") == ["1"]
+    with pytest.raises(NoSuchVersion):
+        store.versionDirectory("tidewater", ".added")

@@ -1,7 +1,9 @@
+import datetime
 import http.client
 import json
 import os
 import threading
+import time
 
 import pytest
 
@@ -30,7 +32,7 @@ def arcade(tmp_path):
         registryText(
             [
                 game("tidewater", aliases=["tidewater.example.org"], canonical="https://example.com/play/tidewater"),
-                game("overwinter", token_sha256=OTHER_SHA),
+                game("overwinter", token_sha256=OTHER_SHA, added="2026-10-01"),
                 game("rps", kind="static", canonical="https://example.com/play/rps"),
                 game("pthreads", kind="static", isolation="on"),
             ]
@@ -732,3 +734,16 @@ def test_api_errors_carry_the_isolation_headers(arcade):
     assert [response.status for response in responses] == [401, 403, 400, 404, 404]
     for response in responses:
         assertIsolated(response)
+
+
+def test_games_report_when_they_joined_the_arcade(arcade):
+    games = {g["slug"]: g for g in json.loads(request(arcade, "GET", API, "/api/games")[1])["games"]}
+    # The registry's added: day wins; nothing uploaded and no added: is unknown.
+    assert games["overwinter"]["added"] == "2026-10-01T00:00:00Z"
+    assert games["tidewater"]["added"] is None
+    before = time.time()
+    upload(arcade)
+    added = json.loads(request(arcade, "GET", API, "/api/games/tidewater")[1])["added"]
+    # The first upload, to the second, in UTC.
+    moment = datetime.datetime.strptime(added, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    assert before - 1 <= moment.timestamp() <= time.time() + 1
