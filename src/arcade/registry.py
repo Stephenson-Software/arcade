@@ -18,6 +18,7 @@ database").
         kind: tak                            # optional: tak (default) or static
         isolation: on                        # optional: on/off (see below)
         canonical: https://example.com/play/tidewater   # optional (see below)
+        added: 2026-10-01                    # optional (see below)
 
 `games: []` is an empty registry.
 
@@ -38,7 +39,16 @@ at its slug host, its aliases and the portal page that frames it, so search
 engines see the same game at several addresses. When set, every HTML response
 for the game carries `Link: <url>; rel="canonical"`, which names one address
 as the original. Leave it out and no Link header is sent.
+
+added: the day (YYYY-MM-DD) the game joined the arcade. /api/games reports
+it as `added`, and the hall puts a NEW ribbon on a game added in the last
+two weeks. Without it, arcade uses the time of the game's first upload,
+which it records itself (arcade.store.Store.added); for a game uploaded
+before arcade kept that record and since pruned to its last few versions,
+the day is unknown until it is given here.
 """
+
+import datetime
 
 import re
 
@@ -55,7 +65,8 @@ CANONICAL_PATTERN = re.compile(r"^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?$"
 RESERVED_SLUGS = frozenset(("play", "www", "api", "arcade", "admin", "static"))
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
-OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical")
+OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added")
+ADDED_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KINDS = ("tak", "static")
 _SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
 KNOWN_KEYS = REQUIRED_KEYS + OPTIONAL_KEYS
@@ -66,10 +77,20 @@ class RegistryError(ValueError):
 
 
 class Game(object):
-    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical")
+    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical", "added")
 
     def __init__(
-        self, slug, title, repo, tokenSha256, owner=None, aliases=(), kind="tak", isolation=None, canonical=None
+        self,
+        slug,
+        title,
+        repo,
+        tokenSha256,
+        owner=None,
+        aliases=(),
+        kind="tak",
+        isolation=None,
+        canonical=None,
+        added=None,
     ):
         self.slug = slug
         self.title = title
@@ -80,6 +101,7 @@ class Game(object):
         self.kind = kind
         self.isolation = (kind == "tak") if isolation is None else bool(isolation)
         self.canonical = canonical
+        self.added = added  # a datetime.date, or None
 
     def __repr__(self):
         return "Game(%r)" % self.slug
@@ -268,6 +290,16 @@ def validate(entries, domain=None):
             raise RegistryError(
                 "line %d: canonical for %r must be an https URL, got %r" % (lineNumber, slug, canonical)
             )
+        added = None
+        if "added" in entry:
+            try:
+                if not ADDED_PATTERN.match(entry["added"]):
+                    raise ValueError(entry["added"])
+                added = datetime.date(*(int(part) for part in entry["added"].split("-")))
+            except ValueError:
+                raise RegistryError(
+                    "line %d: added for %r must be a date, YYYY-MM-DD, got %r" % (lineNumber, slug, entry["added"])
+                )
         games.append(
             Game(
                 slug=slug,
@@ -279,6 +311,7 @@ def validate(entries, domain=None):
                 kind=kind,
                 isolation=isolation,
                 canonical=canonical,
+                added=added,
             )
         )
     return Registry(games)

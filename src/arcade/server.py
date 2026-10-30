@@ -28,6 +28,7 @@ SharedArrayBuffer does not exist. The one exception is a `static` game with
 isolation off, whose responses carry none of the three.
 """
 
+import datetime
 import hashlib
 import hmac
 import http.server
@@ -177,6 +178,18 @@ class RegistryHolder(object):
     def registry(self):
         self.refresh()
         return self._registry
+
+
+def addedOf(game, store):
+    """When the game joined the arcade, as an ISO 8601 UTC time ("...Z"), or
+    None: the registry's `added:` day if given, else its first upload."""
+    if game.added is not None:
+        return game.added.isoformat() + "T00:00:00Z"
+    stamp = store.added(game.slug)
+    if stamp is None:
+        return None
+    moment = datetime.datetime.fromtimestamp(stamp / 1e9, datetime.timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def hashToken(token):
@@ -592,6 +605,7 @@ def makeHandler(arcade):
                 "current": arcade.store.current(game.slug),
                 "versions": arcade.store.versions(game.slug),
                 "plays": arcade.store.plays(game.slug),
+                "added": addedOf(game, arcade.store),
             }
 
         def _authorise(self, slug):

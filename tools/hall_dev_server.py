@@ -52,6 +52,8 @@ def main():
             "    kind: static",
             "    isolation: %s" % ("on" if g.get("isolation") else "off"),
         ]
+        if g.get("added"):  # the day it joined, so NEW ribbons match the live hall
+            lines.append("    added: %s" % g["added"][:10])
     registry = os.path.join(work, "games.yaml")
     with open(registry, "w") as f:
         f.write("\n".join(lines) + "\n")

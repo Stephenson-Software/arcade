@@ -6,6 +6,7 @@
     <root>/<slug>/<version>/version.txt
     <root>/<slug>/<version>/.uploaded     (time.time_ns() at upload, for pruning)
     <root>/<slug>/current                 (the live version's name)
+    <root>/<slug>/.added                  (time.time_ns() of the slug's first upload)
 
 A version is written into a temporary directory and renamed into place, and
 `current` is replaced atomically, so a crash mid-upload leaves the previous
@@ -30,6 +31,7 @@ DEFAULT_KEEP = 5
 _UPLOADED = ".uploaded"
 _CURRENT = "current"
 _PLAYS = "plays"
+_ADDED = ".added"  # a dotfile: never a version name (VERSION_PATTERN)
 
 
 class VersionExists(Exception):
@@ -147,17 +149,63 @@ class Store(object):
             # Each compressible file's .gz sibling, once, so serving it never
             # compresses anything (arcade.precompress).
             precompress.precompressTree(staging)
+            uploaded = time.time_ns()
             with open(os.path.join(staging, _UPLOADED), "w") as stamp:
-                stamp.write(str(time.time_ns()))
+                stamp.write(str(uploaded))
             with self._lock:
                 if os.path.exists(final):
                     raise VersionExists(version)
+                self._recordAdded(slug, uploaded)
                 os.rename(staging, final)
                 if activate:
                     self._writeCurrent(slug, version)
                 self._prune(slug)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+    def added(self, slug):
+        """When the slug's first version was uploaded (time.time_ns()), or
+        None when that is not known. Recorded in .added at the first upload;
+        for a slug uploaded before arcade kept that record, its oldest
+        version's upload time, but only while no version has ever been
+        pruned (fewer than `keep`), since after that the first is gone."""
+        try:
+            with open(os.path.join(self._slugDirectory(slug), _ADDED), "r") as stamp:
+                return int(stamp.read().strip())
+        except (OSError, ValueError):
+            pass
+        return self._oldestUpload(slug)
+
+    def _oldestUpload(self, slug):
+        versions = self.versions(slug)
+        if not versions or len(versions) >= self.keep:
+            return None
+        try:
+            with open(os.path.join(self._slugDirectory(slug), versions[0], _UPLOADED), "r") as stamp:
+                return int(stamp.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    def _recordAdded(self, slug, now):
+        """Under the lock, before a new version lands: write .added if it is
+        missing and the first upload is known (this one, or an old one)."""
+        path = os.path.join(self._slugDirectory(slug), _ADDED)
+        if os.path.exists(path):
+            return
+        first = now if not self.versions(slug) else self._oldestUpload(slug)
+        if first is None:
+            return  # pruned before arcade kept the record: the registry's added: says
+        handle, temporary = tempfile.mkstemp(prefix=".added-", dir=self._slugDirectory(slug))
+        try:
+            with os.fdopen(handle, "w") as out:
+                out.write("%d\n" % first)
+            os.replace(temporary, path)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
             raise
 
     def plays(self, slug):

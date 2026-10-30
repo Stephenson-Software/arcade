@@ -83,6 +83,7 @@ games:
     kind: tak                            # optional: tak (default) or static
     isolation: on                        # optional: on/off (see Bundle kinds)
     canonical: https://danielstephenson.dev/play/tidewater   # optional
+    added: 2026-10-01                    # optional: the day it joined the arcade
 ```
 
 `canonical` is the game's main public page, as an https URL. A game can be reached at its slug
@@ -90,10 +91,17 @@ host, its aliases and the portal page that frames it; when `canonical` is set, e
 for the game names this one address with a `Link: <url>; rel="canonical"` header, so search engines
 index it once. Leave it out and no Link header is sent.
 
+`added` is the day (`YYYY-MM-DD`) the game joined the arcade. `/api/games` reports it as `added`
+(ISO 8601 UTC, `"2026-10-01T00:00:00Z"`, or `null` when unknown), and the hall puts a NEW ribbon on
+the marquee of a game added in the last 14 days. Without it, arcade uses the game's first upload,
+which it records in `<data>/<slug>/.added` from now on; a game uploaded before that record existed
+uses its oldest stored version while none has been pruned, and is otherwise unknown (never NEW) until
+`added:` is given.
+
 The parser is deliberately strict: it accepts only this subset of YAML, and it refuses unknown keys,
 duplicate slugs, reserved slugs (`play`, `www`, `api`, `arcade`, `admin`, `static`), malformed
 hashes, aliases under the arcade's own domain or claimed twice, an unknown `kind`, an `isolation`
-other than on/off (or off for a tak game), and a `canonical` that is not an https URL, each with its
+other than on/off (or off for a tak game), a `canonical` that is not an https URL, and an `added` that is not a real day, each with its
 line number. arcade picks up changes to the file without a restart. A file that stops parsing is
 logged and ignored, and the last good registry stays in force.
 

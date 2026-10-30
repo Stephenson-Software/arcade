@@ -171,11 +171,30 @@
     ctx.fillStyle = "rgb(12,10,18)"; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = `rgb(${rgb255(c.colour)})`; ctx.lineWidth = 4; ctx.strokeRect(5, 5, w - 10, h - 10);
     const text = c.title.toUpperCase();
-    fitFont(ctx, text, w - 48, 62);
+    // Clear of the NEW sash in the top-right corner when there is one.
+    const [x0, x1] = c.new ? [24, w - 120] : [24, w - 24];
+    fitFont(ctx, text, x1 - x0, 62);
     ctx.fillStyle = `rgb(${c.colour.map((v) => Math.round(255 * (0.55 + 0.45 * v)))})`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(text, w / 2, h / 2 + 2);
+    ctx.fillText(text, (x0 + x1) / 2, h / 2 + 2);
+    if (c.new) newRibbon(ctx, w, h);
     return pixels(ctx, w, h);
+  }
+  /* A "NEW" sash across the marquee's top-right corner, for a game added in
+     the last two weeks (hall.py is_new, from /api/games' added). */
+  function newRibbon(ctx, w, h) {
+    const band = 40, at = 70;  // the sash's width, and how far in from the corner its middle runs
+    ctx.save();
+    ctx.translate(w - at, at);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = "rgb(255,214,64)";
+    ctx.fillRect(-at * 1.6, -band / 2, at * 3.2, band);
+    ctx.fillStyle = "rgb(214,40,92)";
+    ctx.fillRect(-at * 1.6, -band / 2 + 3, at * 3.2, band - 6);
+    ctx.font = `bold 27px "DejaVu Sans", Verdana, system-ui, sans-serif`;
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("NEW", 0, 2);
+    ctx.restore();
   }
   // The light a screen casts: its mean colour, lifted (make_hall_media.py build()).
   function glowOf(rgba) {

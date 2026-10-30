@@ -644,3 +644,37 @@ def test_the_hall_has_a_share_button_that_links_to_the_spot(running):
     assert "__hall.place" not in script and "cam.yaw" not in script
     res, _ = get(running(), "/hall/hall-share.js")
     assert res.status == 200 and res.getheader("Content-Type").startswith("text/javascript")
+
+
+def test_a_game_added_in_the_last_two_weeks_is_new():
+    import datetime
+
+    now = datetime.datetime(2026, 10, 29, 20, 0, tzinfo=datetime.timezone.utc)
+    assert hall.is_new("2026-10-24T00:00:00Z", now)
+    assert hall.is_new("2026-10-15T20:00:01Z", now)
+    assert not hall.is_new("2026-10-15T20:00:00Z", now)  # exactly 14 days
+    assert not hall.is_new("2026-10-01T00:00:00Z", now)
+    assert not hall.is_new("2026-11-02T00:00:00Z", now)  # not yet
+    for unknown in (None, "", "soon", 5):
+        assert not hall.is_new(unknown, now)
+
+
+def test_served_layout_marks_new_cabinets_from_api_added(monkeypatch):
+    import datetime
+
+    now = datetime.datetime(2026, 10, 29, 20, 0, tzinfo=datetime.timezone.utc)
+    games = [dict(g) for g in GAMES]
+    added = {"familiar": "2026-10-24T00:00:00Z", "tidewater": "2026-10-01T00:00:00Z", "roam": None}
+    for g in games:
+        if g["slug"] in added:
+            g["added"] = added[g["slug"]]
+    by = {c["slug"]: c for c in hall.served_layout(games, "off", now=now)["cabinets"]}
+    assert by["familiar"]["new"] is True and by["familiar"]["added"] == "2026-10-24T00:00:00Z"
+    assert by["tidewater"]["new"] is False and by["roam"]["new"] is False
+    assert by["env-lib-cpp"]["new"] is False and by["env-lib-cpp"]["added"] is None
+
+
+def test_the_marquee_carries_a_new_ribbon():
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        page = f.read()
+    assert "if (c.new) newRibbon(ctx, w, h);" in page and '"NEW"' in page

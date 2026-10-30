@@ -23,6 +23,7 @@ front faces (sin a, 0, cos a).
 Standard library only: the server imports it.
 """
 
+import datetime
 import hashlib
 import html
 import json
@@ -330,6 +331,7 @@ def layout(games, style=None):
                 "z": round(pos[2], 4),
                 "angle": round(angle, 6),
                 "featured": game["slug"] == FEATURED,
+                "added": game.get("added"),
             }
         )
     return {
@@ -418,16 +420,36 @@ def asset_path(name):
     return path if os.path.isfile(path) else None
 
 
+NEW_DAYS = 14
+
+
+def is_new(added, now=None):
+    """Whether a game `added` (/api/games' ISO 8601 UTC time, or None) joined
+    the arcade in the last NEW_DAYS days, at `now` (default: this moment)."""
+    if not added:
+        return False
+    try:
+        when = datetime.datetime.strptime(added[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    age = now - when
+    return datetime.timedelta(0) <= age < datetime.timedelta(days=NEW_DAYS)
+
+
 def served_layout(games, embed, season=None, now=None):
     """layout.json: the layout, plus each cabinet's poster when arcade has
-    one, and whether games are played in a frame (embed) and whether the hall
-    may reload itself to match a game's isolation (modes). The season in
-    force at `now` in Denver (or the one `season` names: ?season=) tints the
-    lights and adds its decor (arcade.seasons)."""
+    one, whether it is new (a NEW ribbon on its marquee: added in the last
+    NEW_DAYS days, at `now`), and whether games are played in a frame (embed)
+    and whether the hall may reload itself to match a game's isolation
+    (modes). The season in force at `now` in Denver (or the one `season`
+    names: ?season=) tints the lights and adds its decor (arcade.seasons)."""
     which = seasons.pick(now, season)
     doc = layout(games, seasons.style(which, STYLE))
     lines = blurbs()
     for cabinet in doc["cabinets"]:
+        cabinet["new"] = is_new(cabinet.get("added"), now)
         cabinet["org"] = cabinet["repo"].split("/")[0]
         cabinet["blurb"] = lines.get(cabinet["slug"])
         has = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".jpg"))
