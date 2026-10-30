@@ -45,3 +45,32 @@ jobs:
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/healthz && break; sleep 1; done
           curl -fsS http://127.0.0.1:8080/healthz
           test "$(docker inspect -f '{{.State.Running}}' arcade)" = true
+
+  engine:
+    # The hall's engine (hall3d/main.cpp) is committed built
+    # (src/arcade/hall_assets/hall-engine.*), so the image needs no build step.
+    # This rebuilds it with the pinned emsdk and Strata release and fails if
+    # the result differs from what is committed: the build is reproducible
+    # (gzip -n, fixed toolchain), so a difference means a stale engine.
+    name: engine (the committed wasm is what hall3d builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: emsdk 6.0.11
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.11
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.11
+      - name: Build the hall's engine
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          cmake --version | head -1
+          bash hall3d/build.sh
+      - name: The committed engine matches the build
+        run: |
+          sha256sum src/arcade/hall_assets/hall-engine.*
+          if ! git diff --quiet -- src/arcade/hall_assets/; then
+            git diff --stat -- src/arcade/hall_assets/
+            echo "::error::src/arcade/hall_assets/hall-engine.* differ from hall3d/main.cpp's build; run hall3d/build.sh and commit the result"
+            exit 1
+          fi

@@ -458,3 +458,25 @@ def test_every_live_game_has_a_poster():
         slugs = [c["slug"] for c in json.load(f)["cabinets"]]
     missing = [s for s in slugs if not os.path.isfile(os.path.join(hall.POSTERS, s + ".jpg"))]
     assert missing == []
+
+
+def test_every_engine_export_is_in_the_build_and_used_by_the_page():
+    import re
+
+    with open(os.path.join(ROOT, "hall3d", "main.cpp")) as f:
+        exports = set(re.findall(r"STRATA_KIT_EXPORT\s+\w+\s+(hall_\w+)\(", f.read()))
+    with open(os.path.join(ROOT, "hall3d", "build.sh")) as f:
+        listed = set(re.search(r"KIT_EXPORTS=(\S+)", f.read()).group(1).split(","))
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        page = f.read()
+    assert exports and {"_" + e for e in exports} <= listed
+    for name in exports:
+        assert "mod._%s" % name in page, name
+
+
+def test_the_engine_starts_lighter_on_a_software_renderer():
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        page = f.read()
+    # Multisampling off, economy (half density, no point lights) from the start.
+    assert "llvmpipe" in page and "swiftshader" in page.lower()
+    assert "mod._hall_configure(" in page and "setEconomy(true)" in page

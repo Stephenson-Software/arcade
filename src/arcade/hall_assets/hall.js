@@ -91,6 +91,41 @@
       ];
       for (const [n, cs] of faces) this.quad(cs.map((c) => fr.p(...c)), fr.n(...n), colour);
     }
+    tri(a, b, c, na, nb, nc, colour) {
+      const base = this.positions.length / 3;
+      for (const [p, n] of [[a, na], [b, nb], [c, nc]]) {
+        this.positions.push(...p); this.normals.push(...n); this.colors.push(...colour); this.uvs.push(0, 0);
+      }
+      this.indices.push(base, base + 1, base + 2);
+    }
+    // An upright cylinder in a cabinet's frame: centre (x, y, z), diameter d, height h.
+    cylinder(fr, x, y, z, d, h, colour, sides = 10) {
+      const r = d / 2, y0 = y - h / 2, y1 = y + h / 2;
+      for (let k = 0; k < sides; k++) {
+        const a0 = k / sides * 2 * Math.PI, a1 = (k + 1) / sides * 2 * Math.PI;
+        const c0 = [Math.cos(a0), Math.sin(a0)], c1 = [Math.cos(a1), Math.sin(a1)];
+        const P = (c, yy) => fr.p(x + r * c[0], yy, z + r * c[1]), N = (c) => fr.n(c[0], 0, c[1]);
+        this.tri(P(c0, y0), P(c1, y1), P(c1, y0), N(c0), N(c1), N(c1), colour);
+        this.tri(P(c0, y0), P(c0, y1), P(c1, y1), N(c0), N(c0), N(c1), colour);
+        const up = fr.n(0, 1, 0), down = fr.n(0, -1, 0);
+        this.tri(fr.p(x, y1, z), P(c1, y1), P(c0, y1), up, up, up, colour);
+        this.tri(fr.p(x, y0, z), P(c0, y0), P(c1, y0), down, down, down, colour);
+      }
+    }
+    // A ball in a cabinet's frame: centre (x, y, z), diameter d.
+    sphere(fr, x, y, z, d, colour, rings = 6, sides = 10) {
+      const r = d / 2;
+      const at = (i, k) => {
+        const th = i / rings * Math.PI, ph = k / sides * 2 * Math.PI;
+        const n = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+        return [fr.p(x + r * n[0], y + r * n[1], z + r * n[2]), fr.n(...n)];
+      };
+      for (let i = 0; i < rings; i++) for (let k = 0; k < sides; k++) {
+        const a = at(i, k), b = at(i + 1, k), c = at(i + 1, k + 1), e = at(i, k + 1);
+        this.tri(a[0], c[0], b[0], a[1], c[1], b[1], colour);
+        this.tri(a[0], e[0], c[0], a[1], e[1], c[1], colour);
+      }
+    }
   }
 
   /* --------------------------------------------- textures (hall.py too) */
@@ -182,12 +217,13 @@
       c.fr = fr;
       const roles = {body: cab.body, trim: cab.trim, bezel: cab.bezel, side: c.colour.map((v) => v * cab.sideShade)};
       for (const [lo, hi, role] of cab.boxes) body.box(fr, lo, hi, roles[role]);
-      // Joystick and buttons, as Strata primitives (make_hall_media.py controls()).
+      // Joystick and buttons (make_hall_media.py controls()), in the body mesh:
+      // one draw for every cabinet's parts, instead of five primitives each.
       const P = (x, y, z) => fr.p(x, y, z);
-      items.push([2, ...P(-0.22, 1.11, 0.53), 0.025, 0.10, 0.025, 0.1, 0.1, 0.1]);
-      items.push([3, ...P(-0.22, 1.17, 0.53), 0.07, 0.07, 0.07, 0.85, 0.12, 0.12]);
+      body.cylinder(fr, -0.22, 1.11, 0.53, 0.025, 0.10, [0.1, 0.1, 0.1], 6);
+      body.sphere(fr, -0.22, 1.17, 0.53, 0.07, [0.85, 0.12, 0.12]);
       [[0.95, 0.85, 0.2], c.colour, [0.25, 0.75, 0.35]].forEach((col, k) =>
-        items.push([2, ...P(0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k), 0.07, 0.025, 0.07, ...col]));
+        body.cylinder(fr, 0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k, 0.07, 0.025, col));
       c.glowPoint = points.length;
       points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
@@ -269,6 +305,7 @@
     return pixels(ctx, w, h);
   }
   function setLights() {
+    if (economy) { rows(mod._hall_set_lights, []); return; }
     const lights = layout.room.lights.slice();
     for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.2]);
     rows(mod._hall_set_lights, lights);
@@ -703,6 +740,48 @@
   }
 
   /* ------------------------------------------------------------ boot */
+  // A software renderer (llvmpipe, SwiftShader: no GPU, or a blocklisted one)
+  // draws every pixel on the CPU, where multisampling multiplies the work.
+  const SOFTWARE = /llvmpipe|softpipe|lavapipe|swiftshader|software|basic render/i;
+  function rendererName() {
+    try {
+      const gl = document.createElement("canvas").getContext("webgl2");
+      if (!gl) return "";
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+      const lose = gl.getExtension("WEBGL_lose_context");
+      if (lose) lose.loseContext();
+      return name;
+    } catch (e) { return ""; }
+  }
+  function configureEngine() {
+    const name = rendererName(), software = SOFTWARE.test(name);
+    const aa = params.has("aa") ? params.get("aa") === "1" : !software;
+    // Frames are kept for reading back only for tools that drive the hall (?drive=1).
+    mod._hall_configure(aa ? 1 : 0, params.get("drive") === "1" ? 1 : 0);
+    state.renderer = {name, software, antialias: aa};
+    return software;
+  }
+
+  /* Economy: below the kit's lowest tier, for a software renderer from the
+     start, or for any device still slow there. Half the pixel density, no
+     point lights (a brighter ambient instead; the screens, marquees and
+     ceiling panels are unlit and keep their glow), and no blur behind the
+     page's buttons. On llvmpipe this takes an 800x450 view from about 3 fps
+     (q0, antialiased, 6 lights) to about 60. */
+  const ECONOMY_SCALE = 0.5, ECONOMY_AMBIENT = 0.9;
+  let economy = false;
+  function setEconomy(on) {
+    economy = !!on;
+    state.economy = economy;
+    document.body.classList.toggle("lite", economy);
+    if (!kit) return;
+    if (economy) kit.dprCap = Math.min(kit.dprCap, ECONOMY_SCALE);
+    mod._hall_set_view(economy ? ECONOMY_AMBIENT : (layout.room.style ? layout.room.style.ambient : 0.32), W.FOV);
+    setLights();
+  }
+
+
   async function boot() {
     const res = await fetch("layout.json", {cache: "no-cache"});
     if (!res.ok) throw new Error("layout " + res.status);
@@ -717,12 +796,15 @@
       title: resuming ? resuming.title : "the arcade hall",
       poster: resuming && resuming.poster || "posters/roam.jpg", fallback: {href: "../", text: "See every game as a list"}});
     me = startPlace();
+    const software = configureEngine();
+    const wantEconomy = params.has("economy") ? params.get("economy") === "1" : software;
     kit = StrataKit.create({
       module: mod, canvas,
       camera: {yaw: me.yaw, pitch: me.pitch, dist: 1, tx: me.x, ty: W.EYE, tz: me.z},
       limits: {minPitch: -1.2, maxPitch: 1.2, minDist: 1, maxDist: 1},
       idleOrbit: false,
       dprCap: 1.5,
+      quality: wantEconomy ? 0 : undefined,
       frame: tick,
       after,
       onKey: () => true,  // the hall's own keys are on window
@@ -742,10 +824,12 @@
           target = {x: p.x, z: p.z};
         }
       },
-      onSlow: () => StrataLoader.slow(),
+      // Still slow at the lowest tier: economy first, then the loader's lighter offer.
+      onSlow: () => { if (!economy) setEconomy(true); else StrataLoader.slow(); },
       onFatal: (code, msg) => StrataLoader.fallback(code, msg),
     });
     buildScene();
+    if (wantEconomy) setEconomy(true);
     tr = HallPlay.machine({reduced: reducedMotion});
     if (resuming) {
       // Pick up the move where the other mode left it: at the screen, the game loading behind it.
@@ -779,6 +863,7 @@
     get move() { return tr ? tr.state : null; },
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
+    economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },
     get kit() { return kit; },
