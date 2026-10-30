@@ -4,6 +4,9 @@
 
 *Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the nearest cabinets have the most plays, and Roam is at the end of the aisle. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk down the aisle. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
 
+**[Walk the hall](https://play.danielstephenson.dev/hall/)**: the same hall in the browser, in real time. Walk
+up to a cabinet and play its game (see [The hall](#the-hall)).
+
 One static host for every browser game. arcade serves each game's page, bundle and kit assets at
 `<slug>.play.danielstephenson.dev`, with the cross-origin isolation headers the
 [tak](https://github.com/Stephenson-Software/tak) kit needs. A game deploys by uploading a versioned
@@ -133,6 +136,47 @@ It has no script and makes no external request (its `Content-Security-Policy` is
 out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 `ARCADE_LANDING_MODE=redirect` to answer `/` with the old 302 to `ARCADE_LANDING_URL` instead.
 
+## The hall
+
+![The walkable hall in a desktop browser: the aisle of cabinets from just inside the door, each screen showing its game's poster.](docs/media/hall-walk-desktop.png)
+
+<img src="docs/media/hall-walk-iphone.png" width="260" alt="The hall on an iPhone: standing at the Tidewater cabinet after tapping it, with the walking stick bottom left and a Tap to play Tidewater button bottom right."> <img src="docs/media/hall-walk-desktop-cabinet.png" width="480" alt="At the Tidewater cabinet on a desktop: the prompt reads E Play Tidewater.">
+
+`https://play.<base>/hall/` is the README picture made walkable, drawn live by
+[Strata](https://github.com/Preponderous-Software/strata)'s web kit. It is opt-in: the landing page and
+the portal keep their lists, and link here with "Walk the hall".
+
+- **The layout is shared with the picture.** `src/arcade/hall.py` orders the cabinets (Roam at the end of
+  the aisle, then the most played nearest the door), places them, colours their side panels by GitHub
+  organisation and describes a cabinet's parts. `tools/make_hall_media.py` draws the README picture from it,
+  and `GET /hall/layout.json` hands the same data, built from the live registry and play counts, to the page.
+- **Walking.** WASD or the arrow keys (Shift runs), drag to look, or *Mouse look* (pointer lock; Esc
+  stops). Click or tap a cabinet, or the floor, to walk there. On a phone: a stick under the left thumb, drag
+  anywhere else to look, tap to walk. Cabinets and walls are solid.
+- **Playing.** At a cabinet the hall shows its title and "Press E / tap to play". With
+  `ARCADE_HALL_EMBED=on` the game opens in a full-screen frame over the hall, with *Back to the hall*,
+  which returns to the same spot. A game that needs cross-origin isolation (tak games, Roam) can only be
+  framed by an isolated page, and a game without COOP/COEP cannot be framed by one, so the hall serves
+  itself in either mode (`/hall/?isolated=1` sends COOP/COEP; plain `/hall/` does not) and, when a game
+  needs the other mode, reloads itself in it with the game open. With `ARCADE_HALL_EMBED=off` (the
+  default) a game opens as its own page and the browser's Back button returns to the hall. Either way the
+  visitor's place is kept in the URL hash (`#p=x,z,yaw,pitch`) and in `sessionStorage`, and
+  `/hall/?at=<slug>` starts in front of a cabinet. Turning framing on needs each game's
+  `frame-ancestors` (the gateway's `game-headers`) to name `https://play.<base>` as well as the portal.
+- **Screens.** Each screen starts as a title card and gets its poster when it loads, nearest first.
+  Posters are `src/arcade/hall_assets/posters/<slug>.jpg` (512x288), served same-origin because
+  danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
+  refreshes them from the same sources as the picture. A game without one keeps its title card.
+- **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
+  (24, 12, 6 point lights; the nearest cabinets keep theirs). `?quality=0..2` pins a tier, `?fps=1`
+  shows frame time and counts.
+
+The page is `src/arcade/hall_assets/` (HTML, CSS and the page scripts; `hall-walk.js` holds the walking
+maths, with no DOM). The engine is `hall3d/main.cpp`, built by `hall3d/build.sh` (emsdk 6.0.11) against
+Strata v0.7.0's wasm release, whose tarball carries the web kit (1.1); the build output is committed, so
+the image still needs no build step. `python3 tools/hall_dev_server.py` serves the hall locally against
+a snapshot of the live registry.
+
 ## The API (on `play.<base>`)
 
 | Method | Path | Does |
@@ -212,6 +256,7 @@ change that removes that container's router, or Traefik will see two routers for
 | `ARCADE_TRACE_PROGRAM` | `arcade` |
 | `ARCADE_INTERNAL_HOST` | `arcade` (the only host that may read `/traefik/dynamic.json`) |
 | `ARCADE_TRAEFIK_SERVICE` | `arcade@docker` |
+| `ARCADE_HALL_EMBED` | `off` (games open as their own page) or `on` (in a frame over the hall; needs the games' `frame-ancestors` to allow `play.<base>`) |
 | `ARCADE_TRAEFIK_MIDDLEWARES` | `secure-headers@file` (comma-separated; the gateway sets a set that lets the portal frame games) |
 
 ### Usage reporting

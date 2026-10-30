@@ -7,6 +7,13 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- The walkable hall at `https://play.<base>/hall/`: the README's arcade hall, live in the browser on
+  Strata's web kit. Walk with WASD/arrows and mouse look, or a stick and tap-to-walk on a phone; walk up
+  to a cabinet and press E (or tap) to play. Games open in a frame over the hall with "Back to the hall"
+  (`ARCADE_HALL_EMBED=on`; the hall serves itself isolated or not to match each game) or as their own page
+  (the default), and the visitor's place is kept. `GET /hall/layout.json` serves the layout, which
+  `src/arcade/hall.py` now shares with `tools/make_hall_media.py`. The landing page links to it.
+
 - Pre-compressed files: every compressible file in an upload (`application/wasm`, HTML, JavaScript,
   CSS, plain text, JSON, web manifests, SVG; 1 KiB or more) gets a `<name>.gz` sibling at gzip level
   9, and a bundle's own `<name>.br` / `<name>.gz` are used as shipped. A request is answered from

@@ -40,9 +40,20 @@ import urllib.request
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
-import strata
+try:
+    import strata
+except ImportError:  # tools/make_hall_posters.py needs only the download helpers
+    strata = None
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+
+# The hall's layout (order, placements, colours, cabinet parts) is shared with
+# the walkable hall at /hall: src/arcade/hall.py.
+from arcade import hall  # noqa: E402
+from arcade.hall import (  # noqa: E402
+    BODY, MARQ, MARQUEE_TEX, SCREEN, SCREEN_TEX, TRIM, placements, poster_urls,
+)
 MEDIA = os.path.join(ROOT, "docs", "media")
 STILL = os.path.join(MEDIA, "arcade-hall.png")
 LOOP = os.path.join(MEDIA, "arcade-hall.gif")
@@ -51,29 +62,8 @@ CACHE = os.path.join(os.path.expanduser("~"), ".cache", "arcade-hall")
 RELEASE = "0.7.0"
 
 REGISTRY = "https://play.danielstephenson.dev/api/games"
-POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
-RAW = "https://raw.githubusercontent.com/{repo}/HEAD/{path}"
-# Games with no trailer poster yet: a picture from the game's own README.
-SCREEN_OVERRIDES = {
-    "viron-strata": "docs/media/web-public.png",
-}
-FEATURED = "roam"
-
-ORG_COLOURS = {
-    "Preponderous-Software": (0.48, 0.32, 0.95),
-    "Stephenson-Software": (0.07, 0.66, 0.74),
-    "dmccoystephenson": (0.98, 0.62, 0.05),
-}
-BODY = (0.075, 0.075, 0.10)
-TRIM = (0.035, 0.035, 0.05)
-
-SCREEN_TEX = (512, 288)
-MARQUEE_TEX = (512, 112)
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-SPACING = 1.42  # metres between cabinets along a wall
-WALL_X = 2.0  # distance of each wall's cabinets from the aisle's centre line
-TURN = math.radians(48)  # how far each cabinet turns from the wall towards the door
 
 
 # ---------------------------------------------------------------- the games
@@ -101,18 +91,9 @@ def cached(url, refresh):
         return f.read()
 
 
-def poster_name(repo):
-    """danielstephenson.dev names a trailer after the repository, in kebab case."""
-    name = repo.split("/")[1]
-    return re.sub(r"(?<=[a-z])([A-Z])", r"-\1", name).lower()
-
-
 def screen_image(game, refresh):
     """(PIL image, source URL) for a game's screen, or (None, None)."""
-    urls = [POSTER.format(poster_name(game["repo"])), POSTER.format(game["slug"])]
-    if game["slug"] in SCREEN_OVERRIDES:
-        urls.append(RAW.format(repo=game["repo"], path=SCREEN_OVERRIDES[game["slug"]]))
-    for url in urls:
+    for url in poster_urls(game):
         data = cached(url, refresh)
         if data:
             return Image.open(io.BytesIO(data)).convert("RGB"), url
@@ -162,11 +143,9 @@ def marquee(title, colour):
 
 def load_games(refresh):
     games = json.loads(fetch(REGISTRY))["games"]
-    featured = [g for g in games if g["slug"] == FEATURED]
-    rest = sorted((g for g in games if g["slug"] != FEATURED), key=lambda g: (-g.get("plays", 0), g["slug"]))
     out = []
-    for g in featured + rest:
-        colour = ORG_COLOURS.get(g["repo"].split("/")[0], (0.7, 0.7, 0.7))
+    for g in hall.order(games):
+        colour = hall.org_colour(g["repo"])
         img, url = screen_image(g, refresh)
         if img is None:
             img, url = title_card(g, colour), None
@@ -181,23 +160,6 @@ def load_games(refresh):
 
 
 # ---------------------------------------------------------------- geometry
-
-
-def placements(count):
-    """(position, facing angle) for the featured cabinet then the rest.
-
-    A cabinet's front faces (sin a, 0, cos a). The door is at +z; the aisle
-    runs towards -z with one wall of cabinets on each side."""
-    rest = count - 1
-    left = (rest + 1) // 2
-    end_z = -(left - 1) * SPACING - 2.1
-    out = [((0.0, 0.0, end_z), 0.0)]
-    for i in range(rest):
-        k = i // 2
-        side = -1 if i % 2 == 0 else 1
-        z = -k * SPACING - (0.0 if side < 0 else SPACING / 2)
-        out.append(((side * WALL_X, 0.0, z), -side * (math.pi / 2 - TURN)))
-    return out
 
 
 class Frame:
@@ -249,20 +211,10 @@ class MeshBuilder:
                                uvs=self.uvs if kw.get("texture") else None, **kw)
 
 
-SCREEN = (-0.42, 1.20, 0.42, 1.68, 0.305)  # x0, y0, x1, y1, z
-MARQ = (-0.47, 2.03, 0.47, 2.23, 0.405)
-
-
 def cabinet_body(mb, fr, colour):
-    side = tuple(0.85 * c for c in colour)
-    mb.box(fr, (-0.5, 0.0, -0.45), (0.5, 1.0, 0.36), BODY)  # pedestal
-    mb.box(fr, (-0.5, 0.94, 0.36), (0.5, 1.06, 0.70), TRIM)  # control deck
-    mb.box(fr, (-0.5, 1.06, -0.45), (0.5, 2.0, 0.30), BODY)  # screen housing
-    mb.box(fr, (-0.5, 2.0, -0.45), (0.5, 2.27, 0.40), TRIM)  # marquee box
-    mb.box(fr, (-0.47, 1.13, 0.295), (0.47, 1.75, 0.30), (0.01, 0.01, 0.015))  # bezel
-    for x in (-0.54, 0.5):
-        mb.box(fr, (x, 0.0, -0.47), (x + 0.04, 2.30, 0.72), side)  # side art
-    mb.box(fr, (-0.5, 0.0, 0.36), (0.5, 0.1, 0.40), side)  # kick plate
+    roles = {"body": BODY, "trim": TRIM, "bezel": hall.BEZEL, "side": tuple(hall.SIDE_SHADE * c for c in colour)}
+    for lo, hi, role in hall.CABINET_BOXES:
+        mb.box(fr, lo, hi, roles[role])
 
 
 def controls(fr, colour):
@@ -288,7 +240,8 @@ def checker(size=256, cells=8):
     return img
 
 
-def tex(engine, img, flags=strata.TEXTURE_MIPMAPS):
+def tex(engine, img, flags=None):
+    flags = strata.TEXTURE_MIPMAPS if flags is None else flags
     img = img.convert("RGBA")
     return engine.create_texture_rgba8(img.width, img.height, img.tobytes(), flags)
 

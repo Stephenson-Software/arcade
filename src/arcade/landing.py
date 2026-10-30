@@ -70,7 +70,8 @@ h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; }
 p { margin: 0 0 1.25rem; color: var(--muted); }
 .browse { display: inline-block; margin: 0 0 2rem; padding: .8rem 1.2rem; border-radius: .6rem;
   background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none; }
-.browse:focus-visible, li a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.hall { display: block; margin: -1.25rem 0 2rem; color: var(--accent); font-weight: 600; }
+.hall:focus-visible, .browse:focus-visible, li a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 h2 { font-size: 1.15rem; margin: 0 0 .75rem; }
 ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
 li { background: var(--card); border: 1px solid var(--line); border-radius: .6rem; min-width: 0; }
@@ -142,6 +143,7 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True):
 <h1>Play</h1>
 <p>Browser games by Daniel McCoy Stephenson. Nothing to install: pick one and it runs in this tab.</p>
 <a class="browse" href="%(portal)s">Browse all games &rarr; %(portalLabel)s</a>
+<a class="hall" href="/hall/">Walk the hall &rarr; every game as an arcade cabinet, in 3D</a>
 <h2>Games served here (%(count)d)</h2>
 <ul>
 %(listing)s

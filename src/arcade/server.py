@@ -38,7 +38,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, landing, precompress, registry as registryModule, routers
+from arcade import __version__, bundle, hall, landing, precompress, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -90,6 +90,7 @@ class Config(object):
         traefikService="arcade@docker",
         traefikMiddlewares=("secure-headers@file",),
         landingMode="page",
+        hallEmbed="off",
     ):
         self.domain = domain.lower().strip(".")
         self.dataDirectory = dataDirectory
@@ -101,6 +102,12 @@ class Config(object):
         if landingMode not in LANDING_MODES:
             raise ValueError("ARCADE_LANDING_MODE must be one of %s, not %r" % ("/".join(LANDING_MODES), landingMode))
         self.landingMode = landingMode
+        hallEmbed = (hallEmbed or "off").strip().lower()
+        if hallEmbed not in hall.EMBED_MODES:
+            raise ValueError("ARCADE_HALL_EMBED must be on or off, not %r" % hallEmbed)
+        # on: the hall plays a game in a frame over itself. Every game's host
+        # must then let play.<base> frame it (the gateway's frame-ancestors).
+        self.hallEmbed = hallEmbed == "on"
         self.maxUploadBytes = maxUploadBytes
         self.keep = keep
         # The name other containers reach arcade by. Only a request addressed
@@ -118,6 +125,7 @@ class Config(object):
             registryPath=environ.get("ARCADE_REGISTRY", "/config/games.yaml"),
             landingUrl=environ.get("ARCADE_LANDING_URL", "https://danielstephenson.dev/play"),
             landingMode=environ.get("ARCADE_LANDING_MODE", "page"),
+            hallEmbed=environ.get("ARCADE_HALL_EMBED", "off"),
             maxUploadBytes=int(environ.get("ARCADE_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)),
             keep=int(environ.get("ARCADE_KEEP_VERSIONS", "5")),
             internalHost=environ.get("ARCADE_INTERNAL_HOST", "arcade"),
@@ -373,12 +381,14 @@ def makeHandler(arcade):
         def _file(self, slug, version, name, contentType):
             self._stream(arcade.store.filePath(slug, version, name), contentType, '"%s-%s"' % (version, name))
 
-        def _stream(self, path, contentType, etag):
+        def _stream(self, path, contentType, etag, extra=(), backfill=True):
             """Send a stored file - or its .br/.gz sibling, if the client
             accepts it - in chunks, never read whole. False if it is missing
             (a 404 has been sent)."""
             canCompress = precompress.compressible(contentType)
-            if canCompress and precompress.needsGzip(path, contentType):
+            # The hall's files ship in the image, read-only: their .gz copies
+            # are made by hall3d/build.sh, never at run time.
+            if backfill and canCompress and precompress.needsGzip(path, contentType):
                 arcade.backfill.request(path)
             chosen, encoding = precompress.choose(path, self.headers.get("Accept-Encoding"))
             try:
@@ -404,6 +414,7 @@ def makeHandler(arcade):
                 if canCompress or encoding is not None or self._hasVariant(path):
                     headers.append(("Vary", "Accept-Encoding"))
                 headers += [("ETag", etag), ("Cache-Control", "no-cache")]
+                headers += list(extra)
                 if self.headers.get("If-None-Match") == etag:
                     self._notModified(headers)
                     return True
@@ -452,6 +463,9 @@ def makeHandler(arcade):
             if read and path == "/version.json":
                 self._version()
                 return
+            if read and (path == "/hall" or path.startswith("/hall/")):
+                self._hall(path)
+                return
             if read and path == "/robots.txt":
                 # API host only, like /version.json: on a game's host the path
                 # belongs to the game.
@@ -484,6 +498,44 @@ def makeHandler(arcade):
                 self._rollback(match.group(1))
                 return
             self._json(404, {"error": "not found"})
+
+        # --- the walkable hall -------------------------------------------
+
+        def _hall(self, path):
+            query = urlparse(self.path).query
+            if path == "/hall":
+                # Relative URLs in the page resolve under /hall/.
+                self._send(301, b"", headers=(("Location", "/hall/" + ("?" + query if query else "")),))
+                return
+            name = path[len("/hall/") :]
+            if name in ("", "index.html"):
+                # Cross-origin isolated only when asked (?isolated=1): an
+                # isolated hall can frame a tak or Roam build, which needs
+                # SharedArrayBuffer; a plain one can frame every other game.
+                self.isolate = parse_qs(query).get("isolated", [""])[0] == "1"
+                self._stream(
+                    os.path.join(hall.ASSETS, "index.html"),
+                    "text/html; charset=utf-8",
+                    '"%s-%s"' % (hall.etag(os.path.join(hall.ASSETS, "index.html")), "iso" if self.isolate else "plain"),
+                    extra=(
+                        ("Content-Security-Policy", hall.csp(config.domain)),
+                        ("X-Content-Type-Options", "nosniff"),
+                        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+                    ),
+                    backfill=False,
+                )
+                return
+            if name == "layout.json":
+                registry = arcade.registry.registry
+                games = [self._describe(game) for game in registry]
+                body = (json.dumps(hall.served_layout(games, config.hallEmbed), indent=1) + "\n").encode("utf-8")
+                self._send(200, body, "application/json", headers=(("Cache-Control", "no-cache"),))
+                return
+            stored = hall.asset_path(name)
+            if stored is None:
+                self._text(404, "Not found")
+                return
+            self._stream(stored, precompress.guessType(name), '"%s"' % hall.etag(stored), backfill=False)
 
         def _version(self):
             # The version of the code this process is running, so a deploy can
