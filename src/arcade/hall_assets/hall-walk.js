@@ -6,7 +6,10 @@
      HallWalk.world(layout)                  -> {obstacles, bounds} from /hall/layout.json
      HallWalk.resolve(x, z, world)           -> {x, z} pushed out of cabinets and walls
      HallWalk.settle(x, z, world)            -> the nearest clear spot (for places saved under an older layout)
-     HallWalk.step(me, input, dt, world)     -> the visitor after dt seconds of input
+     HallWalk.step(me, input, dt, world)     -> the visitor after dt seconds of input (eased velocity, sliding)
+     HallWalk.faceYaw(me, cabinet)           -> the yaw that looks at its screen
+     HallWalk.turnTowards(yaw, want, rate, dt) -> yaw eased towards want
+     HallWalk.bob(phase, speed)              -> head-bob height offset (off unless asked for)
      HallWalk.near(me, layout)               -> the cabinet the visitor is at, or null
      HallWalk.front(cabinet, d)              -> {x, z, yaw}: d metres in front of it, facing it
      HallWalk.stick(dx, dy, radius)          -> a joystick offset in CSS px -> {forward, right, run}
@@ -21,6 +24,8 @@
   const RADIUS = 0.28;              // the visitor, for collisions
   const EYE = 1.62;                 // eye height, metres
   const WALK = 2.4, RUN = 4.6;      // m/s
+  const ACCEL = 9, DAMP = 12;       // 1/s: how quickly the velocity reaches what is asked (or 0)
+  const STOP = 0.02;                // m/s: slower than this is standing still
   const SUBSTEP = 0.04;
   const REACH = 2.3;               // within this of a cabinet's front you can play it
   const FOV = 62;                   // vertical, degrees (hall3d/main.cpp's default)
@@ -80,25 +85,63 @@
     return {x, z};
   }
 
-  /* input: {forward, right} in -1..1, run, turn (rad/s, keys). me: {x, z, yaw, pitch}. */
+  /* input: {forward, right} in -1..1, run, turn (rad/s, keys).
+     me: {x, z, yaw, pitch, vx?, vz?}; vx, vz (m/s) carry from frame to frame.
+
+     The velocity eases towards what the input asks for (ACCEL while there is
+     input, the quicker DAMP when it stops), so walking starts and stops
+     without a jolt. A cabinet or wall takes away only the part of the
+     velocity that goes into it, so walking at an angle into a cabinet slides
+     along its side instead of sticking to it. */
   function step(me, input, dt, w) {
     dt = clamp(dt, 0, 0.25);
     let f = input.forward || 0, s = input.right || 0;
     const mag = Math.hypot(f, s);
     if (mag > 1) { f /= mag; s /= mag; }
     let {x, z, yaw} = me;
+    let vx = me.vx || 0, vz = me.vz || 0;
     yaw += (input.turn || 0) * dt;
     const fx = -Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = -Math.cos(yaw);
     const speed = input.run ? RUN : WALK;
-    const vx = (fx * f + rx * s) * speed, vz = (fz * f + rz * s) * speed;
-    if (mag > 0.02) {
-      for (let left = dt; left > 1e-6; left -= SUBSTEP) {
-        const h = Math.min(SUBSTEP, left);
-        const p = resolve(x + vx * h, z + vz * h, w);
-        x = p.x; z = p.z;
+    const on = mag > 0.02;
+    const wx = on ? (fx * f + rx * s) * speed : 0, wz = on ? (fz * f + rz * s) * speed : 0;
+    for (let left = dt; left > 1e-6; left -= SUBSTEP) {
+      const h = Math.min(SUBSTEP, left);
+      const k = 1 - Math.exp(-(on ? ACCEL : DAMP) * h);
+      vx += (wx - vx) * k; vz += (wz - vz) * k;
+      if (Math.hypot(vx, vz) < STOP && !on) { vx = 0; vz = 0; break; }
+      const ix = x + vx * h, iz = z + vz * h;
+      const p = resolve(ix, iz, w);
+      const px = p.x - ix, pz = p.z - iz, pl = Math.hypot(px, pz);
+      if (pl > 1e-9) {
+        // Pushed back out: keep only the velocity along the surface.
+        const nx = px / pl, nz = pz / pl, vn = vx * nx + vz * nz;
+        if (vn < 0) { vx -= vn * nx; vz -= vn * nz; }
       }
+      x = p.x; z = p.z;
     }
-    return Object.assign({}, me, {x, z, yaw, moving: mag > 0.02});
+    const v = Math.hypot(vx, vz);
+    return Object.assign({}, me, {x, z, yaw, vx, vz, speed: v, moving: on || v > STOP});
+  }
+
+  /* The yaw that looks from the visitor at a cabinet's screen. */
+  function faceYaw(me, c) {
+    const p = frame(c).p(0, 0, 0.3);
+    return Math.atan2(-(p[2] - me.z), -(p[0] - me.x));
+  }
+
+  /* Eases yaw towards want, at rate (1/s): the gentle turn towards a cabinet
+     the visitor walks up to. Returns the new yaw. */
+  function turnTowards(yaw, want, rate, dt) {
+    const d = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw));
+    return yaw + d * (1 - Math.exp(-rate * dt));
+  }
+
+  /* Head bob, when it is switched on: the eye's height offset (m) for a
+     phase (radians of stride) and a speed (m/s). Nothing when standing. */
+  function bob(phase, speed) {
+    const k = clamp(speed / WALK, 0, 1.4);
+    return Math.sin(phase) * 0.022 * k;
   }
 
   /* Whether (x, z) is clear of every obstacle and inside the walls. */
@@ -218,8 +261,8 @@
     return {x: 0, z: Math.min(5.2, layout.room.near - 1.2), yaw: Math.PI / 2, pitch: 0.06};
   }
 
-  const HallWalk = {frame, world, resolve, clear, settle, step, near, front, stick, ray, pick, spawn,
-    RADIUS, EYE, WALK, RUN, REACH, FOV};
+  const HallWalk = {frame, world, resolve, clear, settle, step, near, front, stick, ray, pick, spawn, faceYaw,
+    turnTowards, bob, RADIUS, EYE, WALK, RUN, REACH, FOV, ACCEL, DAMP};
   if (typeof module !== "undefined" && module.exports) module.exports = HallWalk;
   else root.HallWalk = HallWalk;
 })(typeof window !== "undefined" ? window : globalThis);

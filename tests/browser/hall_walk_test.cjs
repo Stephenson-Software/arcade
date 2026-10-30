@@ -24,11 +24,77 @@ test("the visitor starts by the door, clear of every cabinet", () => {
   assert.ok(s.z > 3);
 });
 
-test("walking forward from the door goes down the aisle", () => {
+test("walking forward from the door goes down the aisle, at walking speed once under way", () => {
   let me = W.spawn(layout);
-  for (let i = 0; i < 30; i++) me = W.step(me, {forward: 1}, 1 / 30, world);
+  for (let i = 0; i < 60; i++) me = W.step(me, {forward: 1}, 1 / 60, world);
   assert.ok(Math.abs(me.x) < 1e-4);
-  assert.ok(Math.abs(W.spawn(layout).z - me.z - W.WALK) < 0.01, `walked ${W.spawn(layout).z - me.z}`);
+  assert.ok(Math.abs(me.speed - W.WALK) < 0.01, `speed ${me.speed}`);
+  const walked = W.spawn(layout).z - me.z;
+  // Under way in about a tenth of a second: within 0.3 m of a jolt start.
+  assert.ok(walked > W.WALK - 0.3 && walked < W.WALK, `walked ${walked}`);
+});
+
+test("walking eases in and out instead of starting and stopping dead", () => {
+  let me = W.spawn(layout);
+  me = W.step(me, {forward: 1}, 1 / 60, world);
+  assert.ok(me.speed > 0 && me.speed < W.WALK * 0.3, `first frame ${me.speed}`);
+  for (let i = 0; i < 60; i++) me = W.step(me, {forward: 1}, 1 / 60, world);
+  const z0 = me.z;
+  let frames = 0;
+  while (me.moving && frames < 120) { me = W.step(me, {}, 1 / 60, world); frames++; }
+  const coast = z0 - me.z;
+  assert.ok(coast > 0.05 && coast < 0.35, `coasted ${coast}`);
+  assert.ok(frames < 60, `stopped after ${frames} frames`);
+  assert.strictEqual(me.speed, 0);
+});
+
+test("the same walk at 30 and 144 fps ends up in the same place", () => {
+  const run = (fps) => {
+    let me = W.spawn(layout);
+    for (let i = 0; i < fps; i++) me = W.step(me, {forward: 1, right: 0.3}, 1 / fps, world);
+    return me;
+  };
+  const a = run(30), b = run(144);
+  assert.ok(Math.hypot(a.x - b.x, a.z - b.z) < 0.08, JSON.stringify([a, b]));
+});
+
+test("walking into a cabinet at an angle slides along it", () => {
+  // The front row nearest the door: its cabinets stand side by side, so a
+  // slide either way runs along the row's fronts.
+  for (const o of world.obstacles.slice(1, 5)) {
+    for (const way of [1, -1]) {
+      const fr = o.fr;
+      // Just in front of the cabinet, walking into its front at 45 degrees.
+      const start = fr.p(-0.2 * way, 0, o.z1 + W.RADIUS + 0.05);
+      const dir = [way * fr.r[0] - fr.f[0], way * fr.r[2] - fr.f[2]];
+      let me = {x: start[0], z: start[2], yaw: Math.atan2(-dir[1], -dir[0]), pitch: 0};
+      for (let i = 0; i < 30; i++) me = W.step(me, {forward: 1}, 1 / 60, world);
+      const along = way * ((me.x - start[0]) * fr.r[0] + (me.z - start[2]) * fr.r[2]);
+      for (const q of world.obstacles) assert.ok(!inside(me, q), `${o.c.slug}: inside ${q.c ? q.c.slug : "a room obstacle"}`);
+      // Half a second at walking speed: well over 0.4 m along the face, not stuck to it.
+      assert.ok(along > 0.4, `${o.c.slug} ${way}: slid ${along}`);
+    }
+  }
+});
+
+test("facing a cabinet from its front is its front yaw, and the turn eases there", () => {
+  for (const c of layout.cabinets) {
+    const f = W.front(c);
+    const want = W.faceYaw(f, c);
+    assert.ok(Math.abs(Math.atan2(Math.sin(want - f.yaw), Math.cos(want - f.yaw))) < 1e-6, c.slug);
+  }
+  let yaw = 0;
+  const first = W.turnTowards(yaw, 1, 2.6, 1 / 60);
+  assert.ok(first > 0 && first < 0.1, `first ${first}`);
+  for (let i = 0; i < 120; i++) yaw = W.turnTowards(yaw, 1, 2.6, 1 / 60);
+  assert.ok(Math.abs(yaw - 1) < 0.01, `after 2 s ${yaw}`);
+  // The short way round.
+  assert.ok(W.turnTowards(3, -3, 2.6, 0.1) > 3);
+});
+
+test("head bob is nothing when standing and small when walking", () => {
+  assert.strictEqual(Math.abs(W.bob(1.3, 0)), 0);
+  for (let p = 0; p < 7; p += 0.1) assert.ok(Math.abs(W.bob(p, W.RUN)) < 0.035);
 });
 
 test("no cabinet can be walked into, from any direction", () => {
