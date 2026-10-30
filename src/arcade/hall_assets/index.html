@@ -10,7 +10,9 @@
 <link rel="stylesheet" href="hall.css">
 </head>
 <body>
-<canvas id="hall" tabindex="0" aria-label="The arcade hall, in 3D. Walk with W A S D or the arrow keys; on a phone, use the stick at the bottom left or tap where to go."></canvas>
+<a id="skip" class="skip" href="../">Skip to game list</a>
+<div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+<div id="pointer" hidden aria-hidden="true"></div>
 <header id="bar">
   <a id="leave" href="../">&larr; All games</a>
   <span id="where" aria-live="polite"></span>
@@ -37,6 +39,7 @@
   </div>
 </div>
 <canvas id="map" hidden width="180" height="180" aria-label="Map of the hall: you are the white dot. Click a cabinet to walk to it."></canvas>
+<canvas id="hall" tabindex="0" aria-label="The arcade hall, in 3D. Tab and Shift+Tab walk to each cabinet, nearest first; Enter plays it; Escape stops. Walk with W A S D or the arrow keys; on a phone, use the stick at the bottom left or tap where to go."></canvas>
 <aside id="card" hidden aria-live="polite">
   <div id="card-org"></div>
   <h2 id="card-title"></h2>

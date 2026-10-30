@@ -523,6 +523,26 @@ def test_the_settings_panel_has_every_setting_and_keeps_them():
     assert "W.FOV" not in js
 
 
+def test_the_hall_can_be_walked_by_keyboard_and_screen_reader():
+    with open(os.path.join(hall.ASSETS, "index.html")) as f:
+        page = f.read()
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        js = f.read()
+    body = page[page.index("<body>"):]
+    # The skip link is the first thing in the page, and goes to the list of games.
+    assert re.match(r'<body>\s*<a id="skip" class="skip" href="\.\./">Skip to game list</a>', body)
+    assert re.search(r'<div id="announce"[^>]*aria-live="polite"', page)
+    assert 'id="pointer"' in page and "Tab" in re.search(r'<canvas id="hall"[^>]*>', page).group(0)
+    # Tab steps through the cabinets nearest first, and lets focus go past the
+    # last one (no trap). Walking to one never sets the camera's yaw.
+    fn = js[js.index("function tabCabinet"):js.index("function showPointer")]
+    assert "C.order(" in fn and "clearFocus(); return false;" in fn
+    start = js.index("function showPointer")
+    pointer = js[start:js.index("\n  }\n", start)]
+    assert "C.project(" in pointer
+    assert "cam.yaw" not in fn and "cam.yaw" not in pointer
+
+
 def test_the_hall_page_loads_its_scripts_in_order():
     with open(os.path.join(hall.ASSETS, "index.html")) as f:
         page = f.read()

@@ -568,6 +568,7 @@
     // Reduce motion, if it changed since: the move into the game is a fade, the camera stays.
     if (trReduced !== reducedMotion) { tr = HallPlay.machine({reduced: reducedMotion}); trReduced = reducedMotion; }
     savePlace();
+    clearFocus();
     const how = canFrame(c);
     state.lastPlay = {slug: c.slug, how};
     playing = c;
@@ -718,11 +719,87 @@
       if (k === "escape") { if (tr.state === "playing") closeFrame(); else tr.skip(nowMs()); e.preventDefault(); }
       return;
     }
-    if (MOVE.has(k)) { keys.add(k); target = null; e.preventDefault(); e.stopPropagation(); }
-    else if ((k === "e" || k === "enter") && !e.repeat && near && document.activeElement !== $("prompt")) {
-      play(near); e.preventDefault();
+    if (k === "tab" && document.activeElement === canvas && layout && me) {
+      if (tabCabinet(e.shiftKey ? -1 : 1)) { e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
+    if (k === "escape" && focused && document.activeElement === canvas) { clearFocus(); target = null; e.preventDefault(); return; }
+    if (MOVE.has(k)) {
+      keys.add(k); e.preventDefault(); e.stopPropagation();
+      if (k !== "shift") { target = null; clearFocus(); }
+    } else if ((k === "e" || k === "enter") && !e.repeat) {
+      // Enter on a button or link is that control's; on the hall it plays.
+      if (k === "enter" && document.activeElement && document.activeElement !== canvas && document.activeElement !== document.body) return;
+      // Enter plays the cabinet Tab chose (as announced); E, the one the prompt shows.
+      const c = k === "enter" ? (focused || near) : near;
+      if (c && document.activeElement !== $("prompt")) { play(c); e.preventDefault(); }
     }
   }, true);
+
+  /* Keyboard and screen-reader access. With the hall focused, Tab and
+     Shift+Tab step through the cabinets nearest first, walking to each one
+     (the view never turns: an on-screen pointer shows where it is), and the
+     live region says which. Past the last (or before the first) Tab leaves
+     the hall for the page's other controls, so focus is never trapped
+     (Shift+Tab before the walk-through has begun, or after Esc stops it,
+     leaves at once). Enter plays the cabinet Tab chose. */
+  let focused = null, tabList = null, tabAt = -1, arrivedSaid = null;
+  function announce(text) {
+    const el = $("announce");
+    // Cleared first, so the same words twice are still read twice.
+    el.textContent = "";
+    setTimeout(() => { el.textContent = text; }, 30);
+    state.announced = text;
+  }
+  function clearFocus() {
+    if (!focused && !tabList) return;
+    focused = null; tabList = null; tabAt = -1; arrivedSaid = null;
+    $("pointer").hidden = true;
+  }
+  function tabCabinet(dir) {
+    if (!tabList) {
+      // Shift+Tab before a walk-through has begun leaves the hall backwards, to the page's controls.
+      if (dir < 0) return false;
+      const at = (c) => { const f = W.front(c, standOff()); return [f.x, f.z]; };
+      tabList = C.order(me, layout.cabinets, at);
+      tabAt = -1;
+    }
+    tabAt += dir;
+    if (tabAt < 0 || tabAt >= tabList.length) { clearFocus(); return false; }
+    const c = tabList[tabAt];
+    focused = c; arrivedSaid = null;
+    target = W.front(c, standOff());
+    keys.clear();
+    const org = c.org || (c.repo ? c.repo.split("/")[0] : "");
+    announce(`${c.title}${org ? ", " + org : ""}. ${tabAt + 1} of ${tabList.length}. `
+      + (c.deployed ? "Walking there. Press Enter to play." : "Coming soon."));
+    state.focused = c.slug;
+    return true;
+  }
+  // The pointer just above the marquee of the cabinet Tab chose, or at the screen's edge towards it.
+  function showPointer() {
+    const el = $("pointer");
+    if (!focused || !me || (tr && tr.state !== "idle")) { el.hidden = true; return; }
+    const s = layout.cabinet.screen, v = view(), w = canvas.clientWidth, h = canvas.clientHeight;
+    const screenAt = C.project(v, focused.fr.p((s[0] + s[2]) / 2, (s[1] + s[3]) / 2, s[4]));
+    // Standing at it with it in sight, no pointer: the card and the prompt say the rest.
+    const shown = !(near === focused && screenAt.on);
+    el.hidden = !shown;
+    // Just above its marquee, or at its screen when the marquee is out of sight up close.
+    const above = C.project(v, focused.fr.p((s[0] + s[2]) / 2, layout.cabinet.marquee[3] + 0.22, s[4]));
+    const q = above.on || !screenAt.on ? above : screenAt;
+    el.classList.toggle("edge", !q.on);
+    // Kept clear of the bar along the top.
+    el.style.left = `${Math.min(Math.max((q.nx + 1) / 2 * w, 28), w - 28)}px`;
+    el.style.top = `${Math.min(Math.max((1 - q.ny) / 2 * h, 84), h - 28)}px`;
+    // On screen it points down at the cabinet; off screen, the way to look.
+    el.style.transform = `translate(-50%, -50%) rotate(${q.on ? 90 : -q.angle * 180 / Math.PI}deg)`;
+    state.pointer = {shown, on: q.on, nx: +q.nx.toFixed(3), ny: +q.ny.toFixed(3)};
+    if (near === focused && arrivedSaid !== focused) {
+      arrivedSaid = focused;
+      announce(focused.deployed ? `At ${focused.title}. Press Enter to play.` : `At ${focused.title}. Coming soon.`);
+    }
+  }
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()), true);
   window.addEventListener("blur", () => keys.clear());
   $("prompt").addEventListener("click", () => near && play(near));
@@ -933,6 +1010,7 @@
       kit.cam.yaw += pad.lookX * C.LOOK_RATE * sens * dt;
       kit.cam.pitch = Math.min(Math.max(kit.cam.pitch + pad.lookY * C.LOOK_RATE * 0.7 * sens * flip * dt, -1.2), 1.2);
     }
+    if (pad.forward || pad.right || pad.lookX || pad.lookY || stickPointer != null) clearFocus();
     if (pad.forward || pad.right) target = null;
     if (pad.down.a && near) { play(near); camSeen = null; state.frames++; return; }
     if (pad.down.b) padBack();
@@ -1060,6 +1138,7 @@
     target = null;
   }
   function after() {
+    showPointer();
     drawMap();
     let html = "", cls = "";
     if (near && !(tr && tr.state !== "idle")) {
@@ -1188,7 +1267,8 @@
       quality: wantEconomy ? 0 : undefined,
       frame: tick,
       after,
-      onKey: () => true,  // the hall's own keys are on window
+      // The hall's own keys are on window; Tab is left alone, so focus can leave the hall.
+      onKey: (e) => e.key !== "Tab",
       pick(x, y) {
         const v = view();
         return W.pick(v, x / canvas.clientWidth * 2 - 1, 1 - y / canvas.clientHeight * 2, layout);
@@ -1197,6 +1277,7 @@
       onTap(hit) {
         if (tr && tr.state !== "idle") { if (tr.state !== "playing") tr.skip(nowMs()); return; }
         if (!hit || document.pointerLockElement === canvas) return;
+        clearFocus();
         if (hit.cabinet) {
           if (near === hit.cabinet) { play(hit.cabinet); return; }
           target = W.front(hit.cabinet, standOff());
@@ -1260,6 +1341,7 @@
       camSeen = null;
     },
     get bob() { return bobOn; },
+    get focused() { return focused ? focused.slug : null; },
     get settings() { return Object.assign({}, settings, {reducedMotion, fov}); },
     get pad() { return state.pad || null; },
     walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
