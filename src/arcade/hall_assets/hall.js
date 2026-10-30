@@ -322,7 +322,7 @@
   /* ------------------------------------------------- where you stand */
   function savePlace() {
     if (!me) return;
-    const v = `${me.x.toFixed(2)},${me.z.toFixed(2)},${me.yaw.toFixed(3)},${me.pitch.toFixed(3)}`;
+    const v = `${me.x.toFixed(3)},${me.z.toFixed(3)},${me.yaw.toFixed(5)},${me.pitch.toFixed(5)}`;
     session.set(POS_KEY, v);
     const url = new URL(location.href);
     url.hash = "p=" + v;
@@ -381,7 +381,6 @@
     playing = c;
     keys.clear(); stickIn = {forward: 0, right: 0, run: false}; target = null;
     if (me) { me.vx = 0; me.vz = 0; me.speed = 0; }
-    facing = null;
     if (document.pointerLockElement) document.exitPointerLock();
     dressPlayer(c);
     standAt = standPose();
@@ -583,9 +582,9 @@
 
   /* ---------------------------------------------- the frame, each tick */
   let lastNow = 0, lastSave = 0, lastPrompt = "";
-  // Feel: the gentle turn towards a cabinet the visitor walks up to (cancelled
-  // by any look of their own), and head bob, off unless asked for.
-  let lastYaw = null, lastPitch = null, lastNear = null, facing = null, bobPhase = 0;
+  // Head bob, off unless asked for. The view only ever turns when the
+  // visitor turns it: nothing here (walking, tap-to-walk) rotates it.
+  let bobPhase = 0;
 
   // How far in front of a cabinet to stop: further on a tall, narrow
   // (portrait phone) view, so the whole cabinet stays in sight.
@@ -607,8 +606,6 @@
         return;
       }
     }
-    // The visitor looked (drag, mouse look) since the last frame.
-    const looked = lastYaw !== null && (kit.cam.yaw !== lastYaw || kit.cam.pitch !== lastPitch);
     me.yaw = kit.cam.yaw; me.pitch = kit.cam.pitch;
     const has = (k) => (keys.has(k) ? 1 : 0);
     let input = {
@@ -620,16 +617,9 @@
     if (target && !input.forward && !input.right) {
       const dx = target.x - me.x, dz = target.z - me.z, d = Math.hypot(dx, dz);
       if (d < 0.08) {
-        if (target.yaw != null) {
-          let dy = target.yaw - me.yaw;
-          dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-          me.yaw += dy * Math.min(1, dt * 8);
-          if (Math.abs(dy) < 0.01) target = null;
-        } else target = null;
+        target = null;
       } else {
-        const want = Math.atan2(-dz, -dx);  // the yaw that looks along (dx, dz)
-        let dy = Math.atan2(Math.sin(want - me.yaw), Math.cos(want - me.yaw));
-        me.yaw += dy * Math.min(1, dt * 5);
+        // Walk there without turning: the step is taken in the view's own frame.
         const fx = -Math.cos(me.yaw), fz = -Math.sin(me.yaw), rx = Math.sin(me.yaw), rz = -Math.cos(me.yaw);
         const k = Math.min(1, d / 0.6);
         input = Object.assign(input, {forward: (dx * fx + dz * fz) / d * k, right: (dx * rx + dz * rz) / d * k});
@@ -640,20 +630,8 @@
         input = null;
       }
     }
-    const turning = !!(input && input.turn);
     if (input) me = W.step(me, input, dt, world);
     near = W.near(me, layout);
-    if (near !== lastNear) {
-      // Walked up to a new cabinet (not tapped there: that walk faces it already).
-      facing = near && !target && me.speed > 0.4 && !reducedMotion ? near : null;
-      lastNear = near;
-    }
-    if (looked || turning) facing = null;
-    if (facing) {
-      const want = W.faceYaw(me, facing);
-      me.yaw = W.turnTowards(me.yaw, want, 2.6, dt);
-      if (Math.abs(Math.atan2(Math.sin(want - me.yaw), Math.cos(want - me.yaw))) < 0.01) facing = null;
-    }
     let eye = W.EYE;
     if (bobOn && !reducedMotion && me.speed > 0.05) {
       bobPhase += dt * 2 * Math.PI * (1.5 + 0.25 * me.speed);
@@ -661,11 +639,9 @@
     }
     kit.cam.yaw = me.yaw;
     kit.cam.tx = me.x; kit.cam.ty = eye; kit.cam.tz = me.z;
-    lastYaw = kit.cam.yaw; lastPitch = kit.cam.pitch;
     if (now - lastSave > 500) { lastSave = now; savePlace(); }
     if (posterQueue.length && posterBusy < 2) pumpPosters();
     state.walking = !!target;
-    state.facing = facing ? facing.slug : null;
     state.speed = me.speed || 0;
     state.frames++;
   }
@@ -772,7 +748,6 @@
       me = Object.assign({}, me, W.resolve(x, z, world), {vx: 0, vz: 0, speed: 0});
       if (yaw != null) kit.cam.yaw = me.yaw = yaw;
       if (pitch != null) kit.cam.pitch = pitch;
-      lastYaw = kit.cam.yaw; lastPitch = kit.cam.pitch; lastNear = W.near(me, layout); facing = null;
     },
     get bob() { return bobOn; },
     walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
