@@ -216,6 +216,7 @@
       if (me && Math.hypot(c.x - me.x, c.z - me.z) < 8) screenQuad(c, i, HallLife.flicker(t, i));
       scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i);
     });
+    seasonLife(t);
     rows(mod._hall_set_points, scenePoints);
   }
   function buildScene() {
@@ -247,6 +248,7 @@
     scenePoints = points;
     mesh(0, body);
     buildRoom(points);
+    buildSeason(points);
     rows(mod._hall_set_items, items);
     rows(mod._hall_set_points, points);
     mod._hall_set_view(layout.room.style ? layout.room.style.ambient : 0.32, fov);
@@ -313,10 +315,151 @@
     ctx.fillText(sg.text, w / 2, h / 2 + 2);
     return pixels(ctx, w, h);
   }
+  /* ------------------------------------------- the season (seasons.py)
+     layout.season, when one is in force (or ?season= names one): jack-o'-
+     lanterns that flicker, cobwebs in the ceiling corners and a banner.
+     A few hundred triangles and soft points, no textures but the banner's,
+     so the economy tier keeps its frame rate; walls and walkways are
+     unchanged (seasons.py adds the lanterns by the door to the obstacles). */
+  const SEASON_BODY = 4, SEASON_FACES = 5, SEASON_WEBS = 6, BANNER_SLOT = 690;
+  const FLAME = [1.0, 0.78, 0.28];
+  let flames = [];  // each lantern's flame, 0.62..1 (HallLife.candle)
+  const lanternFrame = (L) => W.frame({x: L.x, y: L.y, z: L.z, angle: L.angle});
+  function lanternFaces(lanterns) {
+    const q = new MeshBuilder();
+    lanterns.forEach((L, i) => {
+      const fr = lanternFrame(L), r = L.size / 2, cy = r * 0.8, b = flames[i] == null ? 0.85 : flames[i];
+      const col = FLAME.map((v) => v * b);
+      // (u, v) on the front of the pumpkin, in radii, laid onto its surface.
+      const at = (u, v) => fr.p(u * r, cy + v * r * 0.8, r * Math.sqrt(Math.max(0, 1 - u * u - v * v)) * 1.03 + 0.003);
+      const n = fr.n(0, 0, 1);
+      const tri = (a, bb, c) => q.tri(at(...a), at(...bb), at(...c), n, n, n, col);
+      tri([-0.5, 0.1], [-0.14, 0.1], [-0.32, 0.44]);
+      tri([0.14, 0.1], [0.5, 0.1], [0.32, 0.44]);
+      tri([-0.08, -0.06], [0.08, -0.06], [0, 0.1]);
+      // A grin: a band that curves up at the ends, with two teeth.
+      const steps = 8;
+      for (let k = 0; k < steps; k++) {
+        const u0 = -0.6 + 1.2 * k / steps, u1 = -0.6 + 1.2 * (k + 1) / steps;
+        const top = (u) => -0.30 + 0.22 * (u / 0.6) ** 2, bot = (u) => -0.58 + 0.30 * (u / 0.6) ** 2;
+        const tooth = (k === 2 || k === 5) ? 0.12 : 0;
+        tri([u0, bot(u0)], [u1, bot(u1)], [u1, top(u1) - tooth]);
+        tri([u0, bot(u0)], [u1, top(u1) - tooth], [u0, top(u0) - tooth]);
+      }
+    });
+    return q;
+  }
+  function cobwebs(webs, h) {
+    const q = new MeshBuilder(), col = [0.80, 0.78, 0.84], wid = 0.014;
+    const add = (a, b, k) => a.map((v, i) => v + b[i] * k);
+    const sub = (a, b) => a.map((v, i) => v - b[i]);
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const unit = (a) => { const m = Math.hypot(...a) || 1; return a.map((v) => v / m); };
+    for (const wb of webs) {
+      const L = wb.size, x = wb.x + wb.dx * 0.02, z = wb.z + wb.dz * 0.02, y = h - 0.02;
+      const A = [x + wb.dx * L, y, z], B = [x, y, z + wb.dz * L], D = [x, y - L * 0.85, z];
+      const n = unit(cross(sub(B, A), sub(D, A)));
+      const hub = [(A[0] + B[0] + D[0]) / 3 * 0.7 + x * 0.3, (A[1] + B[1] + D[1]) / 3 * 0.7 + y * 0.3,
+        (A[2] + B[2] + D[2]) / 3 * 0.7 + z * 0.3];
+      const mid = (p, r) => p.map((v, i) => (v + r[i]) / 2);
+      const ends = [A, mid(A, B), B, mid(B, D), D, mid(D, A)];
+      const strand = (p, r) => {
+        const s = unit(cross(sub(r, p), n)).map((v) => v * wid / 2);
+        q.quad([sub(p, s), sub(r, s), add(r, s, 1), add(p, s, 1)], n, col);
+        q.quad([add(p, s, 1), add(r, s, 1), sub(r, s), sub(p, s)], n.map((v) => -v), col);
+      };
+      ends.forEach((e) => strand(hub, e));
+      for (const f of [0.3, 0.55, 0.8]) {
+        const ring = ends.map((e) => add(hub, sub(e, hub), f));
+        ring.forEach((p, k) => strand(p, ring[(k + 1) % ring.length]));
+      }
+    }
+    return q;
+  }
+  function bannerTexture(bn, img) {
+    const w = 1024, h = Math.round(1024 * bn.h / bn.w), [, ctx] = canvas2d(w, h);
+    ctx.fillStyle = "rgb(28,12,30)"; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = `rgb(${rgb255(bn.colour)})`; ctx.lineWidth = 8; ctx.strokeRect(8, 8, w - 16, h - 16);
+    const ph = h - 44, pw = Math.round(ph * 16 / 9);
+    let tx = 40;
+    if (img) {
+      const s = Math.max(pw / img.naturalWidth, ph / img.naturalHeight);
+      ctx.save(); ctx.beginPath(); ctx.rect(22, 22, pw, ph); ctx.clip();
+      ctx.drawImage(img, 22 + (pw - img.naturalWidth * s) / 2, 22 + (ph - img.naturalHeight * s) / 2,
+        img.naturalWidth * s, img.naturalHeight * s);
+      ctx.restore();
+      tx = 22 + pw + 26;
+    }
+    const cx = (tx + w - 30) / 2, title = bn.title.toUpperCase();
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    fitFont(ctx, title, w - 30 - tx, Math.round(h * 0.36));
+    ctx.fillStyle = `rgb(${bn.colour.map((v) => Math.round(255 * (0.6 + 0.4 * v)))})`;
+    ctx.fillText(title, cx, h * 0.40);
+    fitFont(ctx, bn.line, w - 30 - tx, Math.round(h * 0.15));
+    ctx.fillStyle = "rgb(246,226,200)";
+    ctx.fillText(bn.line, cx, h * 0.70);
+    return [w, h, pixels(ctx, w, h)];
+  }
+  function buildSeason(points) {
+    const ss = layout.season;
+    state.season = ss ? ss.name : null;
+    document.body.dataset.season = state.season || "";
+    if (!ss) return;
+    const body = new MeshBuilder();
+    flames = ss.lanterns.map(() => 0.85);
+    ss.glowAt = points.length;
+    ss.lanterns.forEach((L) => {
+      const fr = lanternFrame(L), r = L.size / 2, cy = r * 0.8;
+      const squash = {p: (x, y, z) => fr.p(x, cy + (y - cy) * 0.8, z), n: fr.n};
+      body.sphere(squash, 0, cy, 0, L.size, [0.93, 0.42, 0.05], 7, 12);
+      body.cylinder(fr, 0, cy * 2 + 0.02, 0, L.size * 0.12, 0.07, [0.32, 0.36, 0.12], 6);
+      points.push([...fr.p(0, cy, r * 1.1), 0, L.size * 2.4, 1.0, 0.58, 0.16, 0.22]);
+    });
+    if (ss.lanterns.length) mesh(SEASON_FACES, lanternFaces(ss.lanterns), -1, 1 /* STRATA_MESH_UNLIT */);
+    if (ss.cobwebs.length) mesh(SEASON_WEBS, cobwebs(ss.cobwebs, layout.room.height), -1, 1);
+    const bn = ss.banner;
+    if (bn) {
+      const flat = {p: (x, y, z) => [x, y, z], n: (x, y, z) => [x, y, z]};
+      for (const sx of [-0.4, 0.4]) {
+        const x = bn.x + bn.w * sx;
+        body.box(flat, [x - 0.01, bn.y + bn.h / 2, bn.z - 0.01], [x + 0.01, bn.ceiling, bn.z + 0.01], [0.2, 0.2, 0.22]);
+      }
+      const draw = (img) => { const [w, h, px] = bannerTexture(bn, img); texture(BANNER_SLOT, w, h, px, TEX_MIPS | TEX_CLAMP); };
+      draw(null);
+      const q = new MeshBuilder(), x0 = bn.x - bn.w / 2 * bn.facing, x1 = bn.x + bn.w / 2 * bn.facing;
+      const y0 = bn.y - bn.h / 2, y1 = bn.y + bn.h / 2;
+      q.quad([[x0, y0, bn.z], [x1, y0, bn.z], [x1, y1, bn.z], [x0, y1, bn.z]], [0, 0, bn.facing]);
+      mesh(BANNER_SLOT, q, BANNER_SLOT, 1);
+      points.push([bn.x, bn.y, bn.z + 0.15 * bn.facing, 0, bn.w * 0.95, ...bn.colour, 0.12]);
+      if (bn.poster) {
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => { try { draw(img); state.bannerPoster = true; } catch (e) { /* keep the text banner */ } };
+        img.src = bn.poster;
+      }
+    }
+    if (body.indices.length) mesh(SEASON_BODY, body);
+  }
+  // Each life step: the flames flicker (faces, glow and, outside economy, light).
+  function seasonLife(t) {
+    const ss = layout.season;
+    if (!ss || !ss.lanterns.length) return;
+    flames = ss.lanterns.map((L, i) => HallLife.candle(t, i));
+    mesh(SEASON_FACES, lanternFaces(ss.lanterns), -1, 1);
+    flames.forEach((f, i) => { scenePoints[ss.glowAt + i][8] = 0.24 * f; });
+    if (!economy) setLights();
+  }
+  function seasonLights() {
+    const ss = layout.season;
+    if (!ss) return [];
+    const f = flames.length ? flames.reduce((a, b) => a + b, 0) / flames.length : 0.85;
+    return (ss.lights || []).map((l, k) => l.slice(0, 7).concat([l[7] * (k < 2 ? f : 1)]));
+  }
   function setLights() {
     if (economy) { rows(mod._hall_set_lights, []); return; }
     const lights = layout.room.lights.slice();
     for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.2]);
+    lights.push(...seasonLights());
     rows(mod._hall_set_lights, lights);
   }
 
@@ -416,6 +559,7 @@
     const url = new URL(location.href);
     url.search = "";
     if (c.isolation) url.searchParams.set("isolated", "1");
+    if (params.get("season")) url.searchParams.set("season", params.get("season"));
     url.searchParams.set("play", c.slug);
     return url.href;
   }
@@ -1018,7 +1162,9 @@
 
 
   async function boot() {
-    const res = await fetch("layout.json", {cache: "no-cache"});
+    // ?season=halloween (or none) dresses the hall for a season on any date.
+    const season = params.get("season");
+    const res = await fetch("layout.json" + (season ? "?season=" + encodeURIComponent(season) : ""), {cache: "no-cache"});
     if (!res.ok) throw new Error("layout " + res.status);
     layout = await res.json();
     world = W.world(layout);
@@ -1102,6 +1248,7 @@
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
     get map() { return {on: mapOn, target: state.mapTarget || null}; },
+    get season() { return layout && layout.season ? layout.season.name : null; },
     economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },

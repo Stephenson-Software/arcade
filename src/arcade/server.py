@@ -537,7 +537,10 @@ def makeHandler(arcade):
             if name == "layout.json":
                 registry = arcade.registry.registry
                 games = [self._describe(game) for game in registry]
-                body = (json.dumps(hall.served_layout(games, config.hallEmbed), indent=1) + "\n").encode("utf-8")
+                # ?season=halloween (or none) shows a season's decor on any date, for testing.
+                season = parse_qs(query).get("season", [None])[0]
+                doc = hall.served_layout(games, config.hallEmbed, season=season)
+                body = (json.dumps(doc, indent=1) + "\n").encode("utf-8")
                 self._send(200, body, "application/json", headers=(("Cache-Control", "no-cache"),))
                 return
             stored = hall.asset_path(name)

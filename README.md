@@ -182,6 +182,12 @@ the portal keep their lists, and link here with "Walk the hall".
   poster, the nearest screens shimmer faintly (with baked-in scanlines), and the marquees' glow breathes;
   nothing moves under reduced motion. *Sound* (off by default, remembered) plays a quiet arcade hum, made
   with WebAudio (no audio files), and pauses while a game is open.
+- **Seasons.** `src/arcade/seasons.py` dresses the hall by the date in America/Denver: from October 20
+  to November 1, Halloween (jack-o'-lanterns that flicker by the door and on the counter, cobwebs in the
+  ceiling corners, warmer, more orange light, and a banner for Familiar over the walkway in from the
+  door). `/hall/?season=halloween` shows a season on any date and `?season=none` turns decor off. Decor
+  never moves a cabinet or narrows a walkway; the lanterns by the door are solid. Winter is a stub
+  (`ready=False`: shown only when asked for by name) for the next one.
 - **The card at a cabinet.** Walking up to a cabinet shows a small card: the game's title, its GitHub
   organisation, one line about it and its play count (live from `/api/games`, refreshed every minute).
   The lines are the public repositories' descriptions, kept in `src/arcade/hall_assets/blurbs.json` by

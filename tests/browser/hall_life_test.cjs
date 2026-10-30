@@ -67,4 +67,18 @@ test("the sound is off until turned on, and without WebAudio stays off quietly",
   h.pause(true); h.pause(false);
 });
 
+test("a jack-o'-lantern's flame flickers, never goes out, and each its own way", () => {
+  let lo = 1, hi = 0, dips = 0, prev = 1;
+  for (let t = 0; t < 60; t += 1 / 12) {
+    const f = L.candle(t, 0);
+    assert.ok(f >= 0.619 && f <= 1.0001, `candle ${f}`);
+    lo = Math.min(lo, f); hi = Math.max(hi, f);
+    if (prev - f > 0.08) dips++;
+    prev = f;
+  }
+  // Visibly alive at the hall's 12 Hz life step, not a slow breathe.
+  assert.ok(hi - lo > 0.25 && dips > 60, `range ${lo}..${hi}, dips ${dips}`);
+  assert.notStrictEqual(L.candle(5, 0).toFixed(3), L.candle(5, 1).toFixed(3));
+});
+
 process.exit(failures ? 1 : 0);
