@@ -103,6 +103,41 @@
       ];
       for (const [n, cs] of faces) this.quad(cs.map((c) => fr.p(...c)), fr.n(...n), colour);
     }
+    tri(a, b, c, na, nb, nc, colour) {
+      const base = this.positions.length / 3;
+      for (const [p, n] of [[a, na], [b, nb], [c, nc]]) {
+        this.positions.push(...p); this.normals.push(...n); this.colors.push(...colour); this.uvs.push(0, 0);
+      }
+      this.indices.push(base, base + 1, base + 2);
+    }
+    // An upright cylinder in a cabinet's frame: centre (x, y, z), diameter d, height h.
+    cylinder(fr, x, y, z, d, h, colour, sides = 10) {
+      const r = d / 2, y0 = y - h / 2, y1 = y + h / 2;
+      for (let k = 0; k < sides; k++) {
+        const a0 = k / sides * 2 * Math.PI, a1 = (k + 1) / sides * 2 * Math.PI;
+        const c0 = [Math.cos(a0), Math.sin(a0)], c1 = [Math.cos(a1), Math.sin(a1)];
+        const P = (c, yy) => fr.p(x + r * c[0], yy, z + r * c[1]), N = (c) => fr.n(c[0], 0, c[1]);
+        this.tri(P(c0, y0), P(c1, y1), P(c1, y0), N(c0), N(c1), N(c1), colour);
+        this.tri(P(c0, y0), P(c0, y1), P(c1, y1), N(c0), N(c0), N(c1), colour);
+        const up = fr.n(0, 1, 0), down = fr.n(0, -1, 0);
+        this.tri(fr.p(x, y1, z), P(c1, y1), P(c0, y1), up, up, up, colour);
+        this.tri(fr.p(x, y0, z), P(c0, y0), P(c1, y0), down, down, down, colour);
+      }
+    }
+    // A ball in a cabinet's frame: centre (x, y, z), diameter d.
+    sphere(fr, x, y, z, d, colour, rings = 6, sides = 10) {
+      const r = d / 2;
+      const at = (i, k) => {
+        const th = i / rings * Math.PI, ph = k / sides * 2 * Math.PI;
+        const n = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+        return [fr.p(x + r * n[0], y + r * n[1], z + r * n[2]), fr.n(...n)];
+      };
+      for (let i = 0; i < rings; i++) for (let k = 0; k < sides; k++) {
+        const a = at(i, k), b = at(i + 1, k), c = at(i + 1, k + 1), e = at(i, k + 1);
+        this.tri(a[0], c[0], b[0], a[1], c[1], b[1], colour);
+        this.tri(a[0], e[0], c[0], a[1], e[1], c[1], colour);
+      }
+    }
     // A part of the cabinet's model (hall_model.py) in a cabinet's frame,
     // coloured by role; uv maps its texture coordinates (the side art's atlas).
     model(fr, part, colours, uv) {
