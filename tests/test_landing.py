@@ -144,3 +144,20 @@ def test_the_page_is_utf8_bytes():
 def test_game_url_is_the_slug_under_the_domain():
     rps = games(("rps", "RPS")).get("rps")
     assert landing.gameUrl(rps, "play.example.com") == "https://rps.play.example.com/"
+
+
+def test_every_deployed_game_links_to_its_cabinet_in_the_hall():
+    page = landing.render(
+        games(("rps", "RPS"), ("soon", "Soon")),
+        "play.example.com",
+        "https://example.com/play",
+        lambda slug: slug == "rps",
+    ).decode("utf-8")
+    # Same host, so the hall opens in front of that cabinet (and unfurls with its card).
+    assert '<a class="cab" href="/hall/?at=rps">Visit its cabinet in the hall &rarr;</a></li>' in page
+    # A game not deployed yet has nothing to play at its cabinet.
+    assert "?at=soon" not in page
+
+
+def test_cabinet_links_quote_the_slug():
+    assert landing.cabinetUrl(Game("a b", "A", "https://github.com/x/a", "0" * 64)) == "/hall/?at=a%20b"
