@@ -265,6 +265,76 @@ def test_served_layout_names_only_side_art_arcade_has(tmp_path, monkeypatch):
     assert hall.asset_path("posters/roam.side.jpg")
 
 
+# ------------------------------------------------------- the room's details
+
+
+def test_stools_are_tucked_under_some_decks_with_their_own_colliders():
+    doc = big_hall()
+    room, cabs = doc["room"], doc["cabinets"]
+    stools = [t for t in room["things"] if t["part"] == "stool"]
+    assert 3 <= len(stools) < len(cabs) / 2
+    r = hall_model.STOOL_RADIUS
+    for st in stools:
+        # Its own collider...
+        assert [round(v, 4) for v in (st["x"] - r, st["z"] - r, st["x"] + r, st["z"] + r)] in room["obstacles"]
+        # ...in front of a cabinet, under its deck, and clear of where a visitor stands to play it.
+        cab = min(cabs, key=lambda c: math.hypot(c["x"] - st["x"], c["z"] - st["z"]))
+        f = (math.sin(cab["angle"]), math.cos(cab["angle"]))
+        ahead = (st["x"] - cab["x"]) * f[0] + (st["z"] - cab["z"]) * f[1]
+        assert ahead == pytest.approx(hall_model.STOOL_Z, abs=1e-3)
+        assert ahead - r < hall.FOOTPRINT[3] < ahead + r < 1.15 - 0.28
+    # The walkways between facing rows are still at least 2.5 m with a stool on either side.
+    fp = hall.FOOTPRINT
+    zs = sorted({c["z"] for c in cabs[1:]}, reverse=True)
+    reach = hall_model.STOOL_Z + r - fp[3]
+    for back, front in zip(zs[1::2], zs[2::2]):
+        assert (back - fp[3]) - (front + fp[3]) - 2 * reach >= 2.5
+    assert (zs[-1] - fp[3] - reach) - room["stage"]["front"] >= 2.5
+
+
+def test_the_carpet_is_a_patterned_tile():
+    pattern = hall.carpet_pattern()
+    assert pattern == hall.carpet_pattern()  # the same every time (the page and the picture agree)
+    kinds = {p[0] for p in pattern}
+    assert kinds == set(hall.CARPET_KINDS.values())
+    colours = len(hall.STYLE["carpetDots"])
+    for kind, x, y, size, turn, k in pattern:
+        assert 0 <= x <= 256 and 0 <= y <= 256 and 0 < size < 40 and 0 <= k < colours
+    assert hall.room_for(10)["style"]["pattern"] == pattern
+
+
+def test_a_neon_arcade_sign_hangs_over_the_door():
+    room = big_hall()["room"]
+    sign = next(s for s in room["signs"] if s["text"] == "ARCADE")
+    assert sign["neon"] and abs(sign["x"]) < room["door"][1]
+    assert room["door"][2] < sign["y"] - sign["h"] / 2 and sign["y"] + sign["h"] / 2 < room["height"]
+    assert sign["facing"] == -1 and sign["z"] > room["near"] - 0.2
+
+
+def test_ceiling_panels_have_frames_and_the_prize_shelf_has_plush():
+    room = big_hall()["room"]
+    h = room["height"]
+    panels = [p for p in room["props"] if p["unlit"] and p["lo"][1] == round(h - 0.04, 4)]
+    frames = [p for p in room["props"] if not p["unlit"] and p["lo"][1] == round(h - 0.032, 4)]
+    assert panels and len(frames) == len(panels)
+    plush = [t for t in room["things"] if t["part"] == "plush"]
+    assert len(plush) >= 5 and all(t["z"] > room["near"] - 0.5 for t in plush)
+    assert room["ceilingTile"] > 0
+
+
+def test_the_rooms_things_are_well_formed():
+    for name, part in big_hall()["room"]["thingParts"].items():
+        count = len(part["r"])
+        assert len(part["p"]) == 3 * count and all(0 <= i < count for i in part["i"]), name
+        assert all(r in hall_model.ROLES for r in part["r"]), name
+        for (a, b, c), (na, _, _) in triangles(part):
+            e1 = [b[i] - a[i] for i in range(3)]
+            e2 = [c[i] - a[i] for i in range(3)]
+            g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+            if sum(v * v for v in g) > 1e-12:
+                assert sum(g[i] * na[i] for i in range(3)) > 0, name
+
+
 def test_an_empty_registry_is_an_empty_hall():
     doc = hall.layout([])
     assert doc["cabinets"] == []

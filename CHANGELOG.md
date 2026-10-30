@@ -62,6 +62,9 @@ All notable changes to this project are documented in this file. The format is b
   panel carries side art made from the game's poster (`posters/<slug>.side.jpg`, by
   `tools/make_hall_posters.py`). Cabinets further than about 8 m are drawn as simple stand-ins, swapped
   by the engine (`hall_set_lods`), so the economy tier keeps 60 fps on a software renderer.
+- The hall's room: a patterned arcade carpet, a suspended ceiling with framed light panels, a neon
+  ARCADE sign over the door, stools under some cabinets' decks (with their own colliders) and plush
+  prizes on the prize shelves.
 
 ### Changed
 

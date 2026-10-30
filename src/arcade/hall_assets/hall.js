@@ -342,8 +342,9 @@
     setLights();
   }
 
-  /* The room: walls, carpet, ceiling, and the props hall.py lists (the stage,
-     the counter, the ceiling panels), all plain boxes, and its signs. */
+  /* The room: walls, carpet, ceiling, the props hall.py lists (the stage,
+     the counter, the ceiling panels: plain boxes), its things (stools and
+     plush prizes, hall_model.py's parts) and its signs. */
   function buildRoom(points) {
     const room = layout.room, st = room.style, w = room.halfWidth, near = room.near, far = room.far, h = room.height;
     const flat = {p: (x, y, z) => [x, y, z], n: (x, y, z) => [x, y, z]};
@@ -363,8 +364,17 @@
     wall([-w, near], [-w, far], [1, 0, 0]);
     wall([w, far], [w, near], [-1, 0, 0]);
     wall([w, near], [-w, near], [0, 0, -1]);
-    walls.quad([[-w, h, far], [w, h, far], [w, h, near], [-w, h, near]], [0, -1, 0], st.ceiling);
+    // The ceiling: suspended tiles (a tiling texture), a mesh of its own.
+    const ceiling = new MeshBuilder(), ct = room.ceilingTile || 1.2, cr = [2 * w / ct, (near - far) / ct];
+    ceiling.quad([[-w, h, far], [w, h, far], [w, h, near], [-w, h, near]], [0, -1, 0], [1, 1, 1],
+      [[0, 0], [cr[0], 0], [cr[0], cr[1]], [0, cr[1]]]);
+    texture(CEILING_SLOT, 128, 128, ceilingTexture(st), TEX_MIPS);
+    mesh(CEILING_SLOT, ceiling, CEILING_SLOT, HALL_MESH_LATE);
     for (const b of room.props) (b.unlit ? lit : walls).box(flat, b.lo, b.hi, b.colour);
+    for (const t of room.things || []) {
+      const part = room.thingParts[t.part];
+      if (part) walls.model(W.frame(t), part, roleColours(layout.cabinet.model.roles, t.colour || [1, 1, 1]));
+    }
     mesh(2, walls, -1, HALL_MESH_LATE);
     mesh(3, lit, -1, 1 /* STRATA_MESH_UNLIT */ | HALL_MESH_LATE);
     room.signs.forEach((sg, i) => {
@@ -374,25 +384,53 @@
       const y0 = sg.y - sg.h / 2, y1 = sg.y + sg.h / 2;
       q.quad([[x0, y0, sg.z], [x1, y0, sg.z], [x1, y1, sg.z], [x0, y1, sg.z]], [0, 0, sg.facing]);
       mesh(slot, q, slot, 1);
-      points.push([sg.x, sg.y, sg.z + 0.15 * sg.facing, 0, sg.w * 0.9, ...sg.colour, 0.10]);
+      points.push([sg.x, sg.y, sg.z + 0.15 * sg.facing, 0, sg.w * (sg.neon ? 1.2 : 0.9), ...sg.colour, sg.neon ? 0.16 : 0.10]);
     });
     // A soft pool under each lit ceiling panel's light.
     for (const l of room.lights.slice(2)) points.push([l[0], l[1] + 0.4, l[2], 0, 1.5, ...st.panel, 0.18]);
   }
-  const signSlot = (i) => 700 + i, CARPET_TILE = 1.6;
+  const signSlot = (i) => 700 + i, CARPET_TILE = 1.6, CEILING_SLOT = 902;
+  /* The carpet tile: hall.py's carpet_pattern() (make_hall_media.py draws
+     the same): squiggles, rings, triangles, stars and confetti, wrapped so
+     the tile repeats without seams. */
   function carpet(st) {
     const size = 256, [, ctx] = canvas2d(size, size);
     ctx.fillStyle = `rgb(${rgb255(st.carpet)})`; ctx.fillRect(0, 0, size, size);
-    for (const [x, y, r, k] of st.dots) {
-      ctx.fillStyle = `rgb(${rgb255(st.carpetDots[k])})`;
-      // Wrapped, so the tile repeats without seams.
+    ctx.lineWidth = 2.6; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    for (const [kind, x, y, sz, a, k] of st.pattern || []) {
+      const col = `rgb(${rgb255(st.carpetDots[k])})`;
+      ctx.fillStyle = col; ctx.strokeStyle = col;
       for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
-        ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 2 * Math.PI); ctx.fill();
+        ctx.save(); ctx.translate(x + ox, y + oy); ctx.rotate(a);
+        ctx.beginPath();
+        if (kind === 0) { ctx.arc(0, 0, sz, 0, 2 * Math.PI); ctx.fill(); }
+        else if (kind === 1) { ctx.arc(0, 0, sz, 0, 2 * Math.PI); ctx.stroke(); }
+        else if (kind === 2) { carpetPath(ctx, carpetTriangle(sz)); ctx.closePath(); ctx.stroke(); }
+        else if (kind === 3) { carpetPath(ctx, carpetZigzag(sz)); ctx.stroke(); }
+        else { carpetPath(ctx, carpetStar(sz)); ctx.closePath(); ctx.fill(); }
+        ctx.restore();
       }
     }
     return pixels(ctx, size, size);
   }
+  // The shapes' outlines, round (0, 0) (make_hall_media.py has the same).
+  const carpetTriangle = (s) => [0, 1, 2].map((k) => [s * Math.cos(k * 2.0944 - 1.5708), s * Math.sin(k * 2.0944 - 1.5708)]);
+  const carpetZigzag = (s) => [0, 1, 2, 3, 4].map((k) => [s * (k / 4 - 0.5), (k % 2 ? 1 : -1) * s * 0.16]);
+  const carpetStar = (s) => [...Array(8)].map((_, k) => {
+    const r = k % 2 ? s * 0.42 : s, t = k * Math.PI / 4 - Math.PI / 2;
+    return [r * Math.cos(t), r * Math.sin(t)];
+  });
+  function carpetPath(ctx, pts) { pts.forEach(([px, py], k) => (k ? ctx.lineTo(px, py) : ctx.moveTo(px, py))); }
+  // Two by two suspended-ceiling tiles, with the T-bars between them.
+  function ceilingTexture(st) {
+    const size = 128, [, ctx] = canvas2d(size, size);
+    ctx.fillStyle = `rgb(${rgb255(st.ceiling)})`; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = `rgb(${rgb255(st.ceilingGrid || st.ceiling)})`;
+    for (const at of [0, size / 2]) { ctx.fillRect(at, 0, 3, size); ctx.fillRect(0, at, size, 3); }
+    return pixels(ctx, size, size);
+  }
   function signTexture(sg, w, h) {
+    if (sg.neon) return neonTexture(sg, w, h);
     const [, ctx] = canvas2d(w, h);
     ctx.fillStyle = "rgb(20,12,18)"; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = `rgb(${rgb255(sg.colour)})`; ctx.lineWidth = 5; ctx.strokeRect(6, 6, w - 12, h - 12);
@@ -400,6 +438,27 @@
     ctx.fillStyle = `rgb(${sg.colour.map((v) => Math.round(255 * (0.6 + 0.4 * v)))})`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(sg.text, w / 2, h / 2 + 2);
+    return pixels(ctx, w, h);
+  }
+  /* A neon sign: its letters as glowing tubes (a wide soft glow, the tube,
+     a pale hot core) and a border tube, on a dark board. */
+  function neonTexture(sg, w, h) {
+    const [, ctx] = canvas2d(w, h), st = layout.room.style;
+    ctx.fillStyle = "rgb(14,8,20)"; ctx.fillRect(0, 0, w, h);
+    const tube = (draw, colour, width) => {
+      const c = rgb255(colour);
+      for (const [blur, lw, col] of [[18, width * 2.2, `rgba(${c},0.55)`], [6, width, `rgb(${c})`],
+        [0, width * 0.38, `rgb(${colour.map((v) => Math.round(255 * (0.75 + 0.25 * v)))})`]]) {
+        ctx.save(); ctx.shadowBlur = blur; ctx.shadowColor = `rgb(${c})`; ctx.strokeStyle = col; ctx.lineWidth = lw;
+        ctx.lineJoin = "round"; ctx.lineCap = "round"; draw(); ctx.restore();
+      }
+    };
+    const m = 14, r = 18;
+    tube(() => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(m, m, w - 2 * m, h - 2 * m, r) : ctx.rect(m, m, w - 2 * m, h - 2 * m); ctx.stroke(); },
+      st.neon || [1, 0.36, 0.72], 4);
+    fitFont(ctx, sg.text, w - 90, Math.round(h * 0.6));
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    tube(() => ctx.strokeText(sg.text, w / 2, h / 2 + 3), sg.colour, 5);
     return pixels(ctx, w, h);
   }
   /* ------------------------------------------- the season (seasons.py)

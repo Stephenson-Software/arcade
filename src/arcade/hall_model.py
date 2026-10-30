@@ -47,6 +47,12 @@ ROLES = {
     "button2": {"org": [0.80, 0.20]},
     "button3": [0.25, 0.75, 0.35],
     "start": [0.90, 0.90, 0.94],
+    # The room's things (things()): a stool's seat and chrome, a plush prize's
+    # own colour (its "tint", given per thing) and its eyes.
+    "seat": [0.80, 0.11, 0.16],
+    "chrome": [0.70, 0.71, 0.76],
+    "tint": {"org": [1.0, 0.0]},
+    "eye": [0.03, 0.03, 0.04],
     # Unlit (the "accent" part): the coin slots glow.
     "slot": [1.0, 0.60, 0.16],
     "slotdark": [0.30, 0.07, 0.02],
@@ -430,6 +436,40 @@ def art_mask():
     z0, z1 = min(zs), max(zs)
     top = max(y for _, y in SIDE_PROFILE)
     return [(round((1 - (z - z0) / (z1 - z0)) * w, 1), round((1 - y / top) * h, 1)) for z, y in SIDE_PROFILE]
+
+
+# ------------------------------------------------------------ the room's things
+
+STOOL_RADIUS = 0.18  # its seat, and the collider round it
+STOOL_Z = 0.64  # a stool's centre in front of its cabinet, under the deck
+
+
+def stool_part():
+    """A bar stool: round red seat on a chrome post and foot."""
+    part = Part()
+    part.cylinder((0, 0.015, 0), 0.34, 0.03, "chrome", sides=10)
+    part.cylinder((0, 0.33, 0), 0.05, 0.60, "chrome", sides=6)
+    part.cylinder((0, 0.36, 0), 0.26, 0.02, "chrome", sides=10)  # the foot ring
+    part.cylinder((0, 0.65, 0), 2 * STOOL_RADIUS, 0.08, "seat", sides=12)
+    return part
+
+
+def plush_part():
+    """A plush prize (a bear, near enough): a body, a head and two ears, sat on y 0."""
+    part = Part()
+    part.sphere((0, 0.09, 0), 0.18, "tint", rings=5, sides=8)
+    part.sphere((0, 0.23, 0.01), 0.13, "tint", rings=5, sides=8)
+    for x in (-0.05, 0.05):
+        part.sphere((x, 0.29, 0.0), 0.05, "tint", rings=3, sides=6)
+        part.sphere((x * 0.5, 0.245, 0.07), 0.018, "eye", rings=2, sides=4)
+    return part
+
+
+def things():
+    """The room's things, as parts: arcade.hall's room lists where each stands."""
+    if "t" not in _cache:
+        _cache["t"] = {"stool": stool_part().data(), "plush": plush_part().data()}
+    return _cache["t"]
 
 
 _cache = {}
