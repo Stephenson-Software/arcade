@@ -40,7 +40,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from PIL import Image, ImageDraw, ImageFont, ImageStat
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 try:
     import strata
@@ -260,15 +260,72 @@ def tex(engine, img, flags=None):
     return engine.create_texture_rgba8(img.width, img.height, img.tobytes(), flags)
 
 
+def _carpet_shape(kind, s):
+    """A carpet shape's outline round (0, 0), as hall.js draws it."""
+    if kind == 2:
+        return [(s * math.cos(k * 2.0944 - 1.5708), s * math.sin(k * 2.0944 - 1.5708)) for k in range(3)]
+    if kind == 3:
+        return [(s * (k / 4 - 0.5), (1 if k % 2 else -1) * s * 0.16) for k in range(5)]
+    return [((s * 0.42 if k % 2 else s) * math.cos(k * math.pi / 4 - math.pi / 2),
+             (s * 0.42 if k % 2 else s) * math.sin(k * math.pi / 4 - math.pi / 2)) for k in range(8)]
+
+
 def carpet(style, size=256):
-    """The carpet tile: the same colours and confetti as the page's."""
+    """The carpet tile: the same colours and shapes as the page's (hall.carpet_pattern())."""
     img = Image.new("RGB", (size, size), tuple(round(255 * c) for c in style["carpet"]))
     d = ImageDraw.Draw(img)
-    for x, y, r, k in style["dots"]:
+    for kind, x, y, s, a, k in style["pattern"]:
         fill = tuple(round(255 * c) for c in style["carpetDots"][k])
+        ca, sa = math.cos(a), math.sin(a)
         for ox in (-size, 0, size):
             for oy in (-size, 0, size):
-                d.ellipse([x + ox - r, y + oy - r, x + ox + r, y + oy + r], fill=fill)
+                cx, cy = x + ox, y + oy
+                if kind in (0, 1):
+                    box = [cx - s, cy - s, cx + s, cy + s]
+                    d.ellipse(box, fill=fill) if kind == 0 else d.ellipse(box, outline=fill, width=3)
+                    continue
+                pts = [(cx + px * ca - py * sa, cy + px * sa + py * ca) for px, py in _carpet_shape(kind, s)]
+                if kind == 4:
+                    d.polygon(pts, fill=fill)
+                else:
+                    d.line(pts + (pts[:1] if kind == 2 else []), fill=fill, width=3, joint="curve")
+    return img
+
+
+def ceiling(style, size=128):
+    """The suspended ceiling's tile (two by two, with T-bars), as the page draws it."""
+    img = Image.new("RGB", (size, size), tuple(round(255 * c) for c in style["ceiling"]))
+    d = ImageDraw.Draw(img)
+    grid = tuple(round(255 * c) for c in style.get("ceilingGrid", style["ceiling"]))
+    for at in (0, size // 2):
+        d.rectangle([at, 0, at + 2, size], fill=grid)
+        d.rectangle([0, at, size, at + 2], fill=grid)
+    return img
+
+
+def neon(sg, style):
+    """A neon sign (the ARCADE sign over the door), as the page draws it:
+    glowing tubes for the letters and a border, on a dark board."""
+    w, h = 512, round(512 * sg["h"] / sg["w"])
+    img = Image.new("RGB", (w, h), (14, 8, 20))
+
+    def tube(draw_fn, colour, width):
+        c = tuple(round(255 * v) for v in colour)
+        for blur, lw, col, k in ((18, width * 2.2, c, 0.55), (6, width, c, 1.0),
+                                 (0, width * 0.38, tuple(round(255 * (0.75 + 0.25 * v)) for v in colour), 1.0)):
+            mask = Image.new("L", (w, h), 0)
+            draw_fn(ImageDraw.Draw(mask), max(1, round(lw)))
+            if blur:
+                glow = mask.filter(ImageFilter.GaussianBlur(blur / 2))
+                img.paste(Image.new("RGB", (w, h), c), (0, 0), glow.point(lambda v: round(v * k)))
+            img.paste(Image.new("RGB", (w, h), col), (0, 0), mask.point(lambda v: round(v * k)))
+
+    m = 14
+    tube(lambda d, lw: d.rounded_rectangle([m, m, w - m, h - m], radius=18, outline=255, width=lw),
+         style.get("neon", (1, 0.36, 0.72)), 4)
+    font = fit_text(ImageDraw.Draw(img), sg["text"], w - 90, round(h * 0.6))
+    tube(lambda d, lw: d.text((w / 2, h / 2 + 3), sg["text"], font=font, fill=0, anchor="mm", stroke_width=lw,
+                              stroke_fill=255), sg["colour"], 3)
     return img
 
 
@@ -344,9 +401,16 @@ def build(engine, cabinets, doc):
     wall((-w, near), (-w, far), (1, 0, 0))
     wall((w, far), (w, near), (-1, 0, 0))
     wall((w, near), (-w, near), (0, 0, -1))
-    walls.quad([(-w, h, far), (w, h, far), (w, h, near), (-w, h, near)], (0, -1, 0), style["ceiling"])
+    ceil, ct = MeshBuilder(), room["ceilingTile"]
+    cr = (2 * w / ct, (near - far) / ct)
+    ceil.quad([(-w, h, far), (w, h, far), (w, h, near), (-w, h, near)], (0, -1, 0),
+              uvs=((0, 0), (cr[0], 0), (cr[0], cr[1]), (0, cr[1])))
+    ceil.add(engine, texture=tex(engine, ceiling(style)))
     for b in room["props"]:
         (lit if b["unlit"] else walls).box(Flat, b["lo"], b["hi"], b["colour"])
+    for t in room["things"]:
+        add_model(walls, Frame((t["x"], t["y"], t["z"]), t["angle"]), room["thingParts"][t["part"]],
+                  t.get("colour", (1, 1, 1)))
     walls.add(engine)
     lit.add(engine, flags=strata.MESH_UNLIT)
     for sg in room["signs"]:
@@ -355,9 +419,10 @@ def build(engine, cabinets, doc):
         y0, y1 = sg["y"] - sg["h"] / 2, sg["y"] + sg["h"] / 2
         q = MeshBuilder()
         q.quad([(x0, y0, sg["z"]), (x1, y0, sg["z"]), (x1, y1, sg["z"]), (x0, y1, sg["z"])], (0, 0, f))
-        q.add(engine, texture=tex(engine, sign(sg), clamp), flags=strata.MESH_UNLIT)
-        glow.append(strata.Point((sg["x"], sg["y"], sg["z"] + 0.15 * f), 0.0, sg["w"] * 0.9,
-                                 tuple(sg["colour"]) + (0.10,), strata.POINT_SOFT))
+        q.add(engine, texture=tex(engine, neon(sg, style) if sg.get("neon") else sign(sg), clamp),
+              flags=strata.MESH_UNLIT)
+        glow.append(strata.Point((sg["x"], sg["y"], sg["z"] + 0.15 * f), 0.0, sg["w"] * (1.2 if sg.get("neon") else 0.9),
+                                 tuple(sg["colour"]) + (0.16 if sg.get("neon") else 0.10,), strata.POINT_SOFT))
     for l in room["lights"][2:]:
         glow.append(strata.Point((l[0], l[1] + 0.4, l[2]), 0.0, 1.5, tuple(style["panel"]) + (0.18,), strata.POINT_SOFT))
 

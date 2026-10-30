@@ -1,6 +1,6 @@
 {
   "registry": "https://play.danielstephenson.dev/api/games",
-  "read_at": "2026-10-30T03:51:45Z",
+  "read_at": "2026-10-30T04:21:48Z",
   "strata": "0.7.0",
   "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
   "cabinets": [
@@ -50,7 +50,7 @@
       "slug": "overwinter",
       "title": "Overwinter",
       "repo": "Stephenson-Software/Overwinter",
-      "plays": 205,
+      "plays": 207,
       "screen": "https://danielstephenson.dev/trailers/overwinter.jpg"
     },
     {
@@ -82,18 +82,18 @@
       "screen": "https://danielstephenson.dev/trailers/kindling.jpg"
     },
     {
+      "slug": "cave",
+      "title": "Cave",
+      "repo": "Stephenson-Software/Cave-Console-Game",
+      "plays": 150,
+      "screen": "https://danielstephenson.dev/trailers/cave-console-game.jpg"
+    },
+    {
       "slug": "ophidian",
       "title": "Ophidian",
       "repo": "Preponderous-Software/ophidian",
       "plays": 150,
       "screen": "https://danielstephenson.dev/trailers/ophidian.jpg"
-    },
-    {
-      "slug": "cave",
-      "title": "Cave",
-      "repo": "Stephenson-Software/Cave-Console-Game",
-      "plays": 149,
-      "screen": "https://danielstephenson.dev/trailers/cave-console-game.jpg"
     },
     {
       "slug": "night-ferry",
@@ -190,7 +190,7 @@
       "slug": "kreatures",
       "title": "Kreatures",
       "repo": "Stephenson-Software/Kreatures",
-      "plays": 109,
+      "plays": 110,
       "screen": "https://danielstephenson.dev/trailers/kreatures.jpg"
     },
     {

@@ -85,7 +85,9 @@ STYLE = {
     "wall": [0.42, 0.30, 0.34],
     "wainscot": [0.24, 0.16, 0.22],
     "ceiling": [0.20, 0.17, 0.19],
-    "carpet": [0.26, 0.27, 0.52],  # mid blue, with confetti (carpet_dots)
+    "ceilingGrid": [0.30, 0.27, 0.28],  # the suspended ceiling's T-bars
+    "neon": [1.0, 0.36, 0.72],  # the ARCADE sign's border tube
+    "carpet": [0.24, 0.25, 0.50],  # mid blue, with neon shapes (carpet_pattern)
     "carpetDots": [[0.98, 0.42, 0.66], [0.99, 0.84, 0.30], [0.36, 0.86, 0.92], [0.62, 0.48, 1.0]],
     "panel": [1.0, 0.94, 0.80],
     "light": [1.0, 0.82, 0.60],
@@ -127,18 +129,38 @@ def order(games):
     return featured + rest
 
 
-def carpet_dots(size=256, count=110, seed=7):
-    """The carpet's confetti, the same in the README picture and the page:
-    (x, y, radius, colour index) in a size x size tile, from a small LCG."""
-    out, state = [], seed
-    for _ in range(count):
-        vals = []
-        for _ in range(4):
-            state = (state * 1103515245 + 12345) % 2147483648
-            vals.append(state / 2147483648)
-        out.append([round(vals[0] * size, 2), round(vals[1] * size, 2), round(1.6 + vals[2] * 2.2, 2),
-                    int(vals[3] * len(STYLE["carpetDots"]))])
+def _lcg(seed):
+    state = seed
+    while True:
+        state = (state * 1103515245 + 12345) % 2147483648
+        yield state / 2147483648
+
+
+# The carpet's shapes (carpet_pattern()): kind codes, and how many of each.
+CARPET_KINDS = {"dot": 0, "ring": 1, "triangle": 2, "zigzag": 3, "star": 4}
+CARPET_COUNTS = (("zigzag", 14), ("ring", 12), ("triangle", 12), ("star", 8), ("dot", 70))
+
+
+def carpet_pattern(size=256, seed=11):
+    """A classic arcade carpet: neon squiggles, rings, triangles, stars and
+    confetti on the carpet colour, the same in the README picture and the
+    page. [kind, x, y, size, turn (radians), colour index] in a size x size
+    tile that wraps (hall.js carpet(), make_hall_media.py carpet())."""
+    rnd = _lcg(seed)
+    out = []
+    for kind, count in CARPET_COUNTS:
+        for _ in range(count):
+            x, y, s, a, k = (next(rnd) for _ in range(5))
+            scale = {"dot": 1.4 + s * 1.6, "ring": 6 + s * 4, "triangle": 9 + s * 6, "zigzag": 18 + s * 14,
+                     "star": 6 + s * 3}[kind]
+            out.append([CARPET_KINDS[kind], round(x * size, 1), round(y * size, 1), round(scale, 1),
+                        round(a * 2 * math.pi, 3), int(k * len(STYLE["carpetDots"]))])
     return out
+
+
+def ceiling_tile_size():
+    """Metres per ceiling texture tile: two by two suspended-ceiling tiles."""
+    return 1.2
 
 
 def floor_plan(rest):
@@ -248,6 +270,15 @@ def room_for(count, style=None):
             k += 1
     for y in (0.72, 1.27, 1.82):
         props.append(_box((cx0, y - 0.04, near - 0.66), (cx1, y, near - 0.45), (0.40, 0.27, 0.20)))
+    # Plush prizes along the top of the prize shelves, the big ones.
+    things = []
+    plush = [(0.95, 0.55, 0.70), (0.62, 0.42, 0.25), (0.98, 0.86, 0.40), (0.55, 0.78, 0.98), (0.75, 0.55, 0.95)]
+    x, k = cx0 + 0.3, 0
+    while x < cx1 - 0.2:
+        things.append({"part": "plush", "x": round(x, 4), "y": 2.3, "z": round(near - 0.25, 4), "angle": round(math.pi, 6),
+                       "colour": list(plush[k % len(plush)])})
+        x += 0.42
+        k += 1
     obstacles.append([cx0, cz0, cx1 + 0.05, near])
     signs.append({"text": "CHANGE \u00b7 PRIZES", "x": (cx0 + cx1) / 2, "y": 2.75, "z": near - 0.44, "w": 3.2,
                   "h": 0.55, "facing": -1, "colour": [1.0, 0.80, 0.30]})
@@ -258,8 +289,9 @@ def room_for(count, style=None):
     props.append(_box((-DOOR_HALF_WIDTH, 0, near - 0.08), (DOOR_HALF_WIDTH, DOOR_HEIGHT, near - 0.06),
                       (0.98, 0.86, 0.62), unlit=True))
     props.append(_box((-1.2, 0, near - 2.2), (1.2, 0.012, near - 0.1), (0.50, 0.12, 0.16)))
-    signs.append({"text": "ARCADE", "x": 0.0, "y": DOOR_HEIGHT + 0.5, "z": near - 0.08, "w": 2.2, "h": 0.5,
-                  "facing": -1, "colour": [0.66, 0.54, 1.0]})
+    # Over the door, in neon (drawn as tubes on a dark board, with a glow).
+    signs.append({"text": "ARCADE", "x": 0.0, "y": DOOR_HEIGHT + 0.62, "z": near - 0.08, "w": 3.0, "h": 0.78,
+                  "facing": -1, "colour": [0.66, 0.54, 1.0], "neon": True})
 
     # The ceiling: lit panels in a grid, a warm light under each other one.
     xs = []
@@ -275,6 +307,8 @@ def room_for(count, style=None):
     for i, z in enumerate(zs):
         for k, x in enumerate(xs):
             props.append(_box((x - 0.7, h - 0.04, z - 0.35), (x + 0.7, h - 0.01, z + 0.35), st["panel"], unlit=True))
+            # Its frame: a rim of dark metal round it, seen from below.
+            props.append(_box((x - 0.76, h - 0.032, z - 0.41), (x + 0.76, h - 0.005, z + 0.41), (0.16, 0.15, 0.17)))
             if (i + k) % 2 == 0:
                 lights.append([x, h - 0.5, z, 6.5] + st["light"] + [0.9])
     # Two broad fills first (always kept, whatever the light budget), then
@@ -283,6 +317,17 @@ def room_for(count, style=None):
              [0.0, h - 0.4, (near + far) / 2 - 2.0, 16.0] + st["light"] + [0.8]]
     spots = [[x, 3.4, stage["cabinetZ"] + 1.6, 5.0, 1.0, 0.85, 0.62, 2.2] for x in (-1.4, 1.4)]
     lights = fills + spots + lights
+
+    # Stools, tucked under the control deck of every third cabinet. Each has
+    # its own collider; the walkways stay at least 2.5 m wide.
+    for k, (pos, angle) in enumerate(placements(count)):
+        if k == 0 or k % 3 != 2:
+            continue
+        f = (math.sin(angle), math.cos(angle))
+        x, z = pos[0] + f[0] * hall_model.STOOL_Z, pos[2] + f[1] * hall_model.STOOL_Z
+        things.append({"part": "stool", "x": round(x, 4), "y": 0.0, "z": round(z, 4), "angle": round(angle, 6)})
+        r = hall_model.STOOL_RADIUS
+        obstacles.append([x - r, z - r, x + r, z + r])
     return {
         "halfWidth": half_width,
         "height": h,
@@ -293,10 +338,13 @@ def room_for(count, style=None):
                   "front": round(stage["front"], 4), "back": round(stage["back"], 4)},
         "spawn": {"x": 0.0, "z": round(near - 1.4, 4), "yaw": round(math.pi / 2, 6)},
         "props": props,
+        "things": things,
+        "thingParts": hall_model.things(),
+        "ceilingTile": ceiling_tile_size(),
         "signs": signs,
         "lights": [[round(v, 4) for v in l] for l in lights],
         "obstacles": [[round(v, 4) for v in o] for o in obstacles],
-        "style": dict(st, dots=carpet_dots()),
+        "style": dict(st, pattern=carpet_pattern()),
     }
 
 

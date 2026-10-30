@@ -1,6 +1,6 @@
 # arcade
 
-[![A bright 3D arcade floor seen from a corner by the door: islands of back-to-back cabinets on a confetti carpet under lit ceiling panels, one cabinet per game on play.danielstephenson.dev, with a change and prize counter by the entrance. Each screen shows that game's own picture and each marquee its title; each cabinet has a sloped control deck, a coin door with glowing coin slots, a speaker grille, side art made from its poster and a T-molding edge in violet, teal or orange by GitHub organisation. Roam stands alone on a raised stage at the back wall under a FEATURED sign. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
+[![A bright 3D arcade floor seen from a corner by the door: islands of back-to-back cabinets on a patterned arcade carpet (neon squiggles, rings and triangles) under framed light panels in a tiled ceiling, one cabinet per game on play.danielstephenson.dev, with red stools tucked under some of them and a change and prize counter by the entrance. Each screen shows that game's own picture and each marquee its title; each cabinet has a sloped control deck, a coin door with glowing coin slots, a speaker grille, side art made from its poster and a T-molding edge in violet, teal or orange by GitHub organisation. Roam stands alone on a raised stage at the back wall under a FEATURED sign. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
 
 *Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the islands nearest the door have the most plays, and Roam has the stage at the back. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk from the door towards the stage. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
 
@@ -185,6 +185,10 @@ the portal keep their lists, and link here with "Walk the hall".
   of it fading into stripes of its dominant colours; `--sides` remakes them offline). Beyond about 8 m
   (less in economy) a cabinet is drawn as a few-faced stand-in: `hall3d/main.cpp` swaps the two as the
   visitor walks, so only the nearest cabinets cost their detail.
+- **The room.** A patterned arcade carpet (hall.py's `carpet_pattern()`: neon squiggles, rings,
+  triangles, stars and confetti in one 256 px tile), a suspended ceiling with framed light panels, a neon
+  ARCADE sign over the door, red stools tucked under every third cabinet's control deck (each with its
+  own collider; the walkways stay at least 2.5 m) and plush prizes along the top of the prize shelves.
 - **Screens.** Each screen starts as a title card and gets its poster when it loads, nearest first.
   Posters are `src/arcade/hall_assets/posters/<slug>.jpg` (512x288), served same-origin because
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
