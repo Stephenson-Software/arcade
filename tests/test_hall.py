@@ -480,3 +480,10 @@ def test_the_engine_starts_lighter_on_a_software_renderer():
     # Multisampling off, economy (half density, no point lights) from the start.
     assert "llvmpipe" in page and "swiftshader" in page.lower()
     assert "mod._hall_configure(" in page and "setEconomy(true)" in page
+
+
+def test_the_readme_gif_of_playing_from_the_hall_is_small():
+    path = os.path.join(ROOT, "docs", "media", "hall-play.gif")
+    assert os.path.getsize(path) < 1024 * 1024
+    with open(os.path.join(ROOT, "README.md")) as f:
+        assert "docs/media/hall-play.gif" in f.read()

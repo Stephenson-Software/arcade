@@ -142,6 +142,8 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 
 <img src="docs/media/hall-walk-iphone.png" width="260" alt="The hall on an iPhone, from the door: the centre walkway to the stage, with the walking stick bottom left."> <img src="docs/media/hall-walk-desktop-cabinet.png" width="480" alt="Mid-floor on a desktop, at a cabinet beside the stage: the prompt reads E Play and the game's name.">
 
+![Walking up to the env-lib-cpp cabinet in the hall: its card appears (organisation, one line about it, 375 plays), E is pressed, the camera eases square-on to the cabinet's screen, the game fades in over it, and Back reverses the move to the same spot.](docs/media/hall-play.gif)
+
 `https://play.<base>/hall/` is the README picture made walkable, drawn live by
 [Strata](https://github.com/Preponderous-Software/strata)'s web kit. It is opt-in: the landing page and
 the portal keep their lists, and link here with "Walk the hall".
