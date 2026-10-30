@@ -130,5 +130,41 @@ test("broken, out-of-range or wrongly typed values are cleaned, not trusted", ()
   assert.strictEqual(S.clean({sensitivity: NaN}).sensitivity, 1);
 });
 
+/* ------------------------------------------- keyboard and screen readers */
+test("Tab's order is nearest first from where the visitor stands, ties by title", () => {
+  const cs = [{title: "Far", x: 0, z: -9}, {title: "Near", x: 1, z: 0}, {title: "Bee", x: 0, z: -3}, {title: "Ant", x: 3, z: 0}];
+  assert.deepStrictEqual(C.order({x: 0, z: 0}, cs).map((c) => c.title), ["Near", "Ant", "Bee", "Far"]);
+  assert.deepStrictEqual(C.order({x: 0, z: -9}, cs).map((c) => c.title)[0], "Far");
+  // Measured to the spot given (a cabinet's front), not its centre.
+  const at = (c) => (c.title === "Far" ? [0, 0.5] : [c.x, c.z]);
+  assert.strictEqual(C.order({x: 0, z: 0}, cs, at)[0].title, "Far");
+  assert.deepStrictEqual(C.order({x: 0, z: 0}, []), []);
+});
+
+test("the pointer: a cabinet in sight is marked where it is on screen", () => {
+  // Looking along -x (yaw 0), level.
+  const view = {x: 0, y: 1.6, z: 0, yaw: 0, pitch: 0, aspect: 16 / 9, fov: 62};
+  const ahead = C.project(view, [-5, 1.6, 0]);
+  assert.ok(ahead.on && Math.abs(ahead.nx) < 1e-9 && Math.abs(ahead.ny) < 1e-9);
+  const up = C.project(view, [-5, 2.6, 0]);
+  assert.ok(up.on && up.ny > 0);
+  // Screen-right, looking along -x, is -z.
+  const right = C.project(view, [-5, 1.6, -1]);
+  assert.ok(right.on && right.nx > 0, JSON.stringify(right));
+});
+
+test("the pointer: out of sight, it sits at the edge towards the cabinet and the view does not move", () => {
+  const view = {x: 0, y: 1.6, z: 0, yaw: 0, pitch: 0, aspect: 16 / 9, fov: 62};
+  const before = JSON.stringify(view);
+  const side = C.project(view, [0, 1.6, -5]);          // 90 degrees to the right
+  assert.ok(!side.on && side.nx > 0.8 && Math.abs(side.angle) < 0.01, JSON.stringify(side));
+  const left = C.project(view, [0, 1.6, 5]);
+  assert.ok(!left.on && left.nx < -0.8);
+  const behind = C.project(view, [5, 1.6, 0]);         // straight back: "turn right"
+  assert.ok(!behind.on && behind.nx > 0.8);
+  for (const q of [side, left, behind]) assert.ok(Math.max(Math.abs(q.nx), Math.abs(q.ny)) <= 0.9 + 1e-9);
+  assert.strictEqual(JSON.stringify(view), before);
+});
+
 if (failures) { console.log(`${failures} failed`); process.exit(1); }
 console.log("all passed");
