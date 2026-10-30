@@ -18,3 +18,10 @@ sudo apt-get install libegl1 libgl1-mesa-dri fonts-dejavu-core
 ```
 
 Commit the PNG and both JSON files. Scrapers cache a card by its URL for days, so a materially new picture is best given a new file name.
+
+## The hall's cards
+
+`/hall/` and `/hall/?at=<slug>` have cards of their own, rendered from the walkable hall's scene rather than
+this seed scene: see [`tools/make_hall_cards.py`](../tools/make_hall_cards.py). They are JPEGs in
+`src/arcade/hall_assets/cards/`, and their URLs carry a hash of the file (`?v=`), so a re-rendered card is
+fetched again by scrapers.
