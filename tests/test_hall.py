@@ -2,6 +2,7 @@ import http.client
 import json
 import math
 import os
+import re
 import threading
 
 import pytest
@@ -432,6 +433,23 @@ def test_the_gamepad_walks_looks_plays_and_goes_back():
         timeout=120,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_the_settings_panel_has_every_setting_and_keeps_them():
+    with open(os.path.join(hall.ASSETS, "index.html")) as f:
+        page = f.read()
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        js = f.read()
+    for el in ("set-sens", "set-invert", "set-fov", "bob", "set-reduce", "set-hum", "settings-btn"):
+        assert 'id="%s"' % el in page, el
+    # Head bob is off unless asked for: its box is never checked in the page.
+    assert re.search(r'<input id="bob"[^>]*checked', page) is None
+    # One JSON object in localStorage, read and written only through
+    # HallControls.settings (which wraps every access in try/catch).
+    assert "SET.load(localStore" in js and "SET.save(localStore" in js
+    assert "localStorage.setItem" not in js and "localStorage.getItem" not in js
+    # The field of view is the setting's, everywhere the hall uses one.
+    assert "W.FOV" not in js
 
 
 def test_the_hall_page_loads_its_scripts_in_order():
