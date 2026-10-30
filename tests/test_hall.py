@@ -423,3 +423,38 @@ def test_the_hall_page_loads_its_scripts_in_order():
     at = [page.index('src="%s"' % name) for name in order]
     assert at == sorted(at)
     assert 'id="sound"' in page and 'aria-pressed="false"' in page
+
+
+def test_blurbs_are_trimmed_to_one_short_line():
+    assert hall.trim_blurb("  a\n b  ") == "a b"
+    long = "word " * 60
+    out = hall.trim_blurb(long)
+    assert len(out) <= hall.BLURB_MAX and out.endswith("\u2026") and "\n" not in out
+    with open(hall.BLURBS, encoding="utf-8") as f:
+        committed = json.load(f)
+    assert committed and all(len(v) <= hall.BLURB_MAX and "\n" not in v for v in committed.values())
+
+
+def test_served_layout_carries_each_cabinets_org_and_blurb(monkeypatch, tmp_path):
+    path = tmp_path / "blurbs.json"
+    path.write_text(json.dumps({"tidewater": "A time-loop text adventure.", "roam": 5}))
+    monkeypatch.setattr(hall, "BLURBS", str(path))
+    doc = {c["slug"]: c for c in hall.served_layout(GAMES, False)["cabinets"]}
+    assert doc["tidewater"]["org"] == "Stephenson-Software"
+    assert doc["tidewater"]["blurb"] == "A time-loop text adventure."
+    assert doc["roam"]["blurb"] is None  # not a string: ignored
+    assert doc["env-lib-cpp"]["blurb"] is None
+    # A missing or broken file means no blurbs, never an error.
+    path.write_text("{not json")
+    path.touch()
+    os.utime(str(path), ns=(1, 1))
+    assert all(c["blurb"] is None for c in hall.served_layout(GAMES, False)["cabinets"])
+    monkeypatch.setattr(hall, "BLURBS", str(tmp_path / "absent.json"))
+    assert all(c["blurb"] is None for c in hall.served_layout(GAMES, False)["cabinets"])
+
+
+def test_every_live_game_has_a_poster():
+    with open(os.path.join(ROOT, "docs", "media", "arcade-hall.sources.json")) as f:
+        slugs = [c["slug"] for c in json.load(f)["cabinets"]]
+    missing = [s for s in slugs if not os.path.isfile(os.path.join(hall.POSTERS, s + ".jpg"))]
+    assert missing == []
