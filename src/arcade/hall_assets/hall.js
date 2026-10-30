@@ -26,9 +26,18 @@
   const POS_KEY = "arcade-hall.pos";
   const TEX_MIPS = 1, TEX_CLAMP = 2 | 4;
   const SCREEN_TEX = [512, 288], MARQUEE_TEX = [512, 112];
-  const BOB_KEY = "arcade-hall.bob";
-  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let bobOn = (params.get("bob") || StrataKit.store.get(BOB_KEY)) === "1";
+  /* The visitor's settings (the panel behind "?"; hall-controls.js keeps
+     them in localStorage). Reduce motion starts as the system's preference;
+     head bob and the hum start as the older single keys said, else off. */
+  const SET = window.HallControls.settings;
+  const localStore = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  const settings = SET.load(localStore, {
+    reduceMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+    bob: StrataKit.store.get("arcade-hall.bob") === "1",
+    hum: StrataKit.store.get("arcade-hall.sound") === "1",
+  });
+  let reducedMotion = settings.reduceMotion, fov = settings.fov;
+  let bobOn = params.has("bob") ? params.get("bob") === "1" : settings.bob;
 
   const session = {
     get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
@@ -240,7 +249,7 @@
     buildRoom(points);
     rows(mod._hall_set_items, items);
     rows(mod._hall_set_points, points);
-    mod._hall_set_view(layout.room.style ? layout.room.style.ambient : 0.32, W.FOV);
+    mod._hall_set_view(layout.room.style ? layout.room.style.ambient : 0.32, fov);
     setLights();
   }
 
@@ -396,13 +405,13 @@
      square-on at the cabinet's screen while the game loads hidden behind it,
      the game crossfades in once it has painted, and Back reverses it. */
   const SETTLE_MS = 450;  // after the frame's load event, for the game's first paint
-  let tr = null, clock = 0, frameToken = 0, standAt = null;
+  let tr = null, trReduced = reducedMotion, clock = 0, frameToken = 0, standAt = null;
   // The machine's clock: the frame's time when frames are driven by a tool
   // (?drive=1), else the page's (the loop rests while a game is shown).
   const nowMs = () => (kit && kit.driven ? clock : performance.now());
   const standPose = () => ({x: me.x, y: W.EYE, z: me.z, yaw: kit.cam.yaw, pitch: kit.cam.pitch});
   const screenPose = (c) => HallPlay.screenPose(c.fr, layout.cabinet.screen,
-    canvas.clientWidth / Math.max(canvas.clientHeight, 1), W.FOV);
+    canvas.clientWidth / Math.max(canvas.clientHeight, 1), fov);
   function switchUrl(c) {
     const url = new URL(location.href);
     url.search = "";
@@ -412,6 +421,8 @@
   }
   function play(c) {
     if (!c || !c.deployed || !c.url || !tr || tr.state !== "idle") return;
+    // Reduce motion, if it changed since: the move into the game is a fade, the camera stays.
+    if (trReduced !== reducedMotion) { tr = HallPlay.machine({reduced: reducedMotion}); trReduced = reducedMotion; }
     savePlace();
     const how = canFrame(c);
     state.lastPlay = {slug: c.slug, how};
@@ -504,19 +515,24 @@
   $("back").addEventListener("click", closeFrame);
 
   /* The hall's sound: off until asked for, remembered, quiet while a game plays. */
-  const SOUND_KEY = "arcade-hall.sound", hum = HallLife.hum(), soundBtn = $("sound");
+  const hum = HallLife.hum(), soundBtn = $("sound");
   function showSound() {
     soundBtn.setAttribute("aria-pressed", String(hum.on));
     soundBtn.textContent = hum.on ? "Sound on" : "Sound off";
+    $("set-hum").checked = hum.on;
+  }
+  function setHum(on) {
+    hum.set(on);
+    settings.hum = hum.on;
+    SET.save(localStore, settings);
+    showSound();
   }
   soundBtn.addEventListener("click", () => {
-    hum.set(!hum.on);
-    StrataKit.store.set(SOUND_KEY, hum.on ? "1" : "0");
-    showSound();
+    setHum(!hum.on);
     canvas.focus({preventScroll: true});
   });
   // A remembered "on" still waits for a tap: browsers start sound only on one.
-  if (StrataKit.store.get(SOUND_KEY) === "1") {
+  if (settings.hum) {
     const first = () => { if (!hum.on) { hum.set(true); showSound(); } };
     window.addEventListener("pointerdown", first, {once: true, capture: true});
     window.addEventListener("keydown", first, {once: true, capture: true});
@@ -536,7 +552,7 @@
   // Back to this page from a game it navigated to (the bfcache): standing again.
   window.addEventListener("pageshow", (e) => {
     if (!e.persisted || !tr) return;
-    tr = HallPlay.machine({reduced: reducedMotion});
+    tr = HallPlay.machine({reduced: reducedMotion}); trReduced = reducedMotion;
     playing = null;
     unloadFrame();
     const f = $("fade");
@@ -597,7 +613,8 @@
   stickEl.addEventListener("pointerup", stickEnd);
   stickEl.addEventListener("pointercancel", stickEnd);
 
-  // Mouse look: the pointer is locked and every movement turns the view.
+  // Mouse look: the pointer is locked and every movement turns the view
+  // (by the look sensitivity and invert setting, applied in tick()).
   const lookBtn = $("look");
   lookBtn.addEventListener("click", () => { try { canvas.requestPointerLock(); } catch (e) { /* unsupported */ } });
   document.addEventListener("pointerlockchange", () => {
@@ -671,24 +688,76 @@
   const helpBtn = $("help-btn");
   function showHelp(on) { $("help").hidden = !on; helpBtn.setAttribute("aria-expanded", String(on)); }
   helpBtn.addEventListener("click", () => showHelp($("help").hidden));
-  const bobBox = $("bob");
-  bobBox.checked = bobOn;
-  bobBox.addEventListener("change", () => { bobOn = bobBox.checked; StrataKit.store.set(BOB_KEY, bobOn ? "1" : "0");
-    canvas.focus({preventScroll: true});
+
+  /* Settings, in the "?" panel: look sensitivity, invert Y, field of view,
+     head bob, reduce motion and the hum. Each applies at once and is kept. */
+  const setBtn = $("settings-btn"), setPanel = $("settings");
+  function showSettings(on) {
+    setPanel.hidden = !on;
+    setBtn.setAttribute("aria-expanded", String(on));
+  }
+  setBtn.addEventListener("click", () => showSettings(setPanel.hidden));
+  function applySettings() {
+    bobOn = settings.bob;
+    reducedMotion = settings.reduceMotion;
+    document.body.classList.toggle("reduce", reducedMotion);
+    if (fov !== settings.fov) {
+      fov = settings.fov;
+      if (mod && layout) mod._hall_set_view(economy ? ECONOMY_AMBIENT : (layout.room.style ? layout.room.style.ambient : 0.32), fov);
+    }
+    state.settings = Object.assign({}, settings);
+  }
+  function showSettingValues() {
+    $("set-sens").value = settings.sensitivity;
+    $("set-sens-v").textContent = settings.sensitivity.toFixed(1) + "\u00d7";
+    $("set-invert").checked = settings.invertY;
+    $("set-fov").value = settings.fov;
+    $("set-fov-v").textContent = settings.fov + "\u00b0";
+    $("bob").checked = bobOn;
+    $("set-reduce").checked = settings.reduceMotion;
+    $("set-hum").checked = hum.on;
+  }
+  function changeSetting(k, v) {
+    Object.assign(settings, SET.clean(Object.assign({}, settings, {[k]: v})));
+    SET.save(localStore, settings);
+    applySettings();
+    showSettingValues();
+  }
+  $("set-sens").addEventListener("input", (e) => changeSetting("sensitivity", +e.target.value));
+  $("set-invert").addEventListener("change", (e) => changeSetting("invertY", e.target.checked));
+  $("set-fov").addEventListener("input", (e) => changeSetting("fov", +e.target.value));
+  $("bob").addEventListener("change", (e) => changeSetting("bob", e.target.checked));
+  $("set-reduce").addEventListener("change", (e) => changeSetting("reduceMotion", e.target.checked));
+  $("set-hum").addEventListener("change", (e) => setHum(e.target.checked));
+  $("set-reset").addEventListener("click", () => {
+    const keepHum = hum.on;
+    Object.assign(settings, SET.clean({reduceMotion: matchMedia("(prefers-reduced-motion: reduce)").matches}));
+    if (keepHum) setHum(false);
+    SET.save(localStore, settings);
+    applySettings();
+    showSettingValues();
   });
+  if (params.has("bob")) settings.bob = bobOn;
+  applySettings();
+  showSettingValues();
 
   /* ---------------------------------------------- the frame, each tick */
   let lastNow = 0, lastSave = 0, lastPrompt = "";
   // Head bob, off unless asked for. The view only ever turns when the
   // visitor turns it: nothing here (walking, tap-to-walk) rotates it.
   let bobPhase = 0;
+  // The camera as this frame left it: a drag or mouse look moves it between
+  // frames, and tick() scales that move by the look sensitivity (and flips
+  // its pitch for invert Y). null: adopt the camera as it is (after a move
+  // into or out of a game, or a jump).
+  let camSeen = null;
 
   // How far in front of a cabinet to stop: further on a tall, narrow
   // (portrait phone) view, so the whole cabinet stays in sight.
   function standOff() { return canvas.clientWidth < canvas.clientHeight ? 1.9 : 1.15; }
   function view() {
     return {x: me.x, y: W.EYE, z: me.z, yaw: kit.cam.yaw, pitch: kit.cam.pitch,
-      aspect: canvas.clientWidth / Math.max(canvas.clientHeight, 1), fov: W.FOV};
+      aspect: canvas.clientWidth / Math.max(canvas.clientHeight, 1), fov};
   }
   function tick(t, now, dt) {
     if (!me) return;
@@ -699,6 +768,7 @@
         // Moving into or out of a game: the camera is the move's, and walking waits.
         if (u.camera) Object.assign(kit.cam, {tx: u.camera.x, ty: u.camera.y, tz: u.camera.z,
           yaw: u.camera.yaw, pitch: u.camera.pitch});
+        camSeen = null;
         // B, during the move into a game: finish it now (as Esc does).
         const p = pollPad();
         if (p && p.down.b && u.state !== "playing") tr.skip(now);
@@ -706,20 +776,28 @@
         return;
       }
     }
+    const flip = settings.invertY ? -1 : 1, sens = settings.sensitivity;
+    if (camSeen) {
+      const dyaw = kit.cam.yaw - camSeen.yaw, dpitch = kit.cam.pitch - camSeen.pitch;
+      if (dyaw || dpitch) {
+        kit.cam.yaw = camSeen.yaw + dyaw * sens;
+        kit.cam.pitch = Math.min(Math.max(camSeen.pitch + dpitch * sens * flip, -1.2), 1.2);
+      }
+    }
     const pad = pollPad() || {forward: 0, right: 0, run: false, lookX: 0, lookY: 0, down: {}};
     if (pad.lookX || pad.lookY) {
-      kit.cam.yaw += pad.lookX * C.LOOK_RATE * dt;
-      kit.cam.pitch = Math.min(Math.max(kit.cam.pitch + pad.lookY * C.LOOK_RATE * 0.7 * dt, -1.2), 1.2);
+      kit.cam.yaw += pad.lookX * C.LOOK_RATE * sens * dt;
+      kit.cam.pitch = Math.min(Math.max(kit.cam.pitch + pad.lookY * C.LOOK_RATE * 0.7 * sens * flip * dt, -1.2), 1.2);
     }
     if (pad.forward || pad.right) target = null;
-    if (pad.down.a && near) { play(near); state.frames++; return; }
+    if (pad.down.a && near) { play(near); camSeen = null; state.frames++; return; }
     if (pad.down.b) padBack();
     me.yaw = kit.cam.yaw; me.pitch = kit.cam.pitch;
     const has = (k) => (keys.has(k) ? 1 : 0);
     let input = {
       forward: Math.max(-1, Math.min(1, has("w") + has("arrowup") - has("s") - has("arrowdown") + stickIn.forward + pad.forward)),
       right: Math.max(-1, Math.min(1, has("d") - has("a") + stickIn.right + pad.right)),
-      turn: (has("arrowright") - has("arrowleft")) * 1.9,
+      turn: (has("arrowright") - has("arrowleft")) * 1.9 * sens,
       run: keys.has("shift") || stickIn.run || pad.run,
     };
     if (target && !input.forward && !input.right) {
@@ -747,6 +825,7 @@
     }
     kit.cam.yaw = me.yaw;
     kit.cam.tx = me.x; kit.cam.ty = eye; kit.cam.tz = me.z;
+    camSeen = {yaw: kit.cam.yaw, pitch: kit.cam.pitch};
     if (now - lastSave > 500) { lastSave = now; savePlace(); }
     if (posterQueue.length && posterBusy < 2) pumpPosters();
     state.walking = !!target;
@@ -832,6 +911,7 @@
 
   // B in the hall: close what is open, else stop a walk to somewhere.
   function padBack() {
+    if (!setPanel.hidden && !$("help").hidden) { showSettings(false); return; }
     if (!$("help").hidden) { showHelp(false); return; }
     target = null;
   }
@@ -932,7 +1012,7 @@
     document.body.classList.toggle("lite", economy);
     if (!kit) return;
     if (economy) kit.dprCap = Math.min(kit.dprCap, ECONOMY_SCALE);
-    mod._hall_set_view(economy ? ECONOMY_AMBIENT : (layout.room.style ? layout.room.style.ambient : 0.32), W.FOV);
+    mod._hall_set_view(economy ? ECONOMY_AMBIENT : (layout.room.style ? layout.room.style.ambient : 0.32), fov);
     setLights();
   }
 
@@ -985,7 +1065,7 @@
     });
     buildScene();
     if (wantEconomy) setEconomy(true);
-    tr = HallPlay.machine({reduced: reducedMotion});
+    tr = HallPlay.machine({reduced: reducedMotion}); trReduced = reducedMotion;
     if (resuming) {
       // Pick up the move where the other mode left it: at the screen, the game loading behind it.
       playing = resuming;
@@ -1001,7 +1081,8 @@
     if (touchSeen) $("stick").hidden = false;
     if (!resuming) {
       showHelp(true);
-      setTimeout(() => showHelp(false), 9000);
+      // Unless the visitor has gone into it (to the settings, say).
+      setTimeout(() => { if (setPanel.hidden && !$("help").contains(document.activeElement)) showHelp(false); }, 9000);
     }
     canvas.focus({preventScroll: true});
     queuePosters();
@@ -1029,8 +1110,10 @@
       me = Object.assign({}, me, W.resolve(x, z, world), {vx: 0, vz: 0, speed: 0});
       if (yaw != null) kit.cam.yaw = me.yaw = yaw;
       if (pitch != null) kit.cam.pitch = pitch;
+      camSeen = null;
     },
     get bob() { return bobOn; },
+    get settings() { return Object.assign({}, settings, {reducedMotion, fov}); },
     get pad() { return state.pad || null; },
     walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
     play(slug) { play(layout.cabinets.find((k) => k.slug === slug)); },
