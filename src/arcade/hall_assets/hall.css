@@ -86,7 +86,7 @@ body.touch #bar #look { display: none; }
 /* Economy (hall.js setEconomy): a blur behind the buttons is redrawn with
    every frame of the canvas under it, which costs a software renderer more
    than the hall itself. Solid panels instead. */
-body.lite #bar a, body.lite #bar button, body.lite #help, body.lite #prompt, body.lite #card {
+body.lite #bar a, body.lite #bar button, body.lite #help, body.lite #prompt, body.lite #card, body.lite #toast {
   -webkit-backdrop-filter: none; backdrop-filter: none; }
 body.lite { --panel: rgba(16, 12, 30, .92); }
 /* The map (hall.js drawMap): top right under the bar; on a phone, behind the Map button. */
@@ -145,3 +145,18 @@ body.touch #help { background: rgba(16, 12, 30, .95); }
 body.reduce #pointer::before { animation: none; }
 @media (prefers-reduced-motion: reduce) { #pointer::before { animation: none; } }
 body.moving #pointer { visibility: hidden; }
+/* Share this spot (hall-share.js): an icon and a word, the icon alone on a narrow screen. */
+#bar #share { gap: 6px; }
+#bar #share svg { flex: none; }
+#bar #share { flex: none; }
+/* A phone's bar holds five controls: a little tighter, so none wraps onto two lines. */
+@media (max-width: 480px) {
+  #bar { gap: 6px; }
+  #bar a, #bar button { padding: 0 9px; font-size: 14px; white-space: nowrap; }
+  #bar #help-btn { min-width: 40px; justify-content: center; }
+  #bar #share { padding: 0; width: 40px; justify-content: center; }
+  #bar #share .label { display: none; }
+}
+/* The share note reuses the gamepad's toast; a link shown to copy by hand wraps and can be selected. */
+#toast.url { pointer-events: auto; -webkit-user-select: all; user-select: all; white-space: normal;
+  overflow-wrap: anywhere; border-radius: 12px; }
