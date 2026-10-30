@@ -6,6 +6,9 @@
                                            from a "standard" mapping Gamepad
      HallControls.edges(prev, now)      -> {a, b, select}: true on the frame a button went down
      HallControls.LOOK_RATE             -> rad/s at full right-stick deflection
+     HallControls.settings.load(storage, fallback) -> the visitor's settings (never throws)
+     HallControls.settings.save(storage, s)        -> true if they were kept
+     HallControls.settings.clean(s, base)          -> s with every field present, typed and in range
 
    The left stick (or the d-pad) walks; the right stick looks, and only the
    visitor's own stick turns the view; A plays; B goes back. A stick inside
@@ -74,7 +77,40 @@
     return id.slice(0, 40) || "Controller";
   }
 
-  const HallControls = {pad, edges, deadzone, first, name, DEAD, RUN_AT, LOOK_RATE};
+  /* The settings panel's values, kept as one JSON object in localStorage.
+     Storage may be missing or throw (a private window, blocked site data);
+     the hall then runs on the defaults and nothing is lost but the memory. */
+  const KEY = "arcade-hall.settings";
+  const DEFAULTS = Object.freeze({sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false});
+  const RANGE = {sensitivity: [0.3, 3], fov: [50, 90]};
+  function clean(s, base = DEFAULTS) {
+    const out = Object.assign({}, DEFAULTS, base);
+    if (!s || typeof s !== "object") return out;
+    for (const k of Object.keys(DEFAULTS)) {
+      const v = s[k];
+      if (typeof DEFAULTS[k] === "boolean") { if (typeof v === "boolean") out[k] = v; continue; }
+      const n = typeof v === "string" ? parseFloat(v) : v;
+      if (typeof n === "number" && Number.isFinite(n)) out[k] = Math.min(RANGE[k][1], Math.max(RANGE[k][0], n));
+    }
+    out.sensitivity = Math.round(out.sensitivity * 100) / 100;
+    out.fov = Math.round(out.fov);
+    return out;
+  }
+  /* fallback: what stands for a setting never saved (the OS's reduced
+     motion, the older single-setting keys for head bob and the hum). */
+  function load(storage, fallback) {
+    let raw = null;
+    try { raw = storage ? storage.getItem(KEY) : null; } catch (e) { raw = null; }
+    let saved = null;
+    if (raw) { try { saved = JSON.parse(raw); } catch (e) { saved = null; } }
+    return clean(saved, clean(fallback));
+  }
+  function save(storage, s) {
+    try { if (!storage) return false; storage.setItem(KEY, JSON.stringify(clean(s))); return true; } catch (e) { return false; }
+  }
+  const settings = {load, save, clean, KEY, DEFAULTS, RANGE};
+
+  const HallControls = {pad, edges, deadzone, first, name, settings, DEAD, RUN_AT, LOOK_RATE};
   if (typeof module !== "undefined" && module.exports) module.exports = HallControls;
   else root.HallControls = HallControls;
 })(typeof window !== "undefined" ? window : globalThis);

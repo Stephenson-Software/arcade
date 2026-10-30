@@ -81,5 +81,54 @@ test("the first connected pad of a getGamepads() list, and a short name for the 
   assert.strictEqual(C.name({id: ""}), "Controller");
 });
 
+/* ---------------------------------------------------------- settings */
+function memoryStorage(init = {}) {
+  const m = new Map(Object.entries(init));
+  return {getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), map: m};
+}
+const S = C.settings;
+
+test("the defaults: sensitivity 1, no invert, 62 degree view, head bob off, no reduced motion, hum off", () => {
+  const s = S.load(memoryStorage());
+  assert.deepStrictEqual(s, {sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false});
+});
+
+test("settings are kept and read back as one object", () => {
+  const st = memoryStorage();
+  assert.strictEqual(S.save(st, {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true}), true);
+  assert.deepStrictEqual(JSON.parse(st.map.get(S.KEY)), {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true});
+  assert.deepStrictEqual(S.load(st), {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true});
+});
+
+test("storage that throws or is missing never breaks the hall: the defaults, and save says no", () => {
+  const throwing = {getItem() { throw new Error("SecurityError"); }, setItem() { throw new Error("QuotaExceededError"); }};
+  assert.deepStrictEqual(S.load(throwing), S.clean({}));
+  assert.deepStrictEqual(S.load(null), S.clean({}));
+  assert.strictEqual(S.save(throwing, {fov: 80}), false);
+  assert.strictEqual(S.save(null, {fov: 80}), false);
+});
+
+test("a never-saved setting takes the fallback (the system's reduced motion, the older keys)", () => {
+  const s = S.load(memoryStorage(), {reduceMotion: true, bob: true, hum: true});
+  assert.ok(s.reduceMotion && s.bob && s.hum);
+  // A saved choice wins over the fallback, both ways.
+  const st = memoryStorage({[S.KEY]: JSON.stringify({reduceMotion: false, bob: false})});
+  const t = S.load(st, {reduceMotion: true, bob: true});
+  assert.ok(!t.reduceMotion && !t.bob);
+});
+
+test("broken, out-of-range or wrongly typed values are cleaned, not trusted", () => {
+  assert.deepStrictEqual(S.load(memoryStorage({[S.KEY]: "{not json"})), S.clean({}));
+  const s = S.load(memoryStorage({[S.KEY]: JSON.stringify({sensitivity: 99, fov: -4, invertY: "yes", bob: 1, extra: 5})}));
+  assert.strictEqual(s.sensitivity, S.RANGE.sensitivity[1]);
+  assert.strictEqual(s.fov, S.RANGE.fov[0]);
+  assert.strictEqual(s.invertY, false);
+  assert.strictEqual(s.bob, false);
+  assert.ok(!("extra" in s));
+  assert.strictEqual(S.clean({sensitivity: "1.25", fov: 70.6}).sensitivity, 1.25);
+  assert.strictEqual(S.clean({fov: 70.6}).fov, 71);
+  assert.strictEqual(S.clean({sensitivity: NaN}).sensitivity, 1);
+});
+
 if (failures) { console.log(`${failures} failed`); process.exit(1); }
 console.log("all passed");

@@ -17,13 +17,24 @@
   <button id="sound" type="button" aria-pressed="false" title="The hall's sound (off by default)">Sound off</button>
   <button id="look" type="button" title="Turn by moving the mouse (Esc to stop)">Mouse look</button>
   <button id="map-btn" type="button" aria-expanded="false" aria-controls="map" title="Map of the hall (M)">Map</button>
-  <button id="help-btn" type="button" aria-expanded="false" aria-controls="help">?</button>
+  <button id="help-btn" type="button" aria-expanded="false" aria-controls="help" aria-label="Help and settings" title="Help and settings">?</button>
 </header>
 <div id="help" hidden>
   <p class="desk"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows walk &middot; <kbd>Shift</kbd> runs &middot; drag to look (or <b>Mouse look</b>) &middot; click a cabinet to walk to it &middot; <kbd>E</kbd> plays</p>
   <p class="pad">Controller: left stick walks &middot; right stick looks &middot; <kbd>A</kbd> plays &middot; <kbd>B</kbd> goes back (hold it in a game)</p>
   <p class="touch">Left thumb on the stick walks &middot; drag anywhere else to look &middot; tap a cabinet or the floor to walk there &middot; tap the button to play</p>
-  <label class="opt"><input id="bob" type="checkbox"> Head bob while walking</label>
+  <button id="settings-btn" class="disclose" type="button" aria-expanded="false" aria-controls="settings">Settings</button>
+  <div id="settings" role="group" aria-label="Settings" hidden>
+    <label class="row" for="set-sens">Look sensitivity <output id="set-sens-v" for="set-sens"></output></label>
+    <input id="set-sens" type="range" min="0.3" max="3" step="0.1">
+    <label class="opt"><input id="set-invert" type="checkbox"> Invert looking up and down</label>
+    <label class="row" for="set-fov">Field of view <output id="set-fov-v" for="set-fov"></output></label>
+    <input id="set-fov" type="range" min="50" max="90" step="1">
+    <label class="opt"><input id="bob" type="checkbox"> Head bob while walking</label>
+    <label class="opt"><input id="set-reduce" type="checkbox"> Reduce motion (games fade in; the view stays put)</label>
+    <label class="opt"><input id="set-hum" type="checkbox"> Arcade hum</label>
+    <button id="set-reset" class="disclose" type="button">Reset to defaults</button>
+  </div>
 </div>
 <canvas id="map" hidden width="180" height="180" aria-label="Map of the hall: you are the white dot. Click a cabinet to walk to it."></canvas>
 <aside id="card" hidden aria-live="polite">
