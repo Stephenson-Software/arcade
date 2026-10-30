@@ -77,19 +77,16 @@ test("walking into a cabinet at an angle slides along it", () => {
   }
 });
 
-test("facing a cabinet from its front is its front yaw, and the turn eases there", () => {
-  for (const c of layout.cabinets) {
-    const f = W.front(c);
-    const want = W.faceYaw(f, c);
-    assert.ok(Math.abs(Math.atan2(Math.sin(want - f.yaw), Math.cos(want - f.yaw))) < 1e-6, c.slug);
-  }
-  let yaw = 0;
-  const first = W.turnTowards(yaw, 1, 2.6, 1 / 60);
-  assert.ok(first > 0 && first < 0.1, `first ${first}`);
-  for (let i = 0; i < 120; i++) yaw = W.turnTowards(yaw, 1, 2.6, 1 / 60);
-  assert.ok(Math.abs(yaw - 1) < 0.01, `after 2 s ${yaw}`);
-  // The short way round.
-  assert.ok(W.turnTowards(3, -3, 2.6, 0.1) > 3);
+test("walking never turns the view; only the visitor's own turn does", () => {
+  let me = W.spawn(layout);
+  const yaw = me.yaw;
+  for (let i = 0; i < 200; i++) me = W.step(me, {forward: 1, right: (i % 40) / 20 - 1, run: i % 2 === 0}, 1 / 60, world);
+  for (let i = 0; i < 60; i++) me = W.step(me, {}, 1 / 60, world);  // and while gliding to a stop
+  assert.strictEqual(me.yaw, yaw);  // even sliding along cabinets and walls
+  me = W.step(me, {turn: 1.9}, 0.25, world);
+  assert.ok(Math.abs(me.yaw - (yaw + 0.475)) < 1e-9);
+  assert.strictEqual(W.faceYaw, undefined, "no auto-face");
+  assert.strictEqual(W.turnTowards, undefined, "no auto-turn");
 });
 
 test("head bob is nothing when standing and small when walking", () => {

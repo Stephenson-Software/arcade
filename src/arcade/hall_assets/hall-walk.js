@@ -7,8 +7,6 @@
      HallWalk.resolve(x, z, world)           -> {x, z} pushed out of cabinets and walls
      HallWalk.settle(x, z, world)            -> the nearest clear spot (for places saved under an older layout)
      HallWalk.step(me, input, dt, world)     -> the visitor after dt seconds of input (eased velocity, sliding)
-     HallWalk.faceYaw(me, cabinet)           -> the yaw that looks at its screen
-     HallWalk.turnTowards(yaw, want, rate, dt) -> yaw eased towards want
      HallWalk.bob(phase, speed)              -> head-bob height offset (off unless asked for)
      HallWalk.near(me, layout)               -> the cabinet the visitor is at, or null
      HallWalk.front(cabinet, d)              -> {x, z, yaw}: d metres in front of it, facing it
@@ -92,7 +90,8 @@
      input, the quicker DAMP when it stops), so walking starts and stops
      without a jolt. A cabinet or wall takes away only the part of the
      velocity that goes into it, so walking at an angle into a cabinet slides
-     along its side instead of sticking to it. */
+     along its side instead of sticking to it. Nothing here turns the view:
+     yaw changes only by input.turn (the visitor's own arrow keys). */
   function step(me, input, dt, w) {
     dt = clamp(dt, 0, 0.25);
     let f = input.forward || 0, s = input.right || 0;
@@ -122,19 +121,6 @@
     }
     const v = Math.hypot(vx, vz);
     return Object.assign({}, me, {x, z, yaw, vx, vz, speed: v, moving: on || v > STOP});
-  }
-
-  /* The yaw that looks from the visitor at a cabinet's screen. */
-  function faceYaw(me, c) {
-    const p = frame(c).p(0, 0, 0.3);
-    return Math.atan2(-(p[2] - me.z), -(p[0] - me.x));
-  }
-
-  /* Eases yaw towards want, at rate (1/s): the gentle turn towards a cabinet
-     the visitor walks up to. Returns the new yaw. */
-  function turnTowards(yaw, want, rate, dt) {
-    const d = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw));
-    return yaw + d * (1 - Math.exp(-rate * dt));
   }
 
   /* Head bob, when it is switched on: the eye's height offset (m) for a
@@ -261,8 +247,8 @@
     return {x: 0, z: Math.min(5.2, layout.room.near - 1.2), yaw: Math.PI / 2, pitch: 0.06};
   }
 
-  const HallWalk = {frame, world, resolve, clear, settle, step, near, front, stick, ray, pick, spawn, faceYaw,
-    turnTowards, bob, RADIUS, EYE, WALK, RUN, REACH, FOV, ACCEL, DAMP};
+  const HallWalk = {frame, world, resolve, clear, settle, step, near, front, stick, ray, pick, spawn, bob,
+    RADIUS, EYE, WALK, RUN, REACH, FOV, ACCEL, DAMP};
   if (typeof module !== "undefined" && module.exports) module.exports = HallWalk;
   else root.HallWalk = HallWalk;
 })(typeof window !== "undefined" ? window : globalThis);
