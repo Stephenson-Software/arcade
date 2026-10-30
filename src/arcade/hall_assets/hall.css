@@ -83,3 +83,9 @@ body.moving #bar > * { pointer-events: none; }
 .nojs { position: fixed; inset: auto 16px 16px; }
 body.touch #bar #look { display: none; }
 @media (max-width: 480px) { #bar #look { display: none; } #where { font-size: 12px; } }
+/* Economy (hall.js setEconomy): a blur behind the buttons is redrawn with
+   every frame of the canvas under it, which costs a software renderer more
+   than the hall itself. Solid panels instead. */
+body.lite #bar a, body.lite #bar button, body.lite #help, body.lite #prompt, body.lite #card {
+  -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.lite { --panel: rgba(16, 12, 30, .92); }

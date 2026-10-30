@@ -47,6 +47,10 @@ std::vector<StrataPoint> glow;
 std::vector<StrataPointLight> lights;
 float ambient = 0.32f;
 float fovDegrees = 62.0f;
+// Set by the page before the engine starts (hall_configure): a software
+// renderer (llvmpipe, SwiftShader) draws without multisampling.
+bool antialias = true;
+bool preserveDrawingBuffer = true;
 
 uint32_t uploadTexture(strata_kit::Host& h, Texture& t) {
     uint32_t id = 0;
@@ -92,6 +96,8 @@ void strata_kit_configure(strata_kit::Options& o) {
     o.nearPlane = 0.05f;
     o.farPlane = 80.0f;
     o.fog = false;
+    o.antialias = antialias;
+    o.preserveDrawingBuffer = preserveDrawingBuffer;
     // Indoors, lit by point lights only: the tiers trade lights (and glow).
     o.tiers[0] = {0, 1024, 6, true};
     o.tiers[1] = {0, 1024, 12, false};
@@ -229,4 +235,11 @@ STRATA_KIT_EXPORT void hall_set_lights(const float* rows, int n) {
 STRATA_KIT_EXPORT void hall_set_view(float ambientLevel, float fov) {
     ambient = std::clamp(ambientLevel, 0.0f, 1.0f);
     fovDegrees = std::clamp(fov, 20.0f, 110.0f);
+}
+
+// Before StrataKit.create (sk_init): multisampling, and whether frames are
+// kept for reading back (only tools that drive the hall need them).
+STRATA_KIT_EXPORT void hall_configure(int aa, int preserve) {
+    antialias = aa != 0;
+    preserveDrawingBuffer = preserve != 0;
 }
