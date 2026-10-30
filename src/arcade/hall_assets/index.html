@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arcade Hall</title>
+<meta name="description" content="Walk the arcade: one cabinet per browser game on play.danielstephenson.dev. Walk up to one and play it.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="hall.css">
+</head>
+<body>
+<canvas id="hall" tabindex="0" aria-label="The arcade hall, in 3D. Walk with W A S D or the arrow keys; on a phone, use the stick at the bottom left or tap where to go."></canvas>
+<header id="bar">
+  <a id="leave" href="../">&larr; All games</a>
+  <span id="where" aria-live="polite"></span>
+  <button id="look" type="button" title="Turn by moving the mouse (Esc to stop)">Mouse look</button>
+  <button id="help-btn" type="button" aria-expanded="false" aria-controls="help">?</button>
+</header>
+<div id="help" hidden>
+  <p class="desk"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows walk &middot; <kbd>Shift</kbd> runs &middot; drag to look (or <b>Mouse look</b>) &middot; click a cabinet to walk to it &middot; <kbd>E</kbd> plays</p>
+  <p class="touch">Left thumb on the stick walks &middot; drag anywhere else to look &middot; tap a cabinet or the floor to walk there &middot; tap the button to play</p>
+</div>
+<button id="prompt" type="button" hidden></button>
+<div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
+<section id="player" hidden aria-label="Game">
+  <div id="player-bar">
+    <button id="back" type="button">&larr; Back to the hall</button>
+    <span id="player-title"></span>
+    <a id="player-open" href="#" target="_top">Open full page</a>
+  </div>
+  <iframe id="player-frame" title="Game" allow="cross-origin-isolated; fullscreen; autoplay; gamepad"></iframe>
+</section>
+<noscript><p class="nojs">The hall needs JavaScript and WebGL 2. <a href="../">See every game as a list.</a></p></noscript>
+<script src="strata-loader.js"></script>
+<script src="strata-kit.js"></script>
+<script src="hall-walk.js"></script>
+<script src="hall.js"></script>
+</body>
+</html>
