@@ -470,6 +470,8 @@
         kit.running = false;  // the hall rests under the game
         hum.pause(true);
         state.lastShown = playing.slug;
+        startPadLoop();
+        if (padSeen) toast("Hold B (or press View) to come back to the hall");
       } else if (e === "unload-frame") unloadFrame();
       else if (e === "navigate") location.assign(playing.url);
       else if (e === "switch") location.assign(switchUrl(playing));
@@ -608,6 +610,64 @@
   });
   canvas.addEventListener("click", () => { if (document.pointerLockElement === canvas && near) play(near); });
 
+  /* A gamepad (hall-controls.js): the left stick walks, the right stick
+     looks, A plays, B goes back. Read once a frame; only the visitor's own
+     right stick turns the view. While a game is shown its frame has the pad
+     too, so a tap of B is the game's: holding B, or the View/Select button,
+     comes back to the hall. */
+  const C = window.HallControls, PAD_HOLD_BACK = 0.8;
+  let padPrev = null, padBHeld = 0, padSeen = false, toastTimer = 0;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.hidden = false;
+    t.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.classList.remove("on"); setTimeout(() => { if (!t.classList.contains("on")) t.hidden = true; }, 300); }, 3200);
+  }
+  function setPad(gp) {
+    padSeen = !!gp;
+    document.body.classList.toggle("pad", padSeen);
+    state.pad = gp ? C.name(gp) : null;
+  }
+  window.addEventListener("gamepadconnected", (e) => {
+    setPad(e.gamepad);
+    toast(`Controller connected: ${C.name(e.gamepad)}`);
+  });
+  window.addEventListener("gamepaddisconnected", () => {
+    const gp = readGamepad();
+    setPad(gp);
+    if (!gp) { padPrev = null; toast("Controller disconnected"); }
+  });
+  function readGamepad() {
+    try { return navigator.getGamepads ? C.first(navigator.getGamepads()) : null; } catch (e) { return null; }
+  }
+  // This frame's pad, and which buttons went down since the last one.
+  function pollPad() {
+    const gp = readGamepad();
+    if (!gp) { padPrev = null; return null; }
+    if (!padSeen) setPad(gp);
+    const p = C.pad(gp), e = C.edges(padPrev, p);
+    padPrev = p;
+    return Object.assign(p, {down: e});
+  }
+  // While a game is shown the hall's loop rests, so the pad has a loop of its own.
+  let padLoopOn = false, padLoopAt = 0;
+  function padLoop(now) {
+    if (!playing || !tr || tr.state !== "playing") { padLoopOn = false; return; }
+    const dt = padLoopAt ? Math.min((now - padLoopAt) / 1000, 0.25) : 0;
+    padLoopAt = now;
+    const p = pollPad();
+    padBHeld = p && p.b ? padBHeld + dt : 0;
+    if (p && (p.down.select || padBHeld >= PAD_HOLD_BACK)) { padBHeld = 0; padLoopOn = false; closeFrame(); return; }
+    requestAnimationFrame(padLoop);
+  }
+  function startPadLoop() {
+    if (padLoopOn) return;
+    padLoopOn = true; padLoopAt = 0; padBHeld = 0;
+    requestAnimationFrame(padLoop);
+  }
+
   const helpBtn = $("help-btn");
   function showHelp(on) { $("help").hidden = !on; helpBtn.setAttribute("aria-expanded", String(on)); }
   helpBtn.addEventListener("click", () => showHelp($("help").hidden));
@@ -639,17 +699,28 @@
         // Moving into or out of a game: the camera is the move's, and walking waits.
         if (u.camera) Object.assign(kit.cam, {tx: u.camera.x, ty: u.camera.y, tz: u.camera.z,
           yaw: u.camera.yaw, pitch: u.camera.pitch});
+        // B, during the move into a game: finish it now (as Esc does).
+        const p = pollPad();
+        if (p && p.down.b && u.state !== "playing") tr.skip(now);
         state.frames++;
         return;
       }
     }
+    const pad = pollPad() || {forward: 0, right: 0, run: false, lookX: 0, lookY: 0, down: {}};
+    if (pad.lookX || pad.lookY) {
+      kit.cam.yaw += pad.lookX * C.LOOK_RATE * dt;
+      kit.cam.pitch = Math.min(Math.max(kit.cam.pitch + pad.lookY * C.LOOK_RATE * 0.7 * dt, -1.2), 1.2);
+    }
+    if (pad.forward || pad.right) target = null;
+    if (pad.down.a && near) { play(near); state.frames++; return; }
+    if (pad.down.b) padBack();
     me.yaw = kit.cam.yaw; me.pitch = kit.cam.pitch;
     const has = (k) => (keys.has(k) ? 1 : 0);
     let input = {
-      forward: Math.max(-1, Math.min(1, has("w") + has("arrowup") - has("s") - has("arrowdown") + stickIn.forward)),
-      right: Math.max(-1, Math.min(1, has("d") - has("a") + stickIn.right)),
+      forward: Math.max(-1, Math.min(1, has("w") + has("arrowup") - has("s") - has("arrowdown") + stickIn.forward + pad.forward)),
+      right: Math.max(-1, Math.min(1, has("d") - has("a") + stickIn.right + pad.right)),
       turn: (has("arrowright") - has("arrowleft")) * 1.9,
-      run: keys.has("shift") || stickIn.run,
+      run: keys.has("shift") || stickIn.run || pad.run,
     };
     if (target && !input.forward && !input.right) {
       const dx = target.x - me.x, dz = target.z - me.z, d = Math.hypot(dx, dz);
@@ -759,13 +830,18 @@
     state.mapTarget = best ? best.slug : "floor";
   });
 
+  // B in the hall: close what is open, else stop a walk to somewhere.
+  function padBack() {
+    if (!$("help").hidden) { showHelp(false); return; }
+    target = null;
+  }
   function after() {
     drawMap();
     let html = "", cls = "";
     if (near && !(tr && tr.state !== "idle")) {
       if (!near.deployed) { html = `${esc(near.title)}<span class="t">Coming soon</span>`; cls = "soon"; }
-      else html = (touchSeen ? "Tap to play " : "<kbd>E</kbd> Play ") + esc(near.title)
-        + `<span class="t">${touchSeen ? "" : "Press E or click &middot; "}${esc(near.slug)}.play</span>`;
+      else html = (padSeen ? "<kbd>A</kbd> Play " : touchSeen ? "Tap to play " : "<kbd>E</kbd> Play ") + esc(near.title)
+        + `<span class="t">${padSeen ? "Press A &middot; " : touchSeen ? "" : "Press E or click &middot; "}${esc(near.slug)}.play</span>`;
     }
     if (html !== lastPrompt) {
       lastPrompt = html;
@@ -955,6 +1031,7 @@
       if (pitch != null) kit.cam.pitch = pitch;
     },
     get bob() { return bobOn; },
+    get pad() { return state.pad || null; },
     walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
     play(slug) { play(layout.cabinets.find((k) => k.slug === slug)); },
     back: closeFrame,

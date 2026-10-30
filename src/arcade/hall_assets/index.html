@@ -20,6 +20,7 @@
 </header>
 <div id="help" hidden>
   <p class="desk"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows walk &middot; <kbd>Shift</kbd> runs &middot; drag to look (or <b>Mouse look</b>) &middot; click a cabinet to walk to it &middot; <kbd>E</kbd> plays</p>
+  <p class="pad">Controller: left stick walks &middot; right stick looks &middot; <kbd>A</kbd> plays &middot; <kbd>B</kbd> goes back (hold it in a game)</p>
   <p class="touch">Left thumb on the stick walks &middot; drag anywhere else to look &middot; tap a cabinet or the floor to walk there &middot; tap the button to play</p>
   <label class="opt"><input id="bob" type="checkbox"> Head bob while walking</label>
 </div>
@@ -30,6 +31,7 @@
   <p id="card-blurb"></p>
   <div id="card-plays"></div>
 </aside>
+<div id="toast" role="status" aria-live="polite" hidden></div>
 <button id="prompt" type="button" hidden></button>
 <div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
 <section id="player" hidden aria-label="Game">
@@ -47,6 +49,7 @@
 <script src="hall-walk.js"></script>
 <script src="hall-play.js"></script>
 <script src="hall-life.js"></script>
+<script src="hall-controls.js"></script>
 <script src="hall.js"></script>
 </body>
 </html>
