@@ -171,6 +171,10 @@ the portal keep their lists, and link here with "Walk the hall".
   Posters are `src/arcade/hall_assets/posters/<slug>.jpg` (512x288), served same-origin because
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
   refreshes them from the same sources as the picture. A game without one keeps its title card.
+- **Attract mode and sound.** Every few seconds one screen shows its game's title card instead of its
+  poster, the nearest screens shimmer faintly (with baked-in scanlines), and the marquees' glow breathes;
+  nothing moves under reduced motion. *Sound* (off by default, remembered) plays a quiet arcade hum, made
+  with WebAudio (no audio files), and pauses while a game is open.
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
   (24, 12, 6 point lights; the nearest cabinets keep theirs). `?quality=0..2` pins a tier, `?fps=1`
   shows frame time and counts.
