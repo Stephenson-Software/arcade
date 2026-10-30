@@ -23,10 +23,13 @@ front faces (sin a, 0, cos a).
 Standard library only: the server imports it.
 """
 
+import hashlib
+import html
 import json
 import math
 import os
 import re
+from urllib.parse import quote
 
 FEATURED = "roam"
 POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
@@ -345,7 +348,11 @@ def layout(games):
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hall_assets")
 POSTERS = os.path.join(ASSETS, "posters")
-_ASSET_NAME = re.compile(r"^(?:posters/)?[a-z0-9][a-z0-9._-]{0,80}$")
+# Link-preview cards (tools/make_hall_cards.py): cards/hall.jpg for the hall,
+# cards/<slug>.jpg for /hall/?at=<slug>.
+CARDS = os.path.join(ASSETS, "cards")
+CARD_WIDTH, CARD_HEIGHT = 1200, 630
+_ASSET_NAME = re.compile(r"^(?:posters/|cards/)?[a-z0-9][a-z0-9._-]{0,80}$")
 EMBED_MODES = ("on", "off")
 # One line per game for the card at a cabinet (tools/make_hall_blurbs.py).
 BLURBS = os.path.join(ASSETS, "blurbs.json")
@@ -399,7 +406,7 @@ def etag(path):
 
 
 def asset_path(name):
-    """The file for /hall/<name>, or None. Only plain names (and posters/<name>)."""
+    """The file for /hall/<name>, or None. Only plain names (and posters/<name>, cards/<name>)."""
     if not _ASSET_NAME.match(name) or ".." in name:
         return None
     path = os.path.join(ASSETS, *name.split("/"))
@@ -420,3 +427,90 @@ def served_layout(games, embed):
     doc["embed"] = bool(embed)
     doc["modes"] = True
     return doc
+
+
+# --------------------------------------------------------------------------
+# The page, with its link-preview tags
+
+SHARE_MARK = "<!--share-meta-->"
+TITLE = "Arcade Hall"
+DESCRIPTION = (
+    "Walk the arcade: one cabinet per browser game on play.danielstephenson.dev. Walk up to one and play it."
+)
+HALL_CARD_ALT = (
+    "The arcade hall seen from its door: islands of lit arcade cabinets on a confetti carpet, each screen "
+    "showing a game, and Roam on a stage at the back, rendered in 3D with Strata. Over it: The Arcade Hall "
+    "and play.danielstephenson.dev/hall."
+)
+_files = {}
+
+
+def _read(path):
+    """A file's bytes and a short hash of them, re-read when it changes."""
+    st = os.stat(path)
+    key = (st.st_size, st.st_mtime_ns)
+    cached = _files.get(path)
+    if cached is None or cached[0] != key:
+        with open(path, "rb") as f:
+            data = f.read()
+        cached = (key, data, hashlib.sha256(data).hexdigest()[:12])
+        _files[path] = cached
+    return cached[1], cached[2]
+
+
+def card(slug=None):
+    """(path under /hall/, short hash) of the card for a cabinet, or of the
+    hall's when the cabinet has none (or no slug is given)."""
+    name = "%s.jpg" % slug if slug and _ASSET_NAME.match(slug) else None
+    if name is None or not os.path.isfile(os.path.join(CARDS, name)):
+        name = "hall.jpg"
+    return "cards/" + name, _read(os.path.join(CARDS, name))[1]
+
+
+def share_meta(domain, slug=None, title=None):
+    """The og:* and twitter:* tags for /hall/, or for /hall/?at=<slug> when a
+    game is named (its title, its blurb, its own card if it has one)."""
+    escape = html.escape
+    base = "https://%s/hall/" % domain
+    if slug:
+        name = title or slug
+        page_title = "%s, in the Arcade Hall" % name
+        blurb = trim_blurb(blurbs().get(slug) or "%s has a cabinet in the arcade." % name, 100)
+        if not blurb.endswith((".", "!", "?", "\u2026")):
+            blurb += "."
+        description = blurb + " Walk up to its cabinet in the arcade hall and play it."
+        url = base + "?at=" + quote(slug)
+    else:
+        page_title, description, url = TITLE, DESCRIPTION, base
+    path, version = card(slug)
+    if path == "cards/hall.jpg":
+        alt = HALL_CARD_ALT
+    else:
+        alt = "The %s arcade cabinet in the hall, its screen showing the game, rendered in 3D with Strata." % name
+    image = "%s%s?v=%s" % (base, path, version)
+    values = {k: escape(v) for k, v in (("title", page_title), ("description", description), ("url", url),
+                                        ("image", image), ("alt", alt))}
+    values.update(width=CARD_WIDTH, height=CARD_HEIGHT)
+    return (
+        '<meta property="og:type" content="website">\n'
+        '<meta property="og:site_name" content="Play">\n'
+        '<meta property="og:title" content="%(title)s">\n'
+        '<meta property="og:description" content="%(description)s">\n'
+        '<meta property="og:url" content="%(url)s">\n'
+        '<meta property="og:image" content="%(image)s">\n'
+        '<meta property="og:image:type" content="image/jpeg">\n'
+        '<meta property="og:image:width" content="%(width)d">\n'
+        '<meta property="og:image:height" content="%(height)d">\n'
+        '<meta property="og:image:alt" content="%(alt)s">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        '<meta name="twitter:title" content="%(title)s">\n'
+        '<meta name="twitter:description" content="%(description)s">\n'
+        '<meta name="twitter:image" content="%(image)s">\n'
+        '<meta name="twitter:image:alt" content="%(alt)s">'
+    ) % values
+
+
+def page(domain, slug=None, title=None):
+    """index.html as UTF-8 bytes, its link-preview tags filled in."""
+    text = _read(os.path.join(ASSETS, "index.html"))[0].decode("utf-8")
+    return text.replace(SHARE_MARK, share_meta(domain, slug, title), 1).encode("utf-8")

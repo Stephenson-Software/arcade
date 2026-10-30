@@ -7,6 +7,12 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Link previews for the hall: `/hall/` names a 1200x630 card (`og:image`, `twitter:image`) of the arcade
+  floor seen from the door, and `/hall/?at=<slug>` names that game's own card (its cabinet, poster on the
+  screen) with its title and blurb. The cards are rendered with Strata by `tools/make_hall_cards.py` from
+  the hall's own layout and posters, committed under `src/arcade/hall_assets/cards/`, and served at
+  `/hall/cards/<name>.jpg`; a game with no card yet unfurls with the hall's.
+
 - The walkable hall at `https://play.<base>/hall/`: the README's arcade hall, live in the browser on
   Strata's web kit. Walk with WASD/arrows and mouse look, or a stick and tap-to-walk on a phone; walk up
   to a cabinet and press E (or tap) to play. Games open in a frame over the hall with "Back to the hall"

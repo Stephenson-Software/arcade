@@ -512,18 +512,27 @@ def makeHandler(arcade):
                 # Cross-origin isolated only when asked (?isolated=1): an
                 # isolated hall can frame a tak or Roam build, which needs
                 # SharedArrayBuffer; a plain one can frame every other game.
-                self.isolate = parse_qs(query).get("isolated", [""])[0] == "1"
-                self._stream(
-                    os.path.join(hall.ASSETS, "index.html"),
-                    "text/html; charset=utf-8",
-                    '"%s-%s"' % (hall.etag(os.path.join(hall.ASSETS, "index.html")), "iso" if self.isolate else "plain"),
-                    extra=(
-                        ("Content-Security-Policy", hall.csp(config.domain)),
-                        ("X-Content-Type-Options", "nosniff"),
-                        ("Referrer-Policy", "strict-origin-when-cross-origin"),
-                    ),
-                    backfill=False,
+                params = parse_qs(query)
+                self.isolate = params.get("isolated", [""])[0] == "1"
+                # A link to one cabinet (?at=<slug>) unfurls with that game's
+                # title and card; anything else with the hall's.
+                game = arcade.registry.registry.get(params.get("at", [""])[0])
+                body = hall.page(config.domain, game.slug, game.title) if game else hall.page(config.domain)
+                tag = '"hall-page-%s-%s"' % (
+                    hashlib.sha256(body).hexdigest()[:16],
+                    "iso" if self.isolate else "plain",
                 )
+                headers = (
+                    ("ETag", tag),
+                    ("Cache-Control", "no-cache"),
+                    ("Content-Security-Policy", hall.csp(config.domain)),
+                    ("X-Content-Type-Options", "nosniff"),
+                    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+                )
+                if self.headers.get("If-None-Match") == tag:
+                    self._notModified(headers)
+                    return
+                self._send(200, body, "text/html; charset=utf-8", headers=headers)
                 return
             if name == "layout.json":
                 registry = arcade.registry.registry

@@ -1,3 +1,4 @@
+import html
 import http.client
 import json
 import math
@@ -264,6 +265,76 @@ def test_the_hall_page_is_plain_unless_asked_to_be_isolated(running):
     assert res.getheader("Cross-Origin-Embedder-Policy") == "require-corp"
     # The two modes are different responses to a cache.
     assert res.getheader("ETag") != get(port, "/hall/")[0].getheader("ETag")
+
+
+def meta(body, prop):
+    """The content of the one <meta> whose property or name is `prop`."""
+    text = body.decode("utf-8")
+    found = [line for line in text.splitlines() if '"%s"' % prop in line and line.startswith("<meta")]
+    assert len(found) == 1, (prop, found)
+    return found[0].split('content="', 1)[1].rsplit('"', 1)[0]
+
+
+def test_the_hall_unfurls_with_its_own_card(running):
+    port = running()
+    res, body = get(port, "/hall/")
+    assert b"<!--share-meta-->" not in body
+    assert meta(body, "og:title") == "Arcade Hall"
+    assert meta(body, "og:url") == "https://play.example.com/hall/"
+    image = meta(body, "og:image")
+    assert image.startswith("https://play.example.com/hall/cards/hall.jpg?v=")
+    assert meta(body, "twitter:image") == image and meta(body, "twitter:card") == "summary_large_image"
+    assert (meta(body, "og:image:width"), meta(body, "og:image:height")) == ("1200", "630")
+    assert meta(body, "og:image:alt") == html.escape(hall.HALL_CARD_ALT)
+    # The card itself is served, as a JPEG of the size the tags say.
+    res, card = get(port, image.split("play.example.com", 1)[1])
+    assert res.status == 200 and res.getheader("Content-Type") == "image/jpeg"
+    assert card[:3] == b"\xff\xd8\xff"
+
+
+def test_a_link_to_a_cabinet_unfurls_with_that_game(running):
+    port = running()
+    res, body = get(port, "/hall/?at=tidewater")
+    assert res.status == 200
+    assert meta(body, "og:title") == "Tidewater, in the Arcade Hall"
+    assert meta(body, "og:url") == "https://play.example.com/hall/?at=tidewater"
+    assert "/hall/cards/tidewater.jpg?v=" in meta(body, "og:image")
+    assert "Tidewater arcade cabinet" in meta(body, "og:image:alt")
+    assert meta(body, "og:description").endswith("Walk up to its cabinet in the arcade hall and play it.")
+    assert "\u2026." not in meta(body, "og:description") and ".." not in meta(body, "og:description")
+    # Each cabinet's page is its own response to a cache.
+    assert res.getheader("ETag") != get(port, "/hall/")[0].getheader("ETag")
+    tag = res.getheader("ETag")
+    assert get(port, "/hall/?at=tidewater", headers={"If-None-Match": tag})[0].status == 304
+    # A game with no card of its own yet gets the hall's, under its own title.
+    _, body = get(port, "/hall/?at=rps")
+    assert meta(body, "og:title") == "Rps, in the Arcade Hall"
+    assert "/hall/cards/hall.jpg?v=" in meta(body, "og:image")
+    # Anything not in the registry is the plain hall; nothing from the query is echoed.
+    _, body = get(port, '/hall/?at=%22%3E%3Cscript%3E')
+    assert meta(body, "og:title") == "Arcade Hall" and b"<script>" not in body
+
+
+def test_every_card_is_a_1200_by_630_jpeg_and_small():
+    names = sorted(os.listdir(hall.CARDS))
+    assert "hall.jpg" in names
+    for name in names:
+        with open(os.path.join(hall.CARDS, name), "rb") as f:
+            data = f.read()
+        assert data[:3] == b"\xff\xd8\xff", name
+        assert len(data) < 200 * 1024, name  # link scrapers give up on big images
+        assert jpeg_size(data) == (hall.CARD_WIDTH, hall.CARD_HEIGHT), name
+
+
+def jpeg_size(data):
+    """(width, height) from a JPEG's start-of-frame marker."""
+    i = 2
+    while i < len(data):
+        marker, length = data[i + 1], int.from_bytes(data[i + 2 : i + 4], "big")
+        if marker in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(data[i + 7 : i + 9], "big"), int.from_bytes(data[i + 5 : i + 7], "big")
+        i += 2 + length
+    raise AssertionError("no start-of-frame marker")
 
 
 def test_the_layout_follows_the_registry(running):
