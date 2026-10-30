@@ -31,6 +31,8 @@ import os
 import re
 from urllib.parse import quote
 
+from arcade import seasons
+
 FEATURED = "roam"
 POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
 RAW = "https://raw.githubusercontent.com/{repo}/HEAD/{path}"
@@ -210,10 +212,12 @@ def _box(lo, hi, colour, unlit=False):
             "colour": [round(v, 4) for v in colour], "unlit": unlit}
 
 
-def room_for(count):
+def room_for(count, style=None):
     """The room around `count` cabinets: its size, props (plain boxes, drawn
     by both the README tool and the page), signs, lights, the obstacles a
-    visitor collides with besides the cabinets, and where a visitor starts."""
+    visitor collides with besides the cabinets, and where a visitor starts.
+    `style` replaces STYLE (a season's tint: arcade.seasons.style)."""
+    st = style or STYLE
     islands, per = floor_plan(max(count - 1, 0))
     half_width = CENTRE_WALK / 2 + max(per, 2) * ROW_PITCH + SIDE_WALK
     stage = _stage(islands)
@@ -277,13 +281,13 @@ def room_for(count):
         z -= 3.0
     for i, z in enumerate(zs):
         for k, x in enumerate(xs):
-            props.append(_box((x - 0.7, h - 0.04, z - 0.35), (x + 0.7, h - 0.01, z + 0.35), STYLE["panel"], unlit=True))
+            props.append(_box((x - 0.7, h - 0.04, z - 0.35), (x + 0.7, h - 0.01, z + 0.35), st["panel"], unlit=True))
             if (i + k) % 2 == 0:
-                lights.append([x, h - 0.5, z, 6.5] + STYLE["light"] + [0.9])
+                lights.append([x, h - 0.5, z, 6.5] + st["light"] + [0.9])
     # Two broad fills first (always kept, whatever the light budget), then
     # the stage's spotlights, then the panels.
-    fills = [[0.0, h - 0.4, near - 4.0, 16.0] + STYLE["light"] + [0.8],
-             [0.0, h - 0.4, (near + far) / 2 - 2.0, 16.0] + STYLE["light"] + [0.8]]
+    fills = [[0.0, h - 0.4, near - 4.0, 16.0] + st["light"] + [0.8],
+             [0.0, h - 0.4, (near + far) / 2 - 2.0, 16.0] + st["light"] + [0.8]]
     spots = [[x, 3.4, stage["cabinetZ"] + 1.6, 5.0, 1.0, 0.85, 0.62, 2.2] for x in (-1.4, 1.4)]
     lights = fills + spots + lights
     return {
@@ -299,13 +303,14 @@ def room_for(count):
         "signs": signs,
         "lights": [[round(v, 4) for v in l] for l in lights],
         "obstacles": [[round(v, 4) for v in o] for o in obstacles],
-        "style": dict(STYLE, dots=carpet_dots()),
+        "style": dict(st, dots=carpet_dots()),
     }
 
 
-def layout(games):
+def layout(games, style=None):
     """The hall as plain data (JSON-ready): the room and one entry per
-    cabinet, in placement order. `games` are /api/games entries."""
+    cabinet, in placement order. `games` are /api/games entries; `style`
+    is passed to room_for."""
     ordered = order(games)
     spots = placements(len(ordered))
     cabinets = []
@@ -328,7 +333,7 @@ def layout(games):
             }
         )
     return {
-        "room": room_for(len(ordered)),
+        "room": room_for(len(ordered), style),
         "cabinet": {
             "boxes": [[list(lo), list(hi), role] for lo, hi, role in CABINET_BOXES],
             "footprint": list(FOOTPRINT),
@@ -413,11 +418,14 @@ def asset_path(name):
     return path if os.path.isfile(path) else None
 
 
-def served_layout(games, embed):
+def served_layout(games, embed, season=None, now=None):
     """layout.json: the layout, plus each cabinet's poster when arcade has
     one, and whether games are played in a frame (embed) and whether the hall
-    may reload itself to match a game's isolation (modes)."""
-    doc = layout(games)
+    may reload itself to match a game's isolation (modes). The season in
+    force at `now` in Denver (or the one `season` names: ?season=) tints the
+    lights and adds its decor (arcade.seasons)."""
+    which = seasons.pick(now, season)
+    doc = layout(games, seasons.style(which, STYLE))
     lines = blurbs()
     for cabinet in doc["cabinets"]:
         cabinet["org"] = cabinet["repo"].split("/")[0]
@@ -426,7 +434,7 @@ def served_layout(games, embed):
         cabinet["poster"] = "posters/%s.jpg" % cabinet["slug"] if has else None
     doc["embed"] = bool(embed)
     doc["modes"] = True
-    return doc
+    return seasons.dress(doc, which)
 
 
 # --------------------------------------------------------------------------

@@ -8,6 +8,7 @@
                                    instead of its poster at scene time t, or -1
      HallLife.flicker(t, i)     -> a screen's brightness, 0.9..1: a faint CRT shimmer
      HallLife.pulse(t, i)       -> a marquee glow's strength, 0.7..1.3
+     HallLife.candle(t, i)      -> a jack-o'-lantern's flame, 0.62..1 (seasonal decor)
      HallLife.scanlines(rgba, w, h) -> darkens every third row in place (a CRT look)
      HallLife.hum()             -> {on, set(on), pause(p)}: the hall's sound, off until set(true)
 */
@@ -36,6 +37,12 @@
 
   function pulse(t, i) {
     return 1 + 0.3 * Math.sin(t * 1.6 + i * 0.8);
+  }
+
+  // A candle in a jack-o'-lantern: mostly steady, with quick uneven dips.
+  function candle(t, i) {
+    const a = Math.sin(t * 9.7 + i * 2.9) * 0.45 + Math.sin(t * 23.3 + i * 1.3) * 0.3 + Math.sin(t * 3.1 + i * 4.1) * 0.25;
+    return 0.81 + 0.19 * a;  // 0.62 .. 1.0
   }
 
   function scanlines(rgba, w, h, every = 3, k = 0.86) {
@@ -116,7 +123,7 @@
     };
   }
 
-  const HallLife = {attract, flicker, pulse, scanlines, hum, PERIOD, SHOW};
+  const HallLife = {attract, flicker, pulse, candle, scanlines, hum, PERIOD, SHOW};
   if (typeof module !== "undefined" && module.exports) module.exports = HallLife;
   else root.HallLife = HallLife;
 })(typeof window !== "undefined" ? window : globalThis);
