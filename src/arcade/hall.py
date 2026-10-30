@@ -23,6 +23,7 @@ front faces (sin a, 0, cos a).
 Standard library only: the server imports it.
 """
 
+import json
 import math
 import os
 import re
@@ -346,6 +347,38 @@ ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hall_assets")
 POSTERS = os.path.join(ASSETS, "posters")
 _ASSET_NAME = re.compile(r"^(?:posters/)?[a-z0-9][a-z0-9._-]{0,80}$")
 EMBED_MODES = ("on", "off")
+# One line per game for the card at a cabinet (tools/make_hall_blurbs.py).
+BLURBS = os.path.join(ASSETS, "blurbs.json")
+BLURB_MAX = 140
+
+
+def trim_blurb(text, limit=BLURB_MAX):
+    """One line, at most `limit` characters, cut at a word with an ellipsis."""
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:.-")
+    return cut + "\u2026"
+
+
+_blurbs = {"mtime": None, "data": {}}
+
+
+def blurbs():
+    """slug -> blurb, from blurbs.json (re-read when it changes; {} if absent or unreadable)."""
+    try:
+        mtime = os.stat(BLURBS).st_mtime_ns
+    except OSError:
+        return {}
+    if _blurbs["mtime"] != mtime:
+        try:
+            with open(BLURBS, encoding="utf-8") as f:
+                data = json.load(f)
+            _blurbs["data"] = {k: trim_blurb(v) for k, v in data.items() if isinstance(v, str)}
+        except (OSError, ValueError):
+            _blurbs["data"] = {}
+        _blurbs["mtime"] = mtime
+    return _blurbs["data"]
 
 
 def csp(domain):
@@ -378,7 +411,10 @@ def served_layout(games, embed):
     one, and whether games are played in a frame (embed) and whether the hall
     may reload itself to match a game's isolation (modes)."""
     doc = layout(games)
+    lines = blurbs()
     for cabinet in doc["cabinets"]:
+        cabinet["org"] = cabinet["repo"].split("/")[0]
+        cabinet["blurb"] = lines.get(cabinet["slug"])
         has = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".jpg"))
         cabinet["poster"] = "posters/%s.jpg" % cabinet["slug"] if has else None
     doc["embed"] = bool(embed)

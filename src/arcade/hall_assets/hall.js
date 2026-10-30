@@ -685,6 +685,41 @@
       p.disabled = cls === "soon";
       $("where").textContent = near ? near.title : `${layout.cabinets.length} games · walk up to one to play`;
     }
+    showCard(html ? near : null);
+  }
+
+  /* The card at a cabinet: its title, organisation, one line about it and
+     how often it has been played (live from /api/games, else the layout's). */
+  let cardFor = null, livePlays = null;
+  function playsText(n) {
+    if (!n) return "No plays yet";
+    return n === 1 ? "1 play" : `${n.toLocaleString("en-US")} plays`;
+  }
+  function showCard(c) {
+    if (c === cardFor) return;
+    cardFor = c;
+    const card = $("card");
+    if (!c) { card.classList.remove("on"); return; }
+    $("card-org").textContent = c.org || c.repo.split("/")[0];
+    $("card-title").textContent = c.title;
+    $("card-blurb").textContent = c.blurb || "";
+    $("card-blurb").hidden = !c.blurb;
+    const plays = livePlays && livePlays[c.slug] != null ? livePlays[c.slug] : c.plays;
+    $("card-plays").textContent = playsText(plays);
+    card.style.setProperty("--org", `rgb(${rgb255(c.colour)})`);
+    card.hidden = false;
+    card.classList.add("on");
+  }
+  async function refreshPlays() {
+    try {
+      const res = await fetch("/api/games", {cache: "no-cache"});
+      if (!res.ok) return;
+      const doc = await res.json(), map = {};
+      for (const g of doc.games || []) map[g.slug] = g.plays || 0;
+      livePlays = map;
+      state.livePlays = true;
+      if (cardFor) { const c = cardFor; cardFor = null; showCard(c); }
+    } catch (e) { /* the layout's counts stand */ }
   }
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g,
@@ -755,6 +790,8 @@
     }
     canvas.focus({preventScroll: true});
     queuePosters();
+    refreshPlays();
+    setInterval(() => { if (!document.hidden) refreshPlays(); }, 60000);
     savePlace();
   }
 
@@ -767,6 +804,7 @@
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
     get sound() { return {on: hum.on, running: hum.running}; },
+    get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) {
       me = Object.assign({}, me, W.resolve(x, z, world), {vx: 0, vz: 0, speed: 0});
