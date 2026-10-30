@@ -25,6 +25,9 @@
   const touchFirst = matchMedia("(hover: none), (pointer: coarse)").matches;
   const POS_KEY = "arcade-hall.pos";
   const TEX_MIPS = 1, TEX_CLAMP = 2 | 4;
+  // hall3d/main.cpp keeps these meshes drawn after the rest: the room's big
+  // surfaces, so the pixels the cabinets hide are never shaded.
+  const HALL_MESH_LATE = 0x10000;
   const SCREEN_TEX = [512, 288], MARQUEE_TEX = [512, 112];
   /* The visitor's settings (the panel behind "?"; hall-controls.js keeps
      them in localStorage). Reduce motion starts as the system's preference;
@@ -46,7 +49,7 @@
 
   let layout = null, world = null, mod = null, kit = null;
   let me = null, near = null, target = null, playing = null;
-  const state = {posters: 0, posterErrors: 0, frames: 0, mode: self.crossOriginIsolated ? "isolated" : "plain"};
+  const state = {posters: 0, posterErrors: 0, sides: 0, frames: 0, mode: self.crossOriginIsolated ? "isolated" : "plain"};
 
   /* --------------------------------------------------------- the heap */
   function heap() { return new Uint8Array(mod.HEAPF32.buffer); }
@@ -135,6 +138,18 @@
         this.tri(a[0], e[0], c[0], a[1], e[1], c[1], colour);
       }
     }
+    // A part of the cabinet's model (hall_model.py) in a cabinet's frame,
+    // coloured by role; uv maps its texture coordinates (the side art's atlas).
+    model(fr, part, colours, uv) {
+      const base = this.positions.length / 3, p = part.p, n = part.n, t = part.t;
+      for (let k = 0; k < part.r.length; k++) {
+        this.positions.push(...fr.p(p[3 * k], p[3 * k + 1], p[3 * k + 2]));
+        this.normals.push(...fr.n(n[3 * k], n[3 * k + 1], n[3 * k + 2]));
+        this.colors.push(...(colours[part.r[k]] || [1, 1, 1]));
+        this.uvs.push(...(t && uv ? uv(t[2 * k], t[2 * k + 1]) : [0, 0]));
+      }
+      for (const i of part.i) this.indices.push(base + i);
+    }
   }
 
   /* --------------------------------------------- textures (hall.py too) */
@@ -206,6 +221,56 @@
 
   /* ------------------------------------------------------ the scene */
   const screenSlot = (i) => 100 + i, marqueeSlot = (i) => 400 + i;
+  // The cabinets' models: each one's detailed mesh and its simple stand-in
+  // (hall3d/main.cpp draws one of the two, by the visitor's distance), and
+  // one mesh for every cabinet's coin slots (unlit) and side art (one atlas).
+  const detailSlot = (i) => 1000 + i, lodSlot = (i) => 2000 + i, ACCENT_SLOT = 900, ART_SLOT = 901;
+  function roleColours(roles, org) {
+    const out = {};
+    for (const [name, spec] of Object.entries(roles)) {
+      out[name] = Array.isArray(spec) ? spec : org.map((v) => Math.min(1, spec.org[0] * v + spec.org[1]));
+    }
+    return out;
+  }
+  /* The side art's atlas: a cell per cabinet, its organisation's colour until
+     its art (posters/<slug>.side.jpg, tools/make_hall_posters.py) arrives. */
+  let atlas = null;
+  function makeAtlas(cabinets, size) {
+    const g = 2, cw = size[0] + 2 * g, ch = size[1] + 2 * g;
+    const cols = Math.max(1, Math.min(cabinets.length, Math.floor(2048 / cw))), rows = Math.max(1, Math.ceil(cabinets.length / cols));
+    const w = cols * cw, h = rows * ch, [, ctx] = canvas2d(w, h);
+    const cell = (i) => [(i % cols) * cw, Math.floor(i / cols) * ch];
+    cabinets.forEach((c, i) => {
+      const [x, y] = cell(i), grad = ctx.createLinearGradient(0, y, 0, y + ch);
+      grad.addColorStop(0, `rgb(${rgb255(c.colour, 150)})`);
+      grad.addColorStop(1, `rgb(${rgb255(c.colour, 60)})`);
+      ctx.fillStyle = grad; ctx.fillRect(x, y, cw, ch);
+    });
+    return {w, h, ctx,
+      uv: (i) => { const [x, y] = cell(i); return (u, v) => [(x + g + u * size[0]) / w, (y + g + v * size[1]) / h]; },
+      draw(i, img) { const [x, y] = cell(i); ctx.drawImage(img, x, y, cw, ch); },
+      upload() { texture(ART_SLOT, w, h, pixels(ctx, w, h), TEX_MIPS | TEX_CLAMP); }};
+  }
+  // How near a cabinet is drawn in detail: closer in economy. The featured
+  // cabinet, seen from the door, always is.
+  const ECONOMY_LOD = 0.7;
+  function setLods() {
+    const d = layout.cabinet.model.lodDistance * (economy ? ECONOMY_LOD : 1);
+    rows(mod._hall_set_lods, layout.cabinets.map((c, i) => [detailSlot(i), lodSlot(i), c.x, c.z, c.featured ? 1000 : d]));
+  }
+  let sidesStarted = false;
+  function loadSides() {
+    sidesStarted = true;
+    const jobs = layout.cabinets.map((c, i) => !c.side ? null : new Promise((resolve) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = () => { try { atlas.draw(i, img); state.sides++; } catch (e) { /* stays its colour */ } resolve(); };
+      img.onerror = () => resolve();
+      img.src = c.side;
+    }));
+    // One upload when they are all in: the atlas is large and mipmapped.
+    Promise.all(jobs).then(() => { if (state.sides) atlas.upload(); state.sidesDone = true; });
+  }
   let scenePoints = null;
   // A cabinet's screen, at a brightness (its vertex colour: the attract-mode shimmer).
   function screenQuad(c, i, b) {
@@ -239,20 +304,21 @@
     rows(mod._hall_set_points, scenePoints);
   }
   function buildScene() {
-    const body = new MeshBuilder();
-    const cab = layout.cabinet, items = [], points = [];
+    const accent = new MeshBuilder(), art = new MeshBuilder();
+    const cab = layout.cabinet, model = cab.model, items = [], points = [];
+    atlas = makeAtlas(layout.cabinets, model.artSize);
+    setLods();  // paired before they are made, so a far cabinet's detail is never uploaded
     layout.cabinets.forEach((c, i) => {
       const fr = W.frame(c);
       c.fr = fr;
-      const roles = {body: cab.body, trim: cab.trim, bezel: cab.bezel, side: c.colour.map((v) => v * cab.sideShade)};
-      for (const [lo, hi, role] of cab.boxes) body.box(fr, lo, hi, roles[role]);
-      // Joystick and buttons (make_hall_media.py controls()), in the body mesh:
-      // one draw for every cabinet's parts, instead of five primitives each.
+      const colours = roleColours(model.roles, c.colour), detail = new MeshBuilder(), lod = new MeshBuilder();
+      detail.model(fr, model.detail, colours);
+      mesh(detailSlot(i), detail);
+      lod.model(fr, model.lod, colours);
+      mesh(lodSlot(i), lod);
+      accent.model(fr, model.accent, colours);
+      art.model(fr, model.art, colours, atlas.uv(i));
       const P = (x, y, z) => fr.p(x, y, z);
-      body.cylinder(fr, -0.22, 1.11, 0.53, 0.025, 0.10, [0.1, 0.1, 0.1], 6);
-      body.sphere(fr, -0.22, 1.17, 0.53, 0.07, [0.85, 0.12, 0.12]);
-      [[0.95, 0.85, 0.2], c.colour, [0.25, 0.75, 0.35]].forEach((col, k) =>
-        body.cylinder(fr, 0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k, 0.07, 0.025, col));
       c.glowPoint = points.length;
       points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
@@ -265,7 +331,9 @@
       mesh(marqueeSlot(i), q, marqueeSlot(i), 1 /* STRATA_MESH_UNLIT */);
     });
     scenePoints = points;
-    mesh(0, body);
+    mesh(ACCENT_SLOT, accent, -1, 1 /* STRATA_MESH_UNLIT */);
+    atlas.upload();
+    mesh(ART_SLOT, art, ART_SLOT);
     buildRoom(points);
     buildSeason(points);
     rows(mod._hall_set_items, items);
@@ -283,7 +351,7 @@
     floor.quad([[-w, 0, near], [w, 0, near], [w, 0, far], [-w, 0, far]], [0, 1, 0], [1, 1, 1],
       [[0, reps[1]], [reps[0], reps[1]], [reps[0], 0], [0, 0]]);
     texture(1, 256, 256, carpet(st), TEX_MIPS);
-    mesh(1, floor, 1);
+    mesh(1, floor, 1, HALL_MESH_LATE);
     const walls = new MeshBuilder(), lit = new MeshBuilder();
     const [d0, d1] = room.door;
     // Each wall: the lower wainscot and the wall above it.
@@ -297,8 +365,8 @@
     wall([w, near], [-w, near], [0, 0, -1]);
     walls.quad([[-w, h, far], [w, h, far], [w, h, near], [-w, h, near]], [0, -1, 0], st.ceiling);
     for (const b of room.props) (b.unlit ? lit : walls).box(flat, b.lo, b.hi, b.colour);
-    mesh(2, walls);
-    mesh(3, lit, -1, 1 /* STRATA_MESH_UNLIT */);
+    mesh(2, walls, -1, HALL_MESH_LATE);
+    mesh(3, lit, -1, 1 /* STRATA_MESH_UNLIT */ | HALL_MESH_LATE);
     room.signs.forEach((sg, i) => {
       const slot = signSlot(i), tw = 512, th = Math.round(512 * sg.h / sg.w);
       texture(slot, tw, th, signTexture(sg, tw, th), TEX_MIPS | TEX_CLAMP);
@@ -501,6 +569,8 @@
       posterBusy++;
       loadPoster(i).finally(() => { posterBusy--; pumpPosters(); });
     }
+    // The side art once the screens are in.
+    if (!posterQueue.length && !posterBusy && !sidesStarted) loadSides();
   }
   function loadPoster(i) {
     const c = layout.cabinets[i];
@@ -1256,6 +1326,7 @@
     if (economy) kit.dprCap = Math.min(kit.dprCap, ECONOMY_SCALE);
     mod._hall_set_view(economy ? ECONOMY_AMBIENT : (layout.room.style ? layout.room.style.ambient : 0.32), fov);
     setLights();
+    setLods();
   }
 
 

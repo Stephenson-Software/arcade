@@ -52,9 +52,9 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 # The hall's layout (order, placements, colours, cabinet parts) is shared with
 # the walkable hall at /hall: src/arcade/hall.py.
-from arcade import hall  # noqa: E402
+from arcade import hall, hall_model  # noqa: E402
 from arcade.hall import (  # noqa: E402
-    BODY, MARQ, MARQUEE_TEX, SCREEN, SCREEN_TEX, TRIM, poster_urls,
+    MARQ, MARQUEE_TEX, SCREEN, SCREEN_TEX, poster_urls,
 )
 MEDIA = os.path.join(ROOT, "docs", "media")
 STILL = os.path.join(MEDIA, "arcade-hall.png")
@@ -213,22 +213,34 @@ class MeshBuilder:
                                uvs=self.uvs if kw.get("texture") else None, **kw)
 
 
-def cabinet_body(mb, fr, colour):
-    roles = {"body": BODY, "trim": TRIM, "bezel": hall.BEZEL, "side": tuple(hall.SIDE_SHADE * c for c in colour)}
-    for lo, hi, role in hall.CABINET_BOXES:
-        mb.box(fr, lo, hi, roles[role])
+def add_model(mb, fr, part, colour, uvs=False):
+    """A part of the cabinet's model (arcade.hall_model, the same as the page
+    draws) into mb, in a cabinet's frame, coloured by role."""
+    base = len(mb.positions) // 3
+    p, n, roles = part["p"], part["n"], part["r"]
+    colours = {}
+    for k, role in enumerate(roles):
+        mb.positions += fr.p(*p[3 * k: 3 * k + 3])
+        mb.normals += fr.n(*n[3 * k: 3 * k + 3])
+        if role not in colours:
+            colours[role] = tuple(hall_model.role_colour(role, colour)) if role in hall_model.ROLES else (1, 1, 1)
+        mb.colors += colours[role]
+        mb.uvs += tuple(part["t"][2 * k: 2 * k + 2]) if uvs else (0.0, 0.0)
+    mb.indices += [base + i for i in part["i"]]
 
 
-def controls(fr, colour):
-    """Joystick and buttons, as Strata primitives."""
-    items = [
-        strata.RenderItem(strata.PRIMITIVE_CYLINDER, fr.p(-0.22, 1.11, 0.53), (0.025, 0.10, 0.025), (0.1, 0.1, 0.1, 1)),
-        strata.RenderItem(strata.PRIMITIVE_SPHERE, fr.p(-0.22, 1.17, 0.53), (0.07, 0.07, 0.07), (0.85, 0.12, 0.12, 1)),
-    ]
-    for k, c in enumerate([(0.95, 0.85, 0.2), colour, (0.25, 0.75, 0.35)]):
-        items.append(strata.RenderItem(strata.PRIMITIVE_CYLINDER, fr.p(0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k),
-                                       (0.07, 0.025, 0.07), tuple(c) + (1,)))
-    return items
+def side_image(slug, colour):
+    """A cabinet's side art (tools/make_hall_posters.py), else its organisation's colour, as the page does."""
+    path = os.path.join(hall.POSTERS, slug + ".side.jpg")
+    if os.path.isfile(path):
+        return Image.open(path).convert("RGB")
+    w, h = hall_model.art_size()
+    img = Image.new("RGB", (w, h))
+    d = ImageDraw.Draw(img)
+    for y in range(h):
+        k = 150 - 90 * y / h
+        d.line([(0, y), (w, y)], fill=tuple(round(k * c) for c in colour))
+    return img
 
 
 def checker(size=256, cells=8):
@@ -290,13 +302,17 @@ CARPET_TILE = 1.6  # metres per carpet tile (hall.js)
 def build(engine, cabinets, doc):
     """doc: arcade.hall.layout() for these cabinets, the same data the page draws."""
     room, style = doc["room"], doc["room"]["style"]
-    body = MeshBuilder()
+    body, accent = MeshBuilder(), MeshBuilder()
     items, glow, lights = [], [], []
     clamp = strata.TEXTURE_MIPMAPS | strata.TEXTURE_CLAMP_U | strata.TEXTURE_CLAMP_V
+    model = doc["cabinet"]["model"]
     for cab, placed in zip(cabinets, doc["cabinets"]):
         fr = Frame((placed["x"], placed["y"], placed["z"]), placed["angle"])
-        cabinet_body(body, fr, cab["colour"])
-        items += controls(fr, cab["colour"])
+        add_model(body, fr, model["detail"], cab["colour"])
+        add_model(accent, fr, model["accent"], cab["colour"])
+        art = MeshBuilder()
+        add_model(art, fr, model["art"], cab["colour"], uvs=True)
+        art.add(engine, texture=tex(engine, side_image(placed["slug"], cab["colour"]), clamp))
         for img, (x0, y0, x1, y1, z) in ((cab["screen"], SCREEN), (cab["marquee"], MARQ)):
             q = MeshBuilder()
             q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1))
@@ -309,6 +325,7 @@ def build(engine, cabinets, doc):
         glow.append(strata.Point(fr.p(0, 2.15, 0.45), 0.0, 1.3, colour + (0.16,), strata.POINT_SOFT))
         lights.append(strata.PointLight(fr.p(0, 1.5, 1.0), 2.6, avg, 1.2, 0))
     body.add(engine)
+    accent.add(engine, flags=strata.MESH_UNLIT)
 
     # The room (hall.js buildRoom()): carpet, walls, ceiling, props and signs.
     w, near, far, h = room["halfWidth"], room["near"], room["far"], room["height"]

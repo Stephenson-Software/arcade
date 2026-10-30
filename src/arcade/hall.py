@@ -34,6 +34,8 @@ from urllib.parse import quote
 
 from arcade import seasons
 
+from arcade import hall_model
+
 FEATURED = "roam"
 POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
 RAW = "https://raw.githubusercontent.com/{repo}/HEAD/{path}"
@@ -90,17 +92,7 @@ STYLE = {
 }
 
 # A cabinet in its own frame (x to its right, y up, z out of its screen):
-# (low corner, high corner, colour role). Roles: body, trim, bezel, side.
-CABINET_BOXES = (
-    ((-0.5, 0.0, -0.45), (0.5, 1.0, 0.36), "body"),  # pedestal
-    ((-0.5, 0.94, 0.36), (0.5, 1.06, 0.70), "trim"),  # control deck
-    ((-0.5, 1.06, -0.45), (0.5, 2.0, 0.30), "body"),  # screen housing
-    ((-0.5, 2.0, -0.45), (0.5, 2.27, 0.40), "trim"),  # marquee box
-    ((-0.47, 1.13, 0.295), (0.47, 1.75, 0.30), "bezel"),  # bezel
-    ((-0.54, 0.0, -0.47), (-0.50, 2.30, 0.72), "side"),  # left side art
-    ((0.50, 0.0, -0.47), (0.54, 2.30, 0.72), "side"),  # right side art
-    ((-0.5, 0.0, 0.36), (0.5, 0.1, 0.40), "side"),  # kick plate
-)
+# its mesh is arcade.hall_model's (side panels, coin door, control deck, ...).
 SIDE_SHADE = 0.85  # side art is the org colour times this
 # The footprint a visitor collides with, in the cabinet's frame: x0, z0, x1, z1.
 FOOTPRINT = (-0.54, -0.47, 0.54, 0.72)
@@ -337,7 +329,7 @@ def layout(games, style=None):
     return {
         "room": room_for(len(ordered), style),
         "cabinet": {
-            "boxes": [[list(lo), list(hi), role] for lo, hi, role in CABINET_BOXES],
+            "model": hall_model.model(),
             "footprint": list(FOOTPRINT),
             "screen": list(SCREEN),
             "marquee": list(MARQ),
@@ -454,6 +446,9 @@ def served_layout(games, embed, season=None, now=None):
         cabinet["blurb"] = lines.get(cabinet["slug"])
         has = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".jpg"))
         cabinet["poster"] = "posters/%s.jpg" % cabinet["slug"] if has else None
+        # Its side art (tools/make_hall_posters.py), else the panels are its organisation's colour.
+        side = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".side.jpg"))
+        cabinet["side"] = "posters/%s.side.jpg" % cabinet["slug"] if side else None
     doc["embed"] = bool(embed)
     doc["modes"] = True
     return seasons.dress(doc, which)

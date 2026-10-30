@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Writes the walkable hall's screen images: src/arcade/hall_assets/posters/<slug>.jpg.
+"""Writes the walkable hall's screen images and side art:
+src/arcade/hall_assets/posters/<slug>.jpg and <slug>.side.jpg.
 
 One 512x288 JPEG per game in the live registry, from the same sources the
 README picture uses (arcade.hall.poster_urls: the game's trailer poster on
@@ -9,7 +10,13 @@ into WebGL textures and danielstephenson.dev sends no CORS header. A game
 with no public image gets a title-card poster drawn here (its title, its
 blurb from blurbs.json, and where it is played).
 
+Each cabinet's side art (<slug>.side.jpg, the panel's outline at
+arcade.hall_model.art_size()) is made from its poster: a tall crop of it
+over the top of the panel, fading into diagonal stripes of the poster's
+dominant colours over a dark tone of the organisation's colour.
+
     /path/to/python-with-pillow tools/make_hall_posters.py [--refresh]
+    /path/to/python-with-pillow tools/make_hall_posters.py --sides   # side art only, from the posters here (no network)
 
 Shares tools/make_hall_media.py's download cache (~/.cache/arcade-hall).
 """
@@ -24,7 +31,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from arcade import hall  # noqa: E402
+from arcade import hall, hall_model  # noqa: E402
 from make_hall_media import FONT, REGISTRY, cached, cover, fetch, fit_text  # noqa: E402  (strata not needed)
 from PIL import ImageChops, ImageDraw, ImageFilter, ImageFont  # noqa: E402
 
@@ -34,6 +41,15 @@ OUT = os.path.join(ROOT, "src", "arcade", "hall_assets", "posters")
 def main():
     refresh = "--refresh" in sys.argv
     os.makedirs(OUT, exist_ok=True)
+    if "--sides" in sys.argv:
+        # Each game's repository (for its organisation's colour), from the README picture's record.
+        with open(os.path.join(ROOT, "docs", "media", "arcade-hall.sources.json")) as f:
+            repos = {c["slug"]: c["repo"] for c in json.load(f)["cabinets"]}
+        for name in sorted(os.listdir(OUT)):
+            if name.endswith(".jpg") and not name.endswith(".side.jpg"):
+                slug = name[:-4]
+                write_side(slug, Image.open(os.path.join(OUT, name)).convert("RGB"), repos.get(slug))
+        return
     games = json.loads(fetch(REGISTRY))["games"]
     for game in games:
         path = os.path.join(OUT, game["slug"] + ".jpg")
@@ -45,9 +61,80 @@ def main():
                 print("%s <- %s (%d KiB)" % (os.path.relpath(path, ROOT), url, os.path.getsize(path) // 1024))
                 break
         else:
-            title_poster(game).save(path, quality=86, optimize=True, progressive=True)
+            img = title_poster(game)
+            img.save(path, quality=86, optimize=True, progressive=True)
             print("%s <- title-card poster (no public image) (%d KiB)" % (os.path.relpath(path, ROOT),
                                                                            os.path.getsize(path) // 1024))
+        write_side(game["slug"], img, game["repo"])
+
+
+def write_side(slug, poster, repo):
+    path = os.path.join(OUT, slug + ".side.jpg")
+    side_art(poster, hall.org_colour(repo) if repo else None).save(path, quality=84, optimize=True)
+    print("%s <- side art (%d KiB)" % (os.path.relpath(path, ROOT), os.path.getsize(path) // 1024))
+
+
+def dominant(img, count=3):
+    """The poster's `count` most common colours, most first, skipping near-black
+    and near-grey ones while there are enough others, brightened for a panel."""
+    small = img.resize((96, 54))
+    pal = small.quantize(colors=8, method=Image.MEDIANCUT)
+    flat = pal.getpalette()
+    found = []
+    for n, k in sorted(pal.getcolors(), reverse=True):
+        r, g, b = flat[3 * k: 3 * k + 3]
+        hi, lo = max(r, g, b), min(r, g, b)
+        found.append(((hi > 60 and hi - lo > 40), n, (r, g, b)))
+    vivid = [c for ok, _, c in found if ok]
+    rest = [c for ok, _, c in found if not ok]
+    out = (vivid + rest)[:count]
+    while len(out) < count:
+        out.append(out[-1] if out else (128, 128, 128))
+    def lift(c):
+        hi = max(max(c), 1)
+        k = max(1.0, 170 / hi)
+        return tuple(min(255, round(v * k)) for v in c)
+    return [lift(c) for c in out]
+
+
+def side_art(poster, org):
+    """A cabinet's side art from its poster: see the module docstring. The
+    panel's outline crops it (arcade.hall_model.art_mask()); the art is drawn
+    to read well through either panel's outline."""
+    w, h = hall_model.art_size()
+    org = org or (0.55, 0.55, 0.6)
+    # Washed-out colours (a text adventure's grey) give way to tones of the organisation's.
+    colours = []
+    for k, c in enumerate(dominant(poster)):
+        hi, lo = max(c), min(c)
+        if hi - lo < 0.3 * hi:
+            c = tuple(min(255, round(255 * (0.30 + 0.25 * k + 0.75 * v))) for v in org)
+        colours.append(c)
+    base = tuple(round(255 * (0.05 + 0.20 * c)) for c in org)
+    img = Image.new("RGB", (w, h), base)
+    # The poster: a tall crop, over the top of the panel.
+    top_h = round(h * 0.56)
+    crop = cover(poster, (w, top_h))
+    fade = Image.linear_gradient("L").resize((w, top_h))  # 0 at the top, 255 at the bottom
+    fade = fade.point(lambda v: 255 if v < 150 else round(255 * (255 - v) / 105))
+    img.paste(crop, (0, 0), fade)
+    # Stripes of the poster's colours, sweeping up across the lower panel.
+    stripes = Image.new("RGB", (w, h), base)
+    d = ImageDraw.Draw(stripes)
+    band, slope = 18, 0.55
+    y0 = round(h * 0.54)
+    for k, c in enumerate(colours):
+        off = y0 + k * (band + 6)
+        d.polygon([(0, off + w * slope), (w, off), (w, off + band), (0, off + band + w * slope)], fill=c)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rectangle([0, round(h * 0.50), w, h], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(6))
+    img = Image.composite(stripes, img, mask)
+    # A soft shine down the middle, so the panel reads as glossy.
+    shine = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(shine).polygon([(w * 0.18, h), (w * 0.38, h), (w * 0.86, 0), (w * 0.66, 0)], fill=34)
+    img = Image.composite(Image.new("RGB", (w, h), (255, 255, 255)), img, shine.filter(ImageFilter.GaussianBlur(10)))
+    return img
 
 
 def wrap(draw, text, font, width, lines=2):

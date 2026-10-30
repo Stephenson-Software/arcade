@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from arcade import hall, server
+from arcade import hall, hall_model, server
 
 from helpers import TOKEN_SHA, game, registryText
 
@@ -147,6 +147,122 @@ def test_the_most_played_cabinets_are_in_the_rows_nearest_the_door():
     # And within a row, nearest the centre walkway first.
     first = [c for c in rest if c["z"] == zs[0]]
     assert [abs(c["x"]) for c in first] == sorted(abs(c["x"]) for c in first)
+
+
+# ----------------------------------------------------- the cabinet model
+
+
+def parts():
+    return hall.layout(GAMES)["cabinet"]["model"]
+
+
+def triangles(part):
+    p, n, idx = part["p"], part["n"], part["i"]
+    for k in range(0, len(idx), 3):
+        tri = idx[k: k + 3]
+        yield [p[3 * v: 3 * v + 3] for v in tri], [n[3 * v: 3 * v + 3] for v in tri]
+
+
+def test_the_cabinet_model_is_well_formed_and_faces_out():
+    model = parts()
+    for name in ("detail", "accent", "lod", "art"):
+        part = model[name]
+        count = len(part["r"])
+        assert len(part["p"]) == len(part["n"]) == 3 * count and count
+        assert all(0 <= i < count for i in part["i"]) and len(part["i"]) % 3 == 0
+        assert all(r in hall_model.ROLES or r == "art" for r in part["r"]), name
+        # Every triangle is wound counter-clockwise seen from the side its normal points to.
+        for (a, b, c), (na, _, _) in triangles(part):
+            e1 = [b[i] - a[i] for i in range(3)]
+            e2 = [c[i] - a[i] for i in range(3)]
+            g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+            if sum(v * v for v in g) > 1e-12:
+                assert sum(g[i] * na[i] for i in range(3)) > 0, (name, a, b, c, na)
+    assert len(model["art"]["t"]) == 2 * len(model["art"]["r"])
+    assert all(0 <= v <= 1 for v in model["art"]["t"])
+
+
+def test_the_cabinet_model_stands_inside_its_footprint():
+    """Walking and collisions are unchanged: nothing reaches past the footprint."""
+    x0, z0, x1, z1 = hall.FOOTPRINT
+    for name, part in parts().items():
+        if not isinstance(part, dict) or "p" not in part:
+            continue
+        p = part["p"]
+        for k in range(0, len(p), 3):
+            x, y, z = p[k: k + 3]
+            assert x0 - 0.005 <= x <= x1 + 0.005 and z0 - 0.009 <= z <= z1 + 0.009, (name, x, y, z)
+            assert -0.001 <= y <= 2.31
+
+
+def inside(profile, z, y):
+    hit = False
+    for k in range(len(profile)):
+        (za, ya), (zb, yb) = profile[k], profile[(k + 1) % len(profile)]
+        if (ya > y) != (yb > y) and z < za + (y - ya) * (zb - za) / (yb - ya):
+            hit = not hit
+    return hit
+
+
+def test_the_side_panels_are_fans_from_a_point_that_sees_every_edge():
+    """The side art is a fan of triangles from SIDE_CENTRE: that is only the
+    panel's outline if every edge turns the same way round the centre."""
+    cz, cy = hall_model.SIDE_CENTRE
+    prof = hall_model.SIDE_PROFILE
+    turns = [(za - cz) * (yb - cy) - (ya - cy) * (zb - cz) for (za, ya), (zb, yb) in zip(prof, prof[1:] + prof[:1])]
+    assert all(t > 0 for t in turns) or all(t < 0 for t in turns)
+
+
+def test_the_stand_in_is_inside_the_detailed_cabinet():
+    """So the far model never pokes out of the near one's outline, and the
+    screen and marquee (in front of the body) are never behind it."""
+    p = parts()["lod"]["p"]
+    for k in range(0, len(p), 3):
+        x, y, z = p[k: k + 3]
+        assert abs(x) < hall_model.SIDE_X[1]
+        assert inside(hall_model.SIDE_PROFILE, z, y)
+        if abs(x) < hall_model.SIDE_X[0]:
+            assert inside(hall_model.BODY_PROFILE, z - 0.005, y) or inside(hall_model.DECK_PROFILE, z - 0.005, y)
+    prof = hall_model.LOD_PROFILE
+    for rect in (hall.SCREEN, hall.MARQ):
+        for step in range(11):
+            y = rect[1] + (rect[3] - rect[1]) * step / 10
+            front = max(za + (y - ya) * (zb - za) / (yb - ya)
+                        for (za, ya), (zb, yb) in zip(prof, prof[1:] + prof[:1]) if (ya - y) * (yb - y) <= 0 and ya != yb)
+            assert front < rect[4], (rect, y, front)
+    assert parts()["lodDistance"] == pytest.approx(8.0, abs=1.0)
+
+
+def test_cabinets_have_a_coin_door_with_glowing_slots_a_grille_and_a_t_molding():
+    model = parts()
+    detail = set(model["detail"]["r"])
+    assert {"door", "grille", "molding", "deck", "ball", "button2"} <= detail
+    assert set(model["accent"]["r"]) == {"slot", "slotdark"}  # drawn unlit
+    # The control deck slopes down towards the player.
+    assert hall_model.deck_y(0.68) < hall_model.deck_y(0.36)
+    # The T-molding and the deck take the cabinet's organisation colour.
+    org = hall.ORG_COLOURS["Stephenson-Software"]
+    assert hall_model.role_colour("molding", org) != hall_model.role_colour("molding", hall.ORG_COLOURS["dmccoystephenson"])
+    assert max(hall_model.role_colour("molding", org)) > 0.6
+
+
+def test_every_live_game_has_side_art_the_panels_size():
+    with open(os.path.join(ROOT, "docs", "media", "arcade-hall.sources.json")) as f:
+        slugs = [c["slug"] for c in json.load(f)["cabinets"]]
+    for slug in slugs:
+        path = os.path.join(hall.POSTERS, slug + ".side.jpg")
+        assert os.path.isfile(path), slug
+        with open(path, "rb") as f:
+            assert list(jpeg_size(f.read())) == hall_model.art_size(), slug
+
+
+def test_served_layout_names_only_side_art_arcade_has(tmp_path, monkeypatch):
+    (tmp_path / "tidewater.side.jpg").write_bytes(b"x")
+    monkeypatch.setattr(hall, "POSTERS", str(tmp_path))
+    doc = {c["slug"]: c for c in hall.served_layout(GAMES, True)["cabinets"]}
+    assert doc["tidewater"]["side"] == "posters/tidewater.side.jpg"
+    assert doc["roam"]["side"] is None
+    assert hall.asset_path("posters/roam.side.jpg")
 
 
 def test_an_empty_registry_is_an_empty_hall():
@@ -426,6 +542,7 @@ def test_the_committed_engine_is_what_build_sh_names():
         "_hall_set_points",
         "_hall_set_lights",
         "_hall_set_view",
+        "_hall_set_lods",
     ):
         assert export in script
 
