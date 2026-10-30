@@ -302,8 +302,9 @@
   function startPlace() {
     const at = params.get("at") || params.get("play");
     const c = at && layout.cabinets.find((k) => k.slug === at);
-    if (c) { const f = W.front(c, standOff()); return {x: f.x, z: f.z, yaw: f.yaw, pitch: 0.12}; }
     const hash = location.hash.startsWith("#p=") ? parsePlace(location.hash.slice(3)) : null;
+    // ?play= keeps the place the visitor played from (in the hash), to step back out to.
+    if (c && !(params.get("play") && hash)) { const f = W.front(c, standOff()); return {x: f.x, z: f.z, yaw: f.yaw, pitch: 0.12}; }
     const saved = hash || parsePlace(session.get(POS_KEY));
     // A place saved under an older layout may be inside a cabinet now: the nearest walkway.
     if (saved) return Object.assign(saved, W.settle(saved.x, saved.z, world));
@@ -317,47 +318,134 @@
     if (c.isolation === iso) return "frame";
     return layout.modes ? "switch" : "navigate";
   }
+  /* The move into a game and back out (hall-play.js): the camera eases to
+     square-on at the cabinet's screen while the game loads hidden behind it,
+     the game crossfades in once it has painted, and Back reverses it. */
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const SETTLE_MS = 450;  // after the frame's load event, for the game's first paint
+  let tr = null, clock = 0, frameToken = 0, standAt = null;
+  // The machine's clock: the frame's time when frames are driven by a tool
+  // (?drive=1), else the page's (the loop rests while a game is shown).
+  const nowMs = () => (kit && kit.driven ? clock : performance.now());
+  const standPose = () => ({x: me.x, y: W.EYE, z: me.z, yaw: kit.cam.yaw, pitch: kit.cam.pitch});
+  const screenPose = (c) => HallPlay.screenPose(c.fr, layout.cabinet.screen,
+    canvas.clientWidth / Math.max(canvas.clientHeight, 1), W.FOV);
+  function switchUrl(c) {
+    const url = new URL(location.href);
+    url.search = "";
+    if (c.isolation) url.searchParams.set("isolated", "1");
+    url.searchParams.set("play", c.slug);
+    return url.href;
+  }
   function play(c) {
-    if (!c || !c.deployed || !c.url) return;
+    if (!c || !c.deployed || !c.url || !tr || tr.state !== "idle") return;
     savePlace();
     const how = canFrame(c);
     state.lastPlay = {slug: c.slug, how};
-    if (how === "frame") return openFrame(c);
-    if (how === "switch") {
-      const url = new URL(location.href);
-      url.search = "";
-      if (c.isolation) url.searchParams.set("isolated", "1");
-      url.searchParams.set("play", c.slug);
-      location.assign(url.href);
-      return;
-    }
-    location.assign(c.url);
-  }
-  function openFrame(c) {
     playing = c;
-    $("player-title").textContent = c.title;
-    $("player-open").href = c.url;
-    $("player-frame").src = c.url;
-    $("player").hidden = false;
-    document.body.classList.add("playing");
     keys.clear(); stickIn = {forward: 0, right: 0, run: false}; target = null;
     if (document.pointerLockElement) document.exitPointerLock();
-    kit.running = false;
-    $("back").focus();
+    dressPlayer(c);
+    standAt = standPose();
+    tr.start(nowMs(), {from: standAt, to: screenPose(c), how});
+    document.body.classList.add("moving");
   }
-  function closeFrame() {
-    if (!playing) return;
-    const was = playing;
-    playing = null;
-    $("player").hidden = true;
+  // The overlay, until the game paints: the cabinet's poster over a dark
+  // tone of its colour, never a blank white or black.
+  function dressPlayer(c) {
+    $("player-title").textContent = c.title;
+    $("player-open").href = c.url;
+    const tone = (c.glow || c.colour).map((v) => Math.round(255 * (0.06 + 0.12 * v)));
+    const el = $("player");
+    el.style.backgroundColor = `rgb(${tone})`;
+    el.style.backgroundImage = c.poster ? `url("${c.poster}")` : "none";
+    $("fade").style.backgroundColor = `rgb(${tone})`;
+  }
+  function loadFrame(c) {
+    const token = ++frameToken, fr = $("player-frame"), el = $("player");
+    el.style.opacity = "0";
+    el.hidden = false;
+    el.classList.add("loading");
+    fr.onload = () => {
+      if (token !== frameToken || fr.src === "about:blank") return;
+      setTimeout(() => { if (token === frameToken && tr) tr.loaded(nowMs()); }, SETTLE_MS);
+    };
+    fr.src = c.url;
+  }
+  function unloadFrame() {
+    frameToken++;
+    const el = $("player");
+    el.hidden = true;
+    el.classList.remove("loading");
+    el.style.opacity = "0";
     $("player-frame").src = "about:blank";
     document.body.classList.remove("playing");
+  }
+  // One frame of the move: the camera, the overlays and what happened.
+  function stepPlay(now) {
+    clock = now;
+    const u = tr.update(now);
+    for (const e of u.events) {
+      if (e === "load-frame") loadFrame(playing);
+      else if (e === "frame-shown") {
+        $("player").classList.remove("loading");
+        $("player").style.opacity = "1";
+        document.body.classList.add("playing");
+        document.body.classList.remove("moving");
+        $("back").focus();
+        kit.running = false;  // the hall rests under the game
+        state.lastShown = playing.slug;
+      } else if (e === "unload-frame") unloadFrame();
+      else if (e === "navigate") location.assign(playing.url);
+      else if (e === "switch") location.assign(switchUrl(playing));
+      else if (e === "idle") {
+        state.lastBack = playing ? playing.slug : null;
+        playing = null;
+        document.body.classList.remove("moving");
+        if (standAt) Object.assign(kit.cam, {yaw: standAt.yaw, pitch: standAt.pitch, tx: standAt.x, ty: standAt.y, tz: standAt.z});
+        canvas.focus({preventScroll: true});
+      }
+    }
+    if (u.state !== "idle" && u.state !== "playing") {
+      $("player").style.opacity = String(u.frame);
+    }
+    $("fade").style.opacity = String(u.fade);
+    $("fade").hidden = u.fade <= 0;
+    state.move = u.state;
+    return u;
+  }
+  function closeFrame() {
+    if (!playing || !tr) return;
+    $("player").style.opacity = "1";
+    document.body.classList.remove("playing");
+    document.body.classList.add("moving");
     lastNow = 0;
     kit.start();
-    canvas.focus({preventScroll: true});
-    state.lastBack = was.slug;
+    tr.back(nowMs());
   }
   $("back").addEventListener("click", closeFrame);
+  // "Open full page": a short fade before the page goes.
+  $("player-open").addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    const href = $("player-open").href, f = $("fade");
+    f.hidden = false;
+    f.classList.add("leaving");
+    requestAnimationFrame(() => { f.style.opacity = "1"; });
+    setTimeout(() => { (window.top || window).location.assign(href); }, reducedMotion ? 120 : 260);
+  });
+  // Back to this page from a game it navigated to (the bfcache): standing again.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted || !tr) return;
+    tr = HallPlay.machine({reduced: reducedMotion});
+    playing = null;
+    unloadFrame();
+    const f = $("fade");
+    f.classList.remove("leaving"); f.style.opacity = "0"; f.hidden = true;
+    document.body.classList.remove("moving");
+    lastNow = 0;
+    kit.start();
+  });
 
   /* ----------------------------------------------------------- input */
   const keys = new Set();
@@ -367,7 +455,10 @@
   window.addEventListener("keydown", (e) => {
     if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    if (playing) { if (k === "escape") closeFrame(); return; }
+    if (tr && tr.state !== "idle") {
+      if (k === "escape") { if (tr.state === "playing") closeFrame(); else tr.skip(nowMs()); e.preventDefault(); }
+      return;
+    }
     if (MOVE.has(k)) { keys.add(k); target = null; e.preventDefault(); e.stopPropagation(); }
     else if ((k === "e" || k === "enter") && !e.repeat && near && document.activeElement !== $("prompt")) {
       play(near); e.preventDefault();
@@ -435,6 +526,16 @@
   }
   function tick(t, now, dt) {
     if (!me) return;
+    if (tr) {
+      const u = stepPlay(now);
+      if (u.state !== "idle") {
+        // Moving into or out of a game: the camera is the move's, and walking waits.
+        if (u.camera) Object.assign(kit.cam, {tx: u.camera.x, ty: u.camera.y, tz: u.camera.z,
+          yaw: u.camera.yaw, pitch: u.camera.pitch});
+        state.frames++;
+        return;
+      }
+    }
     me.yaw = kit.cam.yaw; me.pitch = kit.cam.pitch;
     const has = (k) => (keys.has(k) ? 1 : 0);
     let input = {
@@ -477,7 +578,7 @@
   }
   function after() {
     let html = "", cls = "";
-    if (near) {
+    if (near && !(tr && tr.state !== "idle")) {
       if (!near.deployed) { html = `${esc(near.title)}<span class="t">Coming soon</span>`; cls = "soon"; }
       else html = (touchSeen ? "Tap to play " : "<kbd>E</kbd> Play ") + esc(near.title)
         + `<span class="t">${touchSeen ? "" : "Press E or click &middot; "}${esc(near.slug)}.play</span>`;
@@ -504,8 +605,13 @@
     layout = await res.json();
     world = W.world(layout);
     document.body.classList.toggle("touch", touchFirst);
+    // Reloaded into the other isolation mode with a game open: its poster
+    // while the hall loads, so the move into the game reads as one.
+    const go = params.get("play");
+    const resuming = go && layout.cabinets.find((k) => k.slug === go && k.deployed && canFrame(k) === "frame");
     mod = await StrataLoader.load({script: "hall-engine.js", factory: "createHallEngine", wasm: "hall-engine.wasm",
-      title: "the arcade hall", poster: "posters/roam.jpg", fallback: {href: "../", text: "See every game as a list"}});
+      title: resuming ? resuming.title : "the arcade hall",
+      poster: resuming && resuming.poster || "posters/roam.jpg", fallback: {href: "../", text: "See every game as a list"}});
     me = startPlace();
     kit = StrataKit.create({
       module: mod, canvas,
@@ -522,6 +628,7 @@
       },
       idOf: (hit) => (hit.cabinet ? hit.cabinet.slug : "floor"),
       onTap(hit) {
+        if (tr && tr.state !== "idle") { if (tr.state !== "playing") tr.skip(nowMs()); return; }
         if (!hit || document.pointerLockElement === canvas) return;
         if (hit.cabinet) {
           if (near === hit.cabinet) { play(hit.cabinet); return; }
@@ -535,16 +642,26 @@
       onFatal: (code, msg) => StrataLoader.fallback(code, msg),
     });
     buildScene();
+    tr = HallPlay.machine({reduced: reducedMotion});
+    if (resuming) {
+      // Pick up the move where the other mode left it: at the screen, the game loading behind it.
+      playing = resuming;
+      dressPlayer(resuming);
+      standAt = standPose();
+      const to = screenPose(resuming);
+      if (!reducedMotion) Object.assign(kit.cam, {tx: to.x, ty: to.y, tz: to.z, yaw: to.yaw, pitch: to.pitch});
+      document.body.classList.add("moving");
+      tr.resume(nowMs(), {from: standAt, to});
+    }
     kit.start();
     StrataLoader.done();
     if (touchSeen) $("stick").hidden = false;
-    showHelp(true);
-    setTimeout(() => showHelp(false), 9000);
+    if (!resuming) {
+      showHelp(true);
+      setTimeout(() => showHelp(false), 9000);
+    }
     canvas.focus({preventScroll: true});
     queuePosters();
-    const go = params.get("play");
-    const c = go && layout.cabinets.find((k) => k.slug === go);
-    if (c && c.deployed && canFrame(c) === "frame") openFrame(c);
     savePlace();
   }
 
@@ -552,7 +669,9 @@
     state,
     get me() { return me ? {x: me.x, z: me.z, yaw: me.yaw, pitch: me.pitch} : null; },
     get near() { return near ? near.slug : null; },
-    get playing() { return playing ? playing.slug : null; },
+    get playing() { return playing && tr && tr.state === "playing" ? playing.slug : null; },
+    get move() { return tr ? tr.state : null; },
+    skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) { me = Object.assign({}, me, W.resolve(x, z, world)); if (yaw != null) kit.cam.yaw = me.yaw = yaw; if (pitch != null) kit.cam.pitch = pitch; },
