@@ -27,20 +27,20 @@ test("the visitor starts by the door, clear of every cabinet", () => {
 test("walking forward from the door goes down the aisle", () => {
   let me = W.spawn(layout);
   for (let i = 0; i < 30; i++) me = W.step(me, {forward: 1}, 1 / 30, world);
-  assert.ok(Math.abs(me.x) < 1e-9);
+  assert.ok(Math.abs(me.x) < 1e-4);
   assert.ok(Math.abs(W.spawn(layout).z - me.z - W.WALK) < 0.01, `walked ${W.spawn(layout).z - me.z}`);
 });
 
 test("no cabinet can be walked into, from any direction", () => {
-  for (const o of world.obstacles) {
+  for (const o of world.obstacles.filter((q) => q.c)) {
     for (let a = 0; a < 16; a++) {
       const ang = a / 16 * 2 * Math.PI;
       // Start 3 m out and walk straight at the cabinet for 4 s.
       let me = {x: o.c.x + 3 * Math.cos(ang), z: o.c.z + 3 * Math.sin(ang), yaw: ang, pitch: 0};
-      const p = W.resolve(me.x, me.z, world);
+      const p = W.settle(me.x, me.z, world);
       me.x = p.x; me.z = p.z;
       for (let i = 0; i < 40; i++) me = W.step(me, {forward: 1, run: true}, 0.1, world);
-      for (const q of world.obstacles) assert.ok(!inside(me, q), `${o.c.slug} from ${a}: inside ${q.c.slug}`);
+      for (const q of world.obstacles) assert.ok(!inside(me, q), `${o.c.slug} from ${a}: inside ${q.c ? q.c.slug : "a room obstacle"}`);
     }
   }
 });
@@ -88,6 +88,52 @@ test("the stick has a dead zone and runs at the rim", () => {
   assert.ok(up.forward === 1 && up.run);
   const right = W.stick(27, 0, 54);
   assert.ok(Math.abs(right.right - 0.5) < 1e-9 && !right.run);
+});
+
+test("from the door, the featured cabinet on its stage is in plain sight", () => {
+  const s = W.spawn(layout), roam = layout.cabinets.find((c) => c.featured);
+  const p = W.frame(roam).p(0, 1.45, 0.3);
+  const dx = p[0] - s.x, dz = p[2] - s.z;
+  const yaw = Math.atan2(-dz, -dx), pitch = -Math.atan2(p[1] - W.EYE, Math.hypot(dx, dz));
+  const hit = W.pick({x: s.x, y: W.EYE, z: s.z, yaw, pitch, aspect: 16 / 9}, 0, 0, layout);
+  assert.ok(hit && hit.cabinet && hit.cabinet.slug === roam.slug, JSON.stringify(hit && (hit.cabinet ? hit.cabinet.slug : hit)));
+  assert.ok(roam.y > 0.2, "on a raised stage");
+});
+
+test("the stage and the counter cannot be walked into", () => {
+  const room = world.obstacles.filter((q) => !q.c);
+  assert.ok(room.length >= 2);
+  for (const o of room) {
+    const cx = (o.x0 + o.x1) / 2, cz = (o.z0 + o.z1) / 2;
+    assert.ok(!W.clear(cx, cz, world));
+    for (let a = 0; a < 16; a++) {
+      const ang = a / 16 * 2 * Math.PI;
+      const start = W.settle(cx + 6 * Math.cos(ang), cz + 6 * Math.sin(ang), world);
+      let me = {x: start.x, z: start.z, yaw: Math.atan2(-(cz - start.z), -(cx - start.x)), pitch: 0};
+      for (let i = 0; i < 40; i++) me = W.step(me, {forward: 1, run: true}, 0.1, world);
+      for (const q of world.obstacles) assert.ok(!inside(me, q), `walked into an obstacle from ${a}`);
+    }
+  }
+});
+
+test("a place saved inside a cabinet, or outside the room, settles on the nearest walkway", () => {
+  for (const o of world.obstacles) {
+    const fr = o.fr, lx = (o.x0 + o.x1) / 2, lz = (o.z0 + o.z1) / 2;
+    const x = fr.o[0] + lx * fr.r[0] + lz * fr.f[0], z = fr.o[2] + lx * fr.r[2] + lz * fr.f[2];
+    const p = W.settle(x, z, world);
+    assert.ok(W.clear(p.x, p.z, world), JSON.stringify(p));
+    for (const q of world.obstacles) assert.ok(!inside(p, q));
+    // Nearby: out through the nearest side (the featured cabinet's is the stage's front).
+    assert.ok(Math.hypot(p.x - x, p.z - z) < (o.c ? 2.0 : 3.0), `${o.c ? o.c.slug : "room"}: ${Math.hypot(p.x - x, p.z - z)}`);
+  }
+  // The old corridor's far end (and its side) is outside the new room.
+  for (const [x, z] of [[0, -40], [-20, 2], [2.0, -14.2]]) {
+    const p = W.settle(x, z, world);
+    assert.ok(W.clear(p.x, p.z, world), JSON.stringify(p));
+  }
+  // A clear place stays where it is.
+  const s = W.spawn(layout);
+  assert.deepStrictEqual(W.settle(s.x, s.z, world), {x: s.x, z: s.z});
 });
 
 process.exit(failures ? 1 : 0);

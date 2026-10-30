@@ -62,14 +62,14 @@ const GAME = process.env.HALL_GAME || "env-lib-cpp";
   await p.waitForFunction(() => window.__hall && __hall.kit, null, {timeout: 120000});
   await p.waitForFunction(() => __hall.state.posters >= 29, null, {timeout: 240000});
   await hideHelp(p);
-  await p.evaluate(() => { __hall.place(0.35, 4.4, Math.PI / 2 + 0.03, 0.1); __hall.kit.drive(1); });
+  await p.evaluate(() => { const s = __hall.layout.room.spawn; __hall.place(s.x, s.z, s.yaw, 0.08); __hall.kit.drive(1); });
   await p.screenshot({path: path.join(out, "hall-walk-desktop.png")});
 
   // The walk: from the door to GAME's cabinet, E, the game, back.
   let n = 0, t = 2;
   const shot = async () => p.screenshot({path: path.join(out, "frames", String(n++).padStart(3, "0") + ".png"),
     clip: {x: 0, y: 0, width: 1280, height: 720}});
-  await p.evaluate(() => { __hall.place(0, 5.2, Math.PI / 2, 0.06); __hall.kit.drive(2); });
+  await p.evaluate(() => { const s = __hall.layout.room.spawn; __hall.place(s.x, s.z, s.yaw, 0.06); __hall.kit.drive(2); });
   for (let i = 0; i < 6; i++) await shot();
   await p.evaluate((g) => __hall.walkTo(g), GAME);
   for (let i = 0; i < 90; i++) {

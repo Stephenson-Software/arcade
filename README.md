@@ -1,8 +1,8 @@
 # arcade
 
-[![A 3D arcade hall at night: two rows of arcade cabinets face each other across a checkered aisle, one cabinet per game on play.danielstephenson.dev. Each screen shows that game's own picture and each marquee its title; side panels are violet, teal or orange by GitHub organisation. Roam stands alone at the far end of the aisle. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
+[![A bright 3D arcade floor seen from a corner by the door: islands of back-to-back cabinets on a confetti carpet under lit ceiling panels, one cabinet per game on play.danielstephenson.dev, with a change and prize counter by the entrance. Each screen shows that game's own picture and each marquee its title; side panels are violet, teal or orange by GitHub organisation. Roam stands alone on a raised stage at the back wall under a FEATURED sign. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
 
-*Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the nearest cabinets have the most plays, and Roam is at the end of the aisle. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk down the aisle. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
+*Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the islands nearest the door have the most plays, and Roam has the stage at the back. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk from the door towards the stage. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
 
 **[Walk the hall](https://play.danielstephenson.dev/hall/)**: the same hall in the browser, in real time. Walk
 up to a cabinet and play its game (see [The hall](#the-hall)).
@@ -138,21 +138,25 @@ out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
 
 ## The hall
 
-![The walkable hall in a desktop browser: the aisle of cabinets from just inside the door, each screen showing its game's poster.](docs/media/hall-walk-desktop.png)
+![The walkable hall in a desktop browser, from just inside the door: the first island's cabinets either side of the centre walkway, which leads to Roam on its stage under the FEATURED sign.](docs/media/hall-walk-desktop.png)
 
-<img src="docs/media/hall-walk-iphone.png" width="260" alt="The hall on an iPhone: standing at the Tidewater cabinet after tapping it, with the walking stick bottom left and a Tap to play Tidewater button bottom right."> <img src="docs/media/hall-walk-desktop-cabinet.png" width="480" alt="At the Tidewater cabinet on a desktop: the prompt reads E Play Tidewater.">
+<img src="docs/media/hall-walk-iphone.png" width="260" alt="The hall on an iPhone, from the door: the centre walkway to the stage, with the walking stick bottom left."> <img src="docs/media/hall-walk-desktop-cabinet.png" width="480" alt="Mid-floor on a desktop, at a cabinet beside the stage: the prompt reads E Play and the game's name.">
 
 `https://play.<base>/hall/` is the README picture made walkable, drawn live by
 [Strata](https://github.com/Preponderous-Software/strata)'s web kit. It is opt-in: the landing page and
 the portal keep their lists, and link here with "Walk the hall".
 
-- **The layout is shared with the picture.** `src/arcade/hall.py` orders the cabinets (Roam at the end of
-  the aisle, then the most played nearest the door), places them, colours their side panels by GitHub
+- **The layout is shared with the picture.** `src/arcade/hall.py` lays out the floor like a real arcade: a
+  roughly square room with islands of back-to-back cabinets either side of a centre walkway (walkways are
+  at least 2.5 m), a change and prize counter by the door, and Roam alone on a raised, lit stage at the
+  back wall, in sight from the door. It orders the cabinets (the most played in the island nearest the
+  door, nearest the centre first), places them, lists the room's props, signs and warm lights, colours their side panels by GitHub
   organisation and describes a cabinet's parts. `tools/make_hall_media.py` draws the README picture from it,
   and `GET /hall/layout.json` hands the same data, built from the live registry and play counts, to the page.
 - **Walking.** WASD or the arrow keys (Shift runs), drag to look, or *Mouse look* (pointer lock; Esc
   stops). Click or tap a cabinet, or the floor, to walk there. On a phone: a stick under the left thumb, drag
-  anywhere else to look, tap to walk. Cabinets and walls are solid.
+  anywhere else to look, tap to walk. Cabinets, the stage, the counter and the walls are solid; a place
+  saved under an older layout that is now inside something moves to the nearest walkway.
 - **Playing.** At a cabinet the hall shows its title and "Press E / tap to play". With
   `ARCADE_HALL_EMBED=on` the game opens in a full-screen frame over the hall, with *Back to the hall*,
   which returns to the same spot. A game that needs cross-origin isolation (tak games, Roam) can only be
