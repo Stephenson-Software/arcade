@@ -98,3 +98,16 @@ body.touch #map { width: 200px; height: 200px; }
 body.moving #map { visibility: hidden; }
 /* On a phone the card takes the same place: the map steps aside while you stand at a cabinet. */
 body.touch.at-cabinet #map { visibility: hidden; }
+/* A gamepad (hall.js): its line in the help, and a short toast when one connects. */
+#help .pad { display: none; margin-top: 4px; }
+body.pad #help .pad { display: block; }
+/* Low in the middle, over the play prompt, clear of the help, the card and the stick. */
+#toast { position: fixed; z-index: 30; left: 50%; bottom: calc(max(24px, env(safe-area-inset-bottom)) + 66px);
+  transform: translate(-50%, 6px); max-width: calc(100vw - 32px); padding: 8px 16px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--fg); font-size: 14px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+body.touch #toast { bottom: calc(max(24px, env(safe-area-inset-bottom)) + 150px); }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+body.lite #toast { -webkit-backdrop-filter: none; backdrop-filter: none; }
