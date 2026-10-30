@@ -5,6 +5,7 @@
      HallWalk.frame(cabinet)                 -> its local frame {o, r, f}, p(x, y, z)
      HallWalk.world(layout)                  -> {obstacles, bounds} from /hall/layout.json
      HallWalk.resolve(x, z, world)           -> {x, z} pushed out of cabinets and walls
+     HallWalk.settle(x, z, world)            -> the nearest clear spot (for places saved under an older layout)
      HallWalk.step(me, input, dt, world)     -> the visitor after dt seconds of input
      HallWalk.near(me, layout)               -> the cabinet the visitor is at, or null
      HallWalk.front(cabinet, d)              -> {x, z, yaw}: d metres in front of it, facing it
@@ -13,7 +14,7 @@
      HallWalk.pick(view, nx, ny, layout)     -> {cabinet} or {floor: {x, z}} or null
 
    Coordinates are the layout's (src/arcade/hall.py): metres, door at +z,
-   aisle towards -z. The visitor looks along (-cos yaw, -sin yaw) on the
+   the room towards -z. The visitor looks along (-cos yaw, -sin yaw) on the
    floor; pitch > 0 looks down (the Strata web kit's orbit convention, which
    the hall reuses as a first-person camera). */
 (function (root) {
@@ -29,9 +30,9 @@
   function frame(c) {
     const a = c.angle;
     const r = [Math.cos(a), 0, -Math.sin(a)], f = [Math.sin(a), 0, Math.cos(a)];
-    const o = [c.x, 0, c.z];
-    return {o, r, f,
-      p: (x, y, z) => [o[0] + x * r[0] + z * f[0], y, o[2] + x * r[2] + z * f[2]],
+    const o = [c.x, 0, c.z], base = c.y || 0;
+    return {o, r, f, base,
+      p: (x, y, z) => [o[0] + x * r[0] + z * f[0], base + y, o[2] + x * r[2] + z * f[2]],
       n: (x, y, z) => [x * r[0] + z * f[0], y, x * r[2] + z * f[2]]};
   }
 
@@ -39,6 +40,10 @@
     const fp = layout.cabinet.footprint;
     const obstacles = layout.cabinets.map((c) => ({c, fr: frame(c), x0: fp[0], z0: fp[1], x1: fp[2], z1: fp[3]}));
     const room = layout.room;
+    // The room's own (axis-aligned) obstacles: the stage, the counter.
+    for (const [x0, z0, x1, z1] of room.obstacles || []) {
+      obstacles.push({c: null, fr: frame({x: 0, z: 0, angle: 0}), x0, z0, x1, z1});
+    }
     return {obstacles, bounds: [-room.halfWidth, room.far, room.halfWidth, room.near]};
   }
 
@@ -94,6 +99,40 @@
       }
     }
     return Object.assign({}, me, {x, z, yaw, moving: mag > 0.02});
+  }
+
+  /* Whether (x, z) is clear of every obstacle and inside the walls. */
+  function clear(x, z, w, r = RADIUS) {
+    const b = w.bounds;
+    if (x < b[0] + r - 1e-9 || x > b[2] - r + 1e-9 || z < b[1] + r - 1e-9 || z > b[3] - r + 1e-9) return false;
+    for (const o of w.obstacles) {
+      const dx = x - o.fr.o[0], dz = z - o.fr.o[2];
+      const lx = dx * o.fr.r[0] + dz * o.fr.r[2], lz = dx * o.fr.f[0] + dz * o.fr.f[2];
+      if (Math.hypot(lx - clamp(lx, o.x0, o.x1), lz - clamp(lz, o.z0, o.z1)) < r - 1e-6) return false;
+    }
+    return true;
+  }
+
+  /* The nearest clear spot to (x, z): a saved place from an older layout may
+     be inside a cabinet now, or outside the room. Out through the nearest
+     side first; failing that, the nearest clear point on rings around it. */
+  function settle(x, z, w) {
+    const b = w.bounds, r = RADIUS;
+    x = clamp(x, b[0] + r, b[2] - r); z = clamp(z, b[1] + r, b[3] - r);
+    if (clear(x, z, w)) return {x, z};
+    const p = resolve(x, z, w);
+    if (clear(p.x, p.z, w)) return p;
+    for (let ring = 0.2; ring < 12; ring += 0.2) {
+      let best = null, bestD = Infinity;
+      const n = Math.max(12, Math.round(ring * 24));
+      for (let k = 0; k < n; k++) {
+        const a = k / n * 2 * Math.PI, qx = x + ring * Math.cos(a), qz = z + ring * Math.sin(a);
+        if (qx < b[0] + r || qx > b[2] - r || qz < b[1] + r || qz > b[3] - r) continue;
+        if (clear(qx, qz, w)) { const d = Math.hypot(qx - x, qz - z); if (d < bestD) { bestD = d; best = {x: qx, z: qz}; } }
+      }
+      if (best) return best;
+    }
+    return {x, z};
   }
 
   function front(c, d = 1.15) {
@@ -154,7 +193,7 @@
       const ox = o[0] - fr.o[0], oz = o[2] - fr.o[2];
       const lo = [ox * fr.r[0] + oz * fr.r[2], o[1], ox * fr.f[0] + oz * fr.f[2]];
       const ld = [d[0] * fr.r[0] + d[2] * fr.r[2], d[1], d[0] * fr.f[0] + d[2] * fr.f[2]];
-      const lo3 = [fp[0], 0, fp[1]], hi3 = [fp[2], 2.3, fp[3]];
+      const base = c.y || 0, lo3 = [fp[0], base, fp[1]], hi3 = [fp[2], base + 2.3, fp[3]];
       let t0 = 0, t1 = Infinity, hit = true;
       for (let i = 0; i < 3; i++) {
         if (Math.abs(ld[i]) < 1e-9) { if (lo[i] < lo3[i] || lo[i] > hi3[i]) { hit = false; break; } continue; }
@@ -174,10 +213,12 @@
   }
 
   function spawn(layout) {
+    const s = layout.room.spawn;
+    if (s) return {x: s.x, z: s.z, yaw: s.yaw, pitch: 0.06};
     return {x: 0, z: Math.min(5.2, layout.room.near - 1.2), yaw: Math.PI / 2, pitch: 0.06};
   }
 
-  const HallWalk = {frame, world, resolve, step, near, front, stick, ray, pick, spawn,
+  const HallWalk = {frame, world, resolve, clear, settle, step, near, front, stick, ray, pick, spawn,
     RADIUS, EYE, WALK, RUN, REACH, FOV};
   if (typeof module !== "undefined" && module.exports) module.exports = HallWalk;
   else root.HallWalk = HallWalk;

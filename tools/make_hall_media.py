@@ -8,8 +8,10 @@ trailer plays (https://danielstephenson.dev/trailers/<name>.jpg), or, for a
 game with no trailer yet, a picture from the game's own public repository
 (SCREEN_OVERRIDES). A game with neither gets a plain title card. The marquee
 over each screen carries the game's title. Side panels are coloured by the
-GitHub organisation the game lives in. Cabinets nearer the door have more
-plays; Roam, the featured game, stands alone at the end of the aisle.
+GitHub organisation the game lives in. The floor is laid out like a real
+arcade (src/arcade/hall.py): islands of back-to-back cabinets, the most played
+nearest the door, a change counter by the entrance, and Roam, the featured
+game, alone on a lit stage at the back wall.
 
 Everything 3D, the screens and marquees included, is drawn by Strata v0.7.0
 through its Python binding, which fetches the released library and checks it
@@ -24,7 +26,7 @@ image files. Only public URLs are read.
         /tmp/hall-venv/bin/python tools/make_hall_media.py
 
 Writes docs/media/arcade-hall.png (the still), docs/media/arcade-hall.gif (a
-slow dolly down the aisle) and docs/media/arcade-hall.sources.json (which
+slow dolly from the door towards the stage) and docs/media/arcade-hall.sources.json (which
 image went on which screen, and when the registry was read). Downloaded
 images are cached in ~/.cache/arcade-hall; pass --refresh to fetch them again.
 """
@@ -52,7 +54,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 # the walkable hall at /hall: src/arcade/hall.py.
 from arcade import hall  # noqa: E402
 from arcade.hall import (  # noqa: E402
-    BODY, MARQ, MARQUEE_TEX, SCREEN, SCREEN_TEX, TRIM, placements, poster_urls,
+    BODY, MARQ, MARQUEE_TEX, SCREEN, SCREEN_TEX, TRIM, poster_urls,
 )
 MEDIA = os.path.join(ROOT, "docs", "media")
 STILL = os.path.join(MEDIA, "arcade-hall.png")
@@ -246,15 +248,55 @@ def tex(engine, img, flags=None):
     return engine.create_texture_rgba8(img.width, img.height, img.tobytes(), flags)
 
 
-def build(engine, cabinets):
-    spots = placements(len(cabinets))
+def carpet(style, size=256):
+    """The carpet tile: the same colours and confetti as the page's."""
+    img = Image.new("RGB", (size, size), tuple(round(255 * c) for c in style["carpet"]))
+    d = ImageDraw.Draw(img)
+    for x, y, r, k in style["dots"]:
+        fill = tuple(round(255 * c) for c in style["carpetDots"][k])
+        for ox in (-size, 0, size):
+            for oy in (-size, 0, size):
+                d.ellipse([x + ox - r, y + oy - r, x + ox + r, y + oy + r], fill=fill)
+    return img
+
+
+def sign(sg):
+    """A lit sign (the counter's, the stage's, the door's), as the page draws it."""
+    w, h = 512, round(512 * sg["h"] / sg["w"])
+    img = Image.new("RGB", (w, h), (20, 12, 18))
+    d = ImageDraw.Draw(img)
+    d.rectangle([4, 4, w - 5, h - 5], outline=tuple(round(255 * c) for c in sg["colour"]), width=5)
+    font = fit_text(d, sg["text"], w - 56, round(h * 0.62))
+    d.text((w / 2, h / 2 + 2), sg["text"], font=font, fill=tuple(round(255 * (0.6 + 0.4 * c)) for c in sg["colour"]),
+           anchor="mm")
+    return img
+
+
+class Flat:
+    """The room's own frame: world coordinates."""
+
+    @staticmethod
+    def p(x, y, z):
+        return (x, y, z)
+
+    @staticmethod
+    def n(x, y, z):
+        return (x, y, z)
+
+
+CARPET_TILE = 1.6  # metres per carpet tile (hall.js)
+
+
+def build(engine, cabinets, doc):
+    """doc: arcade.hall.layout() for these cabinets, the same data the page draws."""
+    room, style = doc["room"], doc["room"]["style"]
     body = MeshBuilder()
     items, glow, lights = [], [], []
-    for cab, (pos, angle) in zip(cabinets, spots):
-        fr = Frame(pos, angle)
+    clamp = strata.TEXTURE_MIPMAPS | strata.TEXTURE_CLAMP_U | strata.TEXTURE_CLAMP_V
+    for cab, placed in zip(cabinets, doc["cabinets"]):
+        fr = Frame((placed["x"], placed["y"], placed["z"]), placed["angle"])
         cabinet_body(body, fr, cab["colour"])
         items += controls(fr, cab["colour"])
-        clamp = strata.TEXTURE_MIPMAPS | strata.TEXTURE_CLAMP_U | strata.TEXTURE_CLAMP_V
         for img, (x0, y0, x1, y1, z) in ((cab["screen"], SCREEN), (cab["marquee"], MARQ)):
             q = MeshBuilder()
             q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1))
@@ -263,54 +305,63 @@ def build(engine, cabinets):
         lift = max(max(avg), 0.2)
         avg = tuple(min(1.0, 0.25 + 0.75 * v / lift) for v in avg)
         cab["glow"] = avg
-        glow.append(strata.Point(fr.p(0, 2.35, 0.3), 0.0, 1.0, tuple(cab["colour"]) + (0.12,), strata.POINT_SOFT))
-        lights.append(strata.PointLight(fr.p(0, 1.5, 1.0), 2.6, avg, 1.4, 0))
+        colour = tuple(0.4 + 0.6 * c for c in cab["colour"])
+        glow.append(strata.Point(fr.p(0, 2.15, 0.45), 0.0, 1.3, colour + (0.16,), strata.POINT_SOFT))
+        lights.append(strata.PointLight(fr.p(0, 1.5, 1.0), 2.6, avg, 1.2, 0))
     body.add(engine)
 
-    # Floor, back wall and ceiling strip.
-    end_z = spots[0][0][2]
-    near, far = 7.0, end_z - 1.2
+    # The room (hall.js buildRoom()): carpet, walls, ceiling, props and signs.
+    w, near, far, h = room["halfWidth"], room["near"], room["far"], room["height"]
     floor = MeshBuilder()
-    w = 6.0
-    reps = (2 * w / 1.6, (near - far) / 1.6)
+    reps = (2 * w / CARPET_TILE, (near - far) / CARPET_TILE)
     floor.quad([(-w, 0, near), (w, 0, near), (w, 0, far), (-w, 0, far)], (0, 1, 0),
                uvs=((0, reps[1]), (reps[0], reps[1]), (reps[0], 0), (0, 0)))
-    floor.add(engine, texture=tex(engine, checker()))
-    wall = MeshBuilder()
-    wall.quad([(-w, 0, far), (w, 0, far), (w, 4.2, far), (-w, 4.2, far)], (0, 0, 1), (0.10, 0.08, 0.15))
-    for x in (-w, w):
-        s = 1 if x < 0 else -1
-        pts = [(x, 0, near), (x, 0, far), (x, 4.2, far), (x, 4.2, near)]
-        if s < 0:
-            pts = [pts[1], pts[0], pts[3], pts[2]]
-        wall.quad(pts, (s, 0, 0), (0.08, 0.065, 0.12))
-    wall.add(engine)
+    floor.add(engine, texture=tex(engine, carpet(style)))
+    walls, lit = MeshBuilder(), MeshBuilder()
 
-    lines = []
-    for x in (-0.9, 0.9):
-        lines += [strata.LineVertex((x, 3.6, near), (0.75, 0.35, 0.95, 1)),
-                  strata.LineVertex((x, 3.6, far), (0.75, 0.35, 0.95, 1))]
-    z = near - 3.0
-    while z > far:
-        glow.append(strata.Point((0.0, 3.55, z), 0.0, 1.2, (0.55, 0.35, 1.0, 0.12), strata.POINT_SOFT))
-        z -= 2.4
+    def wall(a, b, n):
+        walls.quad([(a[0], 0, a[1]), (b[0], 0, b[1]), (b[0], 1.1, b[1]), (a[0], 1.1, a[1])], n, style["wainscot"])
+        walls.quad([(a[0], 1.1, a[1]), (b[0], 1.1, b[1]), (b[0], h, b[1]), (a[0], h, a[1])], n, style["wall"])
+
+    wall((-w, far), (w, far), (0, 0, 1))
+    wall((-w, near), (-w, far), (1, 0, 0))
+    wall((w, far), (w, near), (-1, 0, 0))
+    wall((w, near), (-w, near), (0, 0, -1))
+    walls.quad([(-w, h, far), (w, h, far), (w, h, near), (-w, h, near)], (0, -1, 0), style["ceiling"])
+    for b in room["props"]:
+        (lit if b["unlit"] else walls).box(Flat, b["lo"], b["hi"], b["colour"])
+    walls.add(engine)
+    lit.add(engine, flags=strata.MESH_UNLIT)
+    for sg in room["signs"]:
+        f = sg["facing"]
+        x0, x1 = sg["x"] - sg["w"] / 2 * f, sg["x"] + sg["w"] / 2 * f
+        y0, y1 = sg["y"] - sg["h"] / 2, sg["y"] + sg["h"] / 2
+        q = MeshBuilder()
+        q.quad([(x0, y0, sg["z"]), (x1, y0, sg["z"]), (x1, y1, sg["z"]), (x0, y1, sg["z"])], (0, 0, f))
+        q.add(engine, texture=tex(engine, sign(sg), clamp), flags=strata.MESH_UNLIT)
+        glow.append(strata.Point((sg["x"], sg["y"], sg["z"] + 0.15 * f), 0.0, sg["w"] * 0.9,
+                                 tuple(sg["colour"]) + (0.10,), strata.POINT_SOFT))
+    for l in room["lights"][2:]:
+        glow.append(strata.Point((l[0], l[1] + 0.4, l[2]), 0.0, 1.5, tuple(style["panel"]) + (0.18,), strata.POINT_SOFT))
 
     lighting = engine.lib.lighting_defaults(strata.LIGHTING_SPACE)
-    lighting.legacy_ambient = 0.32
+    lighting.legacy_ambient = style["ambient"]
     engine.set_lighting(lighting)
-    # Thirty-two lights at most: the nearest cabinets get their own, plus two room fills.
-    fills = [strata.PointLight((0.0, 3.4, 2.0), 9.0, (0.7, 0.6, 1.0), 1.2, 0),
-             strata.PointLight((0.0, 3.4, end_z + 3.0), 9.0, (0.7, 0.6, 1.0), 1.0, 0)]
-    engine.set_point_lights(fills + lights[: strata.MAX_POINT_LIGHTS - len(fills)])
-    return items, lines, glow, end_z
+    # The room's lights first (its two fills, the stage's spots, the ceiling),
+    # then as many cabinets' own as fit.
+    room_lights = [strata.PointLight(tuple(l[:3]), l[3], tuple(l[4:7]), l[7], 0) for l in room["lights"]]
+    room_lights = room_lights[: strata.MAX_POINT_LIGHTS - 8]
+    engine.set_point_lights(room_lights + lights[: strata.MAX_POINT_LIGHTS - len(room_lights)])
+    return items, [], glow, room
 
 
 def render(engine, scene, size, eye, target):
     items, lines, glow, _ = scene
     w, h = size
-    engine.set_camera(engine.lib.look_at(eye, target, fov_y_degrees=52, aspect=w / h, far_plane=120))
-    engine.begin_frame(clear_color=(0.02, 0.018, 0.035, 1.0))
-    engine.submit_lines(lines)
+    engine.set_camera(engine.lib.look_at(eye, target, fov_y_degrees=56, aspect=w / h, far_plane=120))
+    engine.begin_frame(clear_color=tuple(scene[3]["style"]["clear"]) + (1.0,))
+    if lines:
+        engine.submit_lines(lines)
     engine.submit_primitives(items)
     engine.submit_points(glow)
     engine.end_frame()
@@ -333,33 +384,41 @@ def caption(img, count):
     return img
 
 
-def dolly_eye(t, end_z):
-    """t in [0, 1]: from just inside the door to about a third of the way down."""
+def dolly_eye(t, room):
+    """t in [0, 1]: from just inside the door, down the centre walkway towards
+    the stage, looking at the featured cabinet."""
     e = 0.5 - 0.5 * math.cos(math.pi * t)
-    z = 4.6 - e * 9.5
-    return (0.0, 1.75, z), (0.0, 1.35, end_z + 1.0)
+    z0, z1 = room["near"] - 0.6, room["stage"]["front"] + 5.0
+    stage_z = (room["stage"]["front"] + room["stage"]["back"]) / 2
+    return (0.0, 1.8, z0 + (z1 - z0) * e), (0.0, 1.5, stage_z)
 
 
 def main():
     refresh = "--refresh" in sys.argv
     read_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     cabinets = load_games(refresh)
+    doc = hall.layout([c["game"] for c in cabinets])
+    assert [c["slug"] for c in doc["cabinets"]] == [c["game"]["slug"] for c in cabinets]
     lib = strata.load_release(RELEASE)
     os.makedirs(MEDIA, exist_ok=True)
 
     with strata.Engine(lib, 2560, 1280) as engine:
-        scene = build(engine, cabinets)
-        still = render(engine, scene, (2560, 1280), (0.35, 1.8, 4.4), (-0.1, 1.3, scene[3] + 4.0))
+        scene = build(engine, cabinets, doc)
+        room = doc["room"]
+        # From the entrance's right-hand corner, across the floor to the stage.
+        eye = (room["halfWidth"] - 1.2, 3.2, room["near"] - 0.5)
+        target = (-1.6, 0.9, (room["stage"]["front"] + room["near"]) / 2 - 2.5)
+        still = render(engine, scene, (2560, 1280), eye, target)
     still = caption(still.resize((1280, 640), Image.LANCZOS), len(cabinets))
     still.quantize(colors=256, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).save(STILL, optimize=True)
 
     frames, count = [], 34
     with strata.Engine(lib, 960, 480) as engine:
-        scene = build(engine, cabinets)
+        scene = build(engine, cabinets, doc)
         for i in range(count):
             # Down the aisle and back, so the loop has no jump.
             t = i / (count // 2) if i < count // 2 else 2 - i / (count // 2)
-            eye, target = dolly_eye(t, scene[3])
+            eye, target = dolly_eye(t, doc["room"])
             frames.append(render(engine, scene, (960, 480), eye, target).resize((440, 220), Image.LANCZOS))
     w, h = frames[0].size
     sample = Image.new("RGB", (w, h * 4))
@@ -374,7 +433,7 @@ def main():
             "registry": REGISTRY,
             "read_at": read_at,
             "strata": RELEASE,
-            "order": "featured game first (end of the aisle), then by plays at read_at, most first",
+            "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
             "cabinets": [{"slug": c["game"]["slug"], "title": c["game"]["title"], "repo": c["game"]["repo"],
                           "plays": c["game"].get("plays"), "screen": c["source"] or "title card"}
                          for c in cabinets],

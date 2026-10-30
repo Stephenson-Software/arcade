@@ -130,14 +130,6 @@
     ctx.fillText(text, w / 2, h / 2 + 2);
     return pixels(ctx, w, h);
   }
-  function checker(size = 256, cells = 8) {
-    const [, ctx] = canvas2d(size, size), s = size / cells;
-    for (let i = 0; i < cells; i++) for (let j = 0; j < cells; j++) {
-      ctx.fillStyle = (i + j) % 2 ? "rgb(30,28,44)" : "rgb(12,11,20)";
-      ctx.fillRect(i * s, j * s, s, s);
-    }
-    return pixels(ctx, size, size);
-  }
   // The light a screen casts: its mean colour, lifted (make_hall_media.py build()).
   function glowOf(rgba) {
     const sum = [0, 0, 0];
@@ -149,7 +141,7 @@
   /* ------------------------------------------------------ the scene */
   const screenSlot = (i) => 100 + i, marqueeSlot = (i) => 400 + i;
   function buildScene() {
-    const body = new MeshBuilder(), strip = new MeshBuilder();
+    const body = new MeshBuilder();
     const cab = layout.cabinet, items = [], points = [];
     layout.cabinets.forEach((c, i) => {
       const fr = W.frame(c);
@@ -162,7 +154,7 @@
       items.push([3, ...P(-0.22, 1.17, 0.53), 0.07, 0.07, 0.07, 0.85, 0.12, 0.12]);
       [[0.95, 0.85, 0.2], c.colour, [0.25, 0.75, 0.35]].forEach((col, k) =>
         items.push([2, ...P(0.04 + 0.12 * k, 1.07, 0.52 - 0.03 * k), 0.07, 0.025, 0.07, ...col]));
-      points.push([...P(0, 2.35, 0.3), 0, 1.0, ...c.colour, 0.12]);
+      points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
       texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], titleCard(c), TEX_MIPS | TEX_CLAMP);
       texture(marqueeSlot(i), MARQUEE_TEX[0], MARQUEE_TEX[1], marquee(c), TEX_MIPS | TEX_CLAMP);
@@ -173,43 +165,76 @@
       }
     });
     mesh(0, body);
-
-    const room = layout.room, w = room.halfWidth, near = room.near, far = room.far, h = room.height;
-    const floor = new MeshBuilder(), reps = [2 * w / 1.6, (near - far) / 1.6];
-    floor.quad([[-w, 0, near], [w, 0, near], [w, 0, far], [-w, 0, far]], [0, 1, 0], [1, 1, 1],
-      [[0, reps[1]], [reps[0], reps[1]], [reps[0], 0], [0, 0]]);
-    texture(1, 256, 256, checker(), TEX_MIPS);
-    mesh(1, floor, 1);
-    const walls = new MeshBuilder();
-    walls.quad([[-w, 0, far], [w, 0, far], [w, h, far], [-w, h, far]], [0, 0, 1], [0.10, 0.08, 0.15]);
-    for (const x of [-w, w]) {
-      let pts = [[x, 0, near], [x, 0, far], [x, h, far], [x, h, near]];
-      if (x > 0) pts = [pts[1], pts[0], pts[3], pts[2]];
-      walls.quad(pts, [x < 0 ? 1 : -1, 0, 0], [0.08, 0.065, 0.12]);
-    }
-    walls.quad([[w, 0, near], [-w, 0, near], [-w, h, near], [w, h, near]], [0, 0, -1], [0.08, 0.065, 0.12]);
-    // The door you came in by.
-    walls.quad([[0.8, 0, near - 0.01], [-0.8, 0, near - 0.01], [-0.8, 2.4, near - 0.01], [0.8, 2.4, near - 0.01]],
-      [0, 0, -1], [0.22, 0.15, 0.36]);
-    mesh(2, walls);
-    // The ceiling's two light strips (lines in the README picture).
-    for (const x of [-0.9, 0.9]) {
-      strip.quad([[x - 0.03, 3.6, near], [x + 0.03, 3.6, near], [x + 0.03, 3.6, far], [x - 0.03, 3.6, far]],
-        [0, -1, 0], [0.75, 0.35, 0.95]);
-      strip.quad([[x + 0.03, 3.6, near], [x - 0.03, 3.6, near], [x - 0.03, 3.6, far], [x + 0.03, 3.6, far]],
-        [0, 1, 0], [0.75, 0.35, 0.95]);
-    }
-    mesh(3, strip, -1, 1);
-    for (let z = near - 3.0; z > far; z -= 2.4) points.push([0, 3.55, z, 0, 1.2, 0.55, 0.35, 1.0, 0.12]);
+    buildRoom(points);
     rows(mod._hall_set_items, items);
     rows(mod._hall_set_points, points);
-    mod._hall_set_view(0.32, W.FOV);
+    mod._hall_set_view(layout.room.style ? layout.room.style.ambient : 0.32, W.FOV);
     setLights();
   }
+
+  /* The room: walls, carpet, ceiling, and the props hall.py lists (the stage,
+     the counter, the ceiling panels), all plain boxes, and its signs. */
+  function buildRoom(points) {
+    const room = layout.room, st = room.style, w = room.halfWidth, near = room.near, far = room.far, h = room.height;
+    const flat = {p: (x, y, z) => [x, y, z], n: (x, y, z) => [x, y, z]};
+    const floor = new MeshBuilder(), reps = [2 * w / CARPET_TILE, (near - far) / CARPET_TILE];
+    floor.quad([[-w, 0, near], [w, 0, near], [w, 0, far], [-w, 0, far]], [0, 1, 0], [1, 1, 1],
+      [[0, reps[1]], [reps[0], reps[1]], [reps[0], 0], [0, 0]]);
+    texture(1, 256, 256, carpet(st), TEX_MIPS);
+    mesh(1, floor, 1);
+    const walls = new MeshBuilder(), lit = new MeshBuilder();
+    const [d0, d1] = room.door;
+    // Each wall: the lower wainscot and the wall above it.
+    const wall = (a, b, n) => {
+      walls.quad([[a[0], 0, a[1]], [b[0], 0, b[1]], [b[0], 1.1, b[1]], [a[0], 1.1, a[1]]], n, st.wainscot);
+      walls.quad([[a[0], 1.1, a[1]], [b[0], 1.1, b[1]], [b[0], h, b[1]], [a[0], h, a[1]]], n, st.wall);
+    };
+    wall([-w, far], [w, far], [0, 0, 1]);
+    wall([-w, near], [-w, far], [1, 0, 0]);
+    wall([w, far], [w, near], [-1, 0, 0]);
+    wall([w, near], [-w, near], [0, 0, -1]);
+    walls.quad([[-w, h, far], [w, h, far], [w, h, near], [-w, h, near]], [0, -1, 0], st.ceiling);
+    for (const b of room.props) (b.unlit ? lit : walls).box(flat, b.lo, b.hi, b.colour);
+    mesh(2, walls);
+    mesh(3, lit, -1, 1 /* STRATA_MESH_UNLIT */);
+    room.signs.forEach((sg, i) => {
+      const slot = signSlot(i), tw = 512, th = Math.round(512 * sg.h / sg.w);
+      texture(slot, tw, th, signTexture(sg, tw, th), TEX_MIPS | TEX_CLAMP);
+      const q = new MeshBuilder(), x0 = sg.x - sg.w / 2 * sg.facing, x1 = sg.x + sg.w / 2 * sg.facing;
+      const y0 = sg.y - sg.h / 2, y1 = sg.y + sg.h / 2;
+      q.quad([[x0, y0, sg.z], [x1, y0, sg.z], [x1, y1, sg.z], [x0, y1, sg.z]], [0, 0, sg.facing]);
+      mesh(slot, q, slot, 1);
+      points.push([sg.x, sg.y, sg.z + 0.15 * sg.facing, 0, sg.w * 0.9, ...sg.colour, 0.10]);
+    });
+    // A soft pool under each lit ceiling panel's light.
+    for (const l of room.lights.slice(2)) points.push([l[0], l[1] + 0.4, l[2], 0, 1.5, ...st.panel, 0.18]);
+  }
+  const signSlot = (i) => 700 + i, CARPET_TILE = 1.6;
+  function carpet(st) {
+    const size = 256, [, ctx] = canvas2d(size, size);
+    ctx.fillStyle = `rgb(${rgb255(st.carpet)})`; ctx.fillRect(0, 0, size, size);
+    for (const [x, y, r, k] of st.dots) {
+      ctx.fillStyle = `rgb(${rgb255(st.carpetDots[k])})`;
+      // Wrapped, so the tile repeats without seams.
+      for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+        ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 2 * Math.PI); ctx.fill();
+      }
+    }
+    return pixels(ctx, size, size);
+  }
+  function signTexture(sg, w, h) {
+    const [, ctx] = canvas2d(w, h);
+    ctx.fillStyle = "rgb(20,12,18)"; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = `rgb(${rgb255(sg.colour)})`; ctx.lineWidth = 5; ctx.strokeRect(6, 6, w - 12, h - 12);
+    fitFont(ctx, sg.text, w - 56, Math.round(h * 0.62));
+    ctx.fillStyle = `rgb(${sg.colour.map((v) => Math.round(255 * (0.6 + 0.4 * v)))})`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(sg.text, w / 2, h / 2 + 2);
+    return pixels(ctx, w, h);
+  }
   function setLights() {
-    const end = layout.cabinets.length ? layout.cabinets[0].z : -2;
-    const lights = [[0, 3.4, 2.0, 9, 0.7, 0.6, 1.0, 1.2], [0, 3.4, end + 3.0, 9, 0.7, 0.6, 1.0, 1.0]];
-    for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.4]);
+    const lights = layout.room.lights.slice();
+    for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.2]);
     rows(mod._hall_set_lights, lights);
   }
 
@@ -279,7 +304,10 @@
     const c = at && layout.cabinets.find((k) => k.slug === at);
     if (c) { const f = W.front(c, standOff()); return {x: f.x, z: f.z, yaw: f.yaw, pitch: 0.12}; }
     const hash = location.hash.startsWith("#p=") ? parsePlace(location.hash.slice(3)) : null;
-    return hash || parsePlace(session.get(POS_KEY)) || W.spawn(layout);
+    const saved = hash || parsePlace(session.get(POS_KEY));
+    // A place saved under an older layout may be inside a cabinet now: the nearest walkway.
+    if (saved) return Object.assign(saved, W.settle(saved.x, saved.z, world));
+    return W.spawn(layout);
   }
 
   /* --------------------------------------------------------- playing */

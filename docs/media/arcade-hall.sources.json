@@ -1,42 +1,42 @@
 {
   "registry": "https://play.danielstephenson.dev/api/games",
-  "read_at": "2026-10-29T23:28:17Z",
+  "read_at": "2026-10-30T01:11:02Z",
   "strata": "0.7.0",
-  "order": "featured game first (end of the aisle), then by plays at read_at, most first",
+  "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
   "cabinets": [
     {
       "slug": "roam",
       "title": "Roam",
       "repo": "Preponderous-Software/roam",
-      "plays": 220,
+      "plays": 224,
       "screen": "https://danielstephenson.dev/trailers/roam.jpg"
     },
     {
       "slug": "env-lib-cpp",
       "title": "env-lib-cpp",
       "repo": "Preponderous-Software/env-lib-cpp",
-      "plays": 373,
+      "plays": 377,
       "screen": "https://danielstephenson.dev/trailers/env-lib-cpp.jpg"
     },
     {
       "slug": "tidewater",
       "title": "Tidewater",
       "repo": "Stephenson-Software/Tidewater",
-      "plays": 286,
+      "plays": 289,
       "screen": "https://danielstephenson.dev/trailers/tidewater.jpg"
     },
     {
       "slug": "fishe",
       "title": "FishE",
       "repo": "Stephenson-Software/FishE",
-      "plays": 260,
+      "plays": 262,
       "screen": "https://danielstephenson.dev/trailers/fishe.jpg"
     },
     {
       "slug": "beyond-nations",
       "title": "Beyond Nations",
       "repo": "Preponderous-Software/beyond-nations",
-      "plays": 226,
+      "plays": 231,
       "screen": "https://danielstephenson.dev/trailers/beyond-nations.jpg"
     },
     {
@@ -57,21 +57,21 @@
       "slug": "orrery",
       "title": "Orrery",
       "repo": "Preponderous-Software/orrery",
-      "plays": 183,
+      "plays": 186,
       "screen": "https://danielstephenson.dev/trailers/orrery.jpg"
     },
     {
       "slug": "frog-hopper",
       "title": "Frog Hopper",
       "repo": "Stephenson-Software/Frog-Hopper-2D",
-      "plays": 155,
+      "plays": 158,
       "screen": "https://danielstephenson.dev/trailers/frog-hopper-2d.jpg"
     },
     {
       "slug": "atman",
       "title": "Atman",
       "repo": "Preponderous-Software/atman",
-      "plays": 153,
+      "plays": 154,
       "screen": "https://danielstephenson.dev/trailers/atman.jpg"
     },
     {
@@ -110,6 +110,13 @@
       "screen": "https://danielstephenson.dev/trailers/steading.jpg"
     },
     {
+      "slug": "dice",
+      "title": "Simple Dice Throw",
+      "repo": "Stephenson-Software/simpleDiceThrow",
+      "plays": 129,
+      "screen": "https://danielstephenson.dev/trailers/simple-dice-throw.jpg"
+    },
+    {
       "slug": "microbiome",
       "title": "Microbiome",
       "repo": "Preponderous-Software/microbiome",
@@ -117,17 +124,10 @@
       "screen": "https://danielstephenson.dev/trailers/microbiome.jpg"
     },
     {
-      "slug": "dice",
-      "title": "Simple Dice Throw",
-      "repo": "Stephenson-Software/simpleDiceThrow",
-      "plays": 127,
-      "screen": "https://danielstephenson.dev/trailers/simple-dice-throw.jpg"
-    },
-    {
       "slug": "rock-paper-scissors",
       "title": "Rock Paper Scissors",
       "repo": "Stephenson-Software/Rock-Paper-Scissors-2D",
-      "plays": 124,
+      "plays": 125,
       "screen": "https://danielstephenson.dev/trailers/rock-paper-scissors-2d.jpg"
     },
     {
@@ -138,18 +138,18 @@
       "screen": "https://danielstephenson.dev/trailers/replay-player.jpg"
     },
     {
-      "slug": "guess-my-word",
-      "title": "Guess My Word",
-      "repo": "Stephenson-Software/Guess-My-Word",
-      "plays": 116,
-      "screen": "https://danielstephenson.dev/trailers/guess-my-word.jpg"
-    },
-    {
       "slug": "tic-tac-toe-sdl",
       "title": "Tic Tac Toe (SDL)",
       "repo": "Stephenson-Software/Tic-Tac-Toe-Using-SDL",
-      "plays": 116,
+      "plays": 119,
       "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-using-sdl.jpg"
+    },
+    {
+      "slug": "guess-my-word",
+      "title": "Guess My Word",
+      "repo": "Stephenson-Software/Guess-My-Word",
+      "plays": 118,
+      "screen": "https://danielstephenson.dev/trailers/guess-my-word.jpg"
     },
     {
       "slug": "sdl-sketches",
@@ -157,6 +157,13 @@
       "repo": "dmccoystephenson/sdl-sketches",
       "plays": 113,
       "screen": "https://danielstephenson.dev/trailers/sdl-sketches.jpg"
+    },
+    {
+      "slug": "asn1-viz",
+      "title": "asn1-viz",
+      "repo": "Preponderous-Software/asn1-viz",
+      "plays": 111,
+      "screen": "https://danielstephenson.dev/trailers/asn1-viz.jpg"
     },
     {
       "slug": "interakt",
@@ -169,35 +176,28 @@
       "slug": "sisyphus",
       "title": "Sisyphus",
       "repo": "Preponderous-Software/sisyphus",
-      "plays": 110,
+      "plays": 111,
       "screen": "https://danielstephenson.dev/trailers/sisyphus.jpg"
-    },
-    {
-      "slug": "asn1-viz",
-      "title": "asn1-viz",
-      "repo": "Preponderous-Software/asn1-viz",
-      "plays": 109,
-      "screen": "https://danielstephenson.dev/trailers/asn1-viz.jpg"
     },
     {
       "slug": "tic-tac-toe-java",
       "title": "Tic Tac Toe (Java)",
       "repo": "Stephenson-Software/Tic-Tac-Toe-Console-Game",
-      "plays": 107,
+      "plays": 108,
       "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-console-game.jpg"
     },
     {
       "slug": "kreatures",
       "title": "Kreatures",
       "repo": "Stephenson-Software/Kreatures",
-      "plays": 106,
+      "plays": 107,
       "screen": "https://danielstephenson.dev/trailers/kreatures.jpg"
     },
     {
       "slug": "familiar",
       "title": "Familiar",
       "repo": "Preponderous-Software/familiar",
-      "plays": 95,
+      "plays": 96,
       "screen": "title card"
     },
     {

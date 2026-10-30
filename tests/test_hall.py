@@ -54,13 +54,79 @@ def test_the_most_played_cabinets_are_nearest_the_door():
     assert zs == sorted(zs, reverse=True)
 
 
-def test_cabinets_alternate_walls_and_turn_towards_the_door():
-    doc = hall.layout(GAMES)
-    for c in doc["cabinets"][1:]:
-        assert abs(abs(c["x"]) - hall.WALL_X) < 1e-9
-        # Front (sin a, 0, cos a) points into the aisle and towards the door (+z).
-        fx, fz = math.sin(c["angle"]), math.cos(c["angle"])
-        assert fx * c["x"] < 0 and fz > 0
+def big_hall():
+    games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=100 + i) for i in range(30)]
+    return hall.layout(games + [entry("roam", "Preponderous-Software/roam", 1, isolation=True)])
+
+
+def test_cabinets_stand_back_to_back_in_rows_facing_the_door_or_the_stage():
+    doc = big_hall()
+    rest = doc["cabinets"][1:]
+    zs = sorted({c["z"] for c in rest}, reverse=True)
+    assert 4 <= len(zs) <= 8  # two to four islands of two rows
+    for c in rest:
+        assert c["angle"] in (0.0, round(math.pi, 6))
+        assert c["y"] == 0
+    # Rows pair up back to back: a door-facing row, then a stage-facing one just behind it.
+    for front, back in zip(zs[0::2], zs[1::2]):
+        assert {c["angle"] for c in rest if c["z"] == front} == {0.0}
+        assert {c["angle"] for c in rest if c["z"] == back} == {round(math.pi, 6)}
+        assert front - back == pytest.approx(2 * -hall.FOOTPRINT[1] + hall.BACK_GAP)
+
+
+def test_walkways_are_at_least_two_and_a_half_metres():
+    doc = big_hall()
+    fp, room = hall.FOOTPRINT, doc["room"]
+    rest = doc["cabinets"][1:]
+    # Down the middle, door to stage: no cabinet.
+    assert min(abs(c["x"]) - fp[2] for c in rest) * 2 >= 2.5
+    # Along the side walls.
+    assert room["halfWidth"] - max(abs(c["x"]) + fp[2] for c in rest) >= 2.5
+    # Across the room, between one island's back row and the next island's front row.
+    zs = sorted({c["z"] for c in rest}, reverse=True)
+    for back, front in zip(zs[1::2], zs[2::2]):
+        assert (back - fp[3]) - (front + fp[3]) >= 2.5
+    # From the door to the first row, and from the last row to the stage.
+    assert room["near"] - (zs[0] + fp[3]) >= 2.5
+    assert (zs[-1] - fp[3]) - room["stage"]["front"] >= 2.5
+
+
+def test_the_room_is_roughly_square():
+    room = big_hall()["room"]
+    width, depth = 2 * room["halfWidth"], room["near"] - room["far"]
+    assert 0.75 < width / depth < 1.33, (width, depth)
+
+
+def test_roam_stands_alone_on_a_raised_stage_at_the_back_in_sight_of_the_door():
+    doc = big_hall()
+    roam, room = doc["cabinets"][0], doc["room"]
+    assert roam["featured"] and roam["x"] == 0 and roam["y"] == hall.STAGE_HEIGHT > 0
+    stage = room["stage"]
+    assert stage["back"] < roam["z"] < stage["front"] and stage["back"] - room["far"] < 0.5
+    # The centre walkway is clear from the door to the stage.
+    assert all(abs(c["x"]) > hall.CENTRE_WALK / 2 for c in doc["cabinets"][1:])
+    assert room["spawn"]["x"] == 0 and room["spawn"]["z"] > 0
+
+
+def test_a_change_counter_stands_beside_the_door():
+    room = big_hall()["room"]
+    signs = {s["text"]: s for s in room["signs"]}
+    counter = signs["CHANGE \u00b7 PRIZES"]
+    assert counter["z"] > room["near"] - 1 and abs(counter["x"]) > room["door"][1]
+    # It is an obstacle, beside (not in) the doorway, and the spawn point is clear of it.
+    near_obstacles = [o for o in room["obstacles"] if o[3] >= room["near"] - 0.01]
+    assert near_obstacles and all(o[2] < room["door"][0] or o[0] > room["door"][1] for o in near_obstacles)
+    sp = room["spawn"]
+    assert not any(o[0] < sp["x"] < o[2] and o[1] < sp["z"] < o[3] for o in room["obstacles"])
+
+
+def test_the_hall_is_lit_warm_and_bright():
+    room = big_hall()["room"]
+    assert room["style"]["ambient"] >= 0.5
+    assert len(room["lights"]) >= 8
+    assert sum(1 for p in room["props"] if p["unlit"]) >= 8  # ceiling panels and the stage's edge
+    # The two fills (kept whatever the light budget) reach across the room.
+    assert all(l[3] >= 12 for l in room["lights"][:2])
 
 
 def test_side_panels_are_coloured_by_organisation():
@@ -71,10 +137,14 @@ def test_side_panels_are_coloured_by_organisation():
     assert tuple(hall.layout([entry("x", "someone/else")])["cabinets"][0]["colour"]) == hall.OTHER_COLOUR
 
 
-def test_the_room_closes_behind_the_featured_cabinet():
-    doc = hall.layout(GAMES)
-    assert doc["room"]["far"] == pytest.approx(doc["cabinets"][0]["z"] - hall.HALL_BACK)
-    assert doc["room"]["near"] == hall.HALL_NEAR
+def test_the_most_played_cabinets_are_in_the_rows_nearest_the_door():
+    doc = big_hall()
+    rest = doc["cabinets"][1:]
+    zs = [c["z"] for c in rest]
+    assert zs == sorted(zs, reverse=True)
+    # And within a row, nearest the centre walkway first.
+    first = [c for c in rest if c["z"] == zs[0]]
+    assert [abs(c["x"]) for c in first] == sorted(abs(c["x"]) for c in first)
 
 
 def test_an_empty_registry_is_an_empty_hall():
