@@ -7,6 +7,10 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- "Share this spot" in the hall's bar: copies a link to where the visitor stands (with a short note to say
+  so), or opens the share sheet on a phone (Web Share API). At a cabinet the link is `/hall/?at=<slug>`,
+  elsewhere `/hall/#p=<place>`. On a phone the bar's controls are a little tighter so none wraps.
+
 - The landing page links each deployed game to its cabinet in the hall ("Visit its cabinet in the hall",
   `/hall/?at=<slug>`), under the link to the game itself.
 

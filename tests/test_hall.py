@@ -547,6 +547,7 @@ def test_the_hall_page_loads_its_scripts_in_order():
     with open(os.path.join(hall.ASSETS, "index.html")) as f:
         page = f.read()
     order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall-controls.js", "hall.js"]
+    order.append("hall-share.js")
     at = [page.index('src="%s"' % name) for name in order]
     assert at == sorted(at)
     assert 'id="sound"' in page and 'aria-pressed="false"' in page
@@ -625,3 +626,21 @@ def test_the_hall_has_a_map_that_can_be_toggled():
     # Remembered, opened by M, and a tap on it walks without turning (target only).
     assert "arcade-hall.map" in script and 'e.key.toLowerCase() === "m"' in script
     assert "kit.cam.yaw =" not in script.split("function drawMap")[1].split("function after")[0]
+
+
+def test_the_hall_has_a_share_button_that_links_to_the_spot(running):
+    with open(os.path.join(hall.ASSETS, "index.html")) as f:
+        page = f.read()
+    assert 'id="share"' in page and 'aria-label="Share this spot"' in page
+    assert 'id="toast"' in page and 'role="status"' in page
+    with open(os.path.join(hall.ASSETS, "hall-share.js")) as f:
+        script = f.read()
+    # A cabinet's link is ?at=<slug> (it unfurls with that cabinet); elsewhere the #p= place.
+    assert 'searchParams.set("at"' in script and "url.hash = `p=" in script
+    # The share sheet on a phone, else the clipboard (and by hand without a secure context).
+    assert "navigator.share" in script and "navigator.clipboard.writeText" in script
+    assert 'execCommand("copy")' in script and '"AbortError"' in script
+    # It only reads the hall's state; it never moves or turns the view.
+    assert "__hall.place" not in script and "cam.yaw" not in script
+    res, _ = get(running(), "/hall/hall-share.js")
+    assert res.status == 200 and res.getheader("Content-Type").startswith("text/javascript")
