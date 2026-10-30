@@ -682,7 +682,85 @@
     state.speed = me.speed || 0;
     state.frames++;
   }
+  /* The map: a "you are here" plan of the floor, top right. The room, the
+     stage and counter, each cabinet in its org colour (the one you are at
+     ringed), and you, with the way you look. A click or tap on a cabinet
+     walks there (the view does not turn). Open by default on a desktop,
+     behind the Map button (or M) on a phone; the choice is remembered. */
+  const MAP_KEY = "arcade-hall.map", mapEl = $("map"), mapBtn = $("map-btn");
+  let mapOn = false, mapDrawn = "";
+  function mapFrame() {
+    const r = layout.room, pad = 8, w = mapEl.width, h = mapEl.height;
+    const sx = (w - 2 * pad) / (2 * r.halfWidth), sz = (h - 2 * pad) / (r.near - r.far), k = Math.min(sx, sz);
+    const ox = w / 2, oz = pad + (h - 2 * pad - (r.near - r.far) * k) / 2;
+    // North up is the back wall: z = far at the top, the door at the bottom.
+    return {k, toMap: (x, z) => [ox + x * k, oz + (z - r.far) * k], toWorld: (mx, my) => [(mx - ox) / k, r.far + (my - oz) / k]};
+  }
+  function showMap(on, remember) {
+    mapOn = !!on;
+    mapEl.hidden = !mapOn;
+    mapBtn.setAttribute("aria-expanded", String(mapOn));
+    if (remember) StrataKit.store.set(MAP_KEY, mapOn ? "1" : "0");
+    mapDrawn = "";
+  }
+  mapBtn.addEventListener("click", () => { showMap(!mapOn, true); canvas.focus({preventScroll: true}); });
+  window.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "m" && !e.repeat && !typing(e) && !e.ctrlKey && !e.metaKey && !e.altKey
+      && !(tr && tr.state !== "idle")) showMap(!mapOn, true);
+  });
+  function drawMap() {
+    if (!mapOn || !me || !layout) return;
+    const key = `${me.x.toFixed(2)},${me.z.toFixed(2)},${kit.cam.yaw.toFixed(2)},${near ? near.slug : ""}`;
+    if (key === mapDrawn) return;
+    mapDrawn = key;
+    const ctx = mapEl.getContext("2d"), r = layout.room, f = mapFrame(), w = mapEl.width, h = mapEl.height;
+    ctx.clearRect(0, 0, w, h);
+    const [x0, y0] = f.toMap(-r.halfWidth, r.far), [x1, y1] = f.toMap(r.halfWidth, r.near);
+    ctx.fillStyle = "rgba(66, 69, 133, .55)"; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + .5, y0 + .5, x1 - x0 - 1, y1 - y0 - 1);
+    // The door, the stage and the counter.
+    const [d0] = f.toMap(r.door[0], r.near), [d1] = f.toMap(r.door[1], r.near);
+    ctx.fillStyle = "#f5d79c"; ctx.fillRect(d0, y1 - 3, d1 - d0, 3);
+    for (const o of r.obstacles) {
+      const [a, b] = f.toMap(o[0], Math.max(o[1], r.far)), [c, d] = f.toMap(o[2], o[3]);
+      ctx.fillStyle = "rgba(160, 70, 60, .8)"; ctx.fillRect(a, b, c - a, d - b);
+    }
+    const fp = layout.cabinet.footprint;
+    for (const c of layout.cabinets) {
+      const fr = c.fr, pts = [[fp[0], fp[1]], [fp[2], fp[1]], [fp[2], fp[3]], [fp[0], fp[3]]].map(([lx, lz]) => {
+        const p = fr.p(lx, 0, lz); return f.toMap(p[0], p[2]);
+      });
+      ctx.beginPath(); pts.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); ctx.closePath();
+      ctx.fillStyle = `rgb(${rgb255(c.colour)})`; ctx.fill();
+      if (c === near) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+    }
+    // You: a dot and the way you look.
+    const [mx, my] = f.toMap(me.x, me.z), yaw = kit.cam.yaw, lx = -Math.cos(yaw), lz = -Math.sin(yaw);
+    ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.moveTo(mx, my);
+    for (const a of [-0.5, 0.5]) {
+      const ca = Math.cos(a), sa = Math.sin(a);
+      ctx.lineTo(mx + (lx * ca - lz * sa) * 22, my + (lx * sa + lz * ca) * 22);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(mx, my, 4, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = "#120c26"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  // A click or tap on the map: the nearest cabinet to it, or that spot of floor.
+  mapEl.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!layout || (tr && tr.state !== "idle")) return;
+    const rect = mapEl.getBoundingClientRect(), f = mapFrame();
+    const [x, z] = f.toWorld((e.clientX - rect.left) * mapEl.width / rect.width, (e.clientY - rect.top) * mapEl.height / rect.height);
+    let best = null, bestD = 0.9;
+    for (const c of layout.cabinets) { const d = Math.hypot(c.x - x, c.z - z); if (d < bestD) { bestD = d; best = c; } }
+    keys.clear();
+    if (best) target = W.front(best, standOff());
+    else { const p = W.settle(x, z, world); target = {x: p.x, z: p.z}; }
+    state.mapTarget = best ? best.slug : "floor";
+  });
+
   function after() {
+    drawMap();
     let html = "", cls = "";
     if (near && !(tr && tr.state !== "idle")) {
       if (!near.deployed) { html = `${esc(near.title)}<span class="t">Coming soon</span>`; cls = "soon"; }
@@ -712,6 +790,7 @@
     if (c === cardFor) return;
     cardFor = c;
     const card = $("card");
+    document.body.classList.toggle("at-cabinet", !!c);
     if (!c) { card.classList.remove("on"); return; }
     $("card-org").textContent = c.org || c.repo.split("/")[0];
     $("card-title").textContent = c.title;
@@ -850,6 +929,8 @@
     }
     canvas.focus({preventScroll: true});
     queuePosters();
+    const savedMap = StrataKit.store.get(MAP_KEY);
+    showMap(savedMap != null ? savedMap === "1" : !touchSeen, false);
     refreshPlays();
     setInterval(() => { if (!document.hidden) refreshPlays(); }, 60000);
     savePlace();
@@ -863,6 +944,7 @@
     get move() { return tr ? tr.state : null; },
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
+    get map() { return {on: mapOn, target: state.mapTarget || null}; },
     economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },
