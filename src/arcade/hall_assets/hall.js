@@ -26,6 +26,9 @@
   const POS_KEY = "arcade-hall.pos";
   const TEX_MIPS = 1, TEX_CLAMP = 2 | 4;
   const SCREEN_TEX = [512, 288], MARQUEE_TEX = [512, 112];
+  const BOB_KEY = "arcade-hall.bob";
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let bobOn = (params.get("bob") || StrataKit.store.get(BOB_KEY)) === "1";
 
   const session = {
     get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
@@ -321,7 +324,6 @@
   /* The move into a game and back out (hall-play.js): the camera eases to
      square-on at the cabinet's screen while the game loads hidden behind it,
      the game crossfades in once it has painted, and Back reverses it. */
-  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const SETTLE_MS = 450;  // after the frame's load event, for the game's first paint
   let tr = null, clock = 0, frameToken = 0, standAt = null;
   // The machine's clock: the frame's time when frames are driven by a tool
@@ -344,6 +346,8 @@
     state.lastPlay = {slug: c.slug, how};
     playing = c;
     keys.clear(); stickIn = {forward: 0, right: 0, run: false}; target = null;
+    if (me) { me.vx = 0; me.vz = 0; me.speed = 0; }
+    facing = null;
     if (document.pointerLockElement) document.exitPointerLock();
     dressPlayer(c);
     standAt = standPose();
@@ -450,7 +454,7 @@
   /* ----------------------------------------------------------- input */
   const keys = new Set();
   let stickIn = {forward: 0, right: 0, run: false}, stickPointer = null, touchSeen = touchFirst;
-  const typing = (e) => e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  const typing = (e) => e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.target.type !== "checkbox";
   const MOVE = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift"]);
   window.addEventListener("keydown", (e) => {
     if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -514,9 +518,18 @@
   const helpBtn = $("help-btn");
   function showHelp(on) { $("help").hidden = !on; helpBtn.setAttribute("aria-expanded", String(on)); }
   helpBtn.addEventListener("click", () => showHelp($("help").hidden));
+  const bobBox = $("bob");
+  bobBox.checked = bobOn;
+  bobBox.addEventListener("change", () => { bobOn = bobBox.checked; StrataKit.store.set(BOB_KEY, bobOn ? "1" : "0");
+    canvas.focus({preventScroll: true});
+  });
 
   /* ---------------------------------------------- the frame, each tick */
   let lastNow = 0, lastSave = 0, lastPrompt = "";
+  // Feel: the gentle turn towards a cabinet the visitor walks up to (cancelled
+  // by any look of their own), and head bob, off unless asked for.
+  let lastYaw = null, lastPitch = null, lastNear = null, facing = null, bobPhase = 0;
+
   // How far in front of a cabinet to stop: further on a tall, narrow
   // (portrait phone) view, so the whole cabinet stays in sight.
   function standOff() { return canvas.clientWidth < canvas.clientHeight ? 1.9 : 1.15; }
@@ -536,6 +549,8 @@
         return;
       }
     }
+    // The visitor looked (drag, mouse look) since the last frame.
+    const looked = lastYaw !== null && (kit.cam.yaw !== lastYaw || kit.cam.pitch !== lastPitch);
     me.yaw = kit.cam.yaw; me.pitch = kit.cam.pitch;
     const has = (k) => (keys.has(k) ? 1 : 0);
     let input = {
@@ -567,13 +582,33 @@
         input = null;
       }
     }
+    const turning = !!(input && input.turn);
     if (input) me = W.step(me, input, dt, world);
-    kit.cam.yaw = me.yaw;
-    kit.cam.tx = me.x; kit.cam.ty = W.EYE; kit.cam.tz = me.z;
     near = W.near(me, layout);
+    if (near !== lastNear) {
+      // Walked up to a new cabinet (not tapped there: that walk faces it already).
+      facing = near && !target && me.speed > 0.4 && !reducedMotion ? near : null;
+      lastNear = near;
+    }
+    if (looked || turning) facing = null;
+    if (facing) {
+      const want = W.faceYaw(me, facing);
+      me.yaw = W.turnTowards(me.yaw, want, 2.6, dt);
+      if (Math.abs(Math.atan2(Math.sin(want - me.yaw), Math.cos(want - me.yaw))) < 0.01) facing = null;
+    }
+    let eye = W.EYE;
+    if (bobOn && !reducedMotion && me.speed > 0.05) {
+      bobPhase += dt * 2 * Math.PI * (1.5 + 0.25 * me.speed);
+      eye += W.bob(bobPhase, me.speed);
+    }
+    kit.cam.yaw = me.yaw;
+    kit.cam.tx = me.x; kit.cam.ty = eye; kit.cam.tz = me.z;
+    lastYaw = kit.cam.yaw; lastPitch = kit.cam.pitch;
     if (now - lastSave > 500) { lastSave = now; savePlace(); }
     if (posterQueue.length && posterBusy < 2) pumpPosters();
     state.walking = !!target;
+    state.facing = facing ? facing.slug : null;
+    state.speed = me.speed || 0;
     state.frames++;
   }
   function after() {
@@ -674,7 +709,13 @@
     skip() { if (tr) tr.skip(nowMs()); },
     get layout() { return layout; },
     get kit() { return kit; },
-    place(x, z, yaw, pitch) { me = Object.assign({}, me, W.resolve(x, z, world)); if (yaw != null) kit.cam.yaw = me.yaw = yaw; if (pitch != null) kit.cam.pitch = pitch; },
+    place(x, z, yaw, pitch) {
+      me = Object.assign({}, me, W.resolve(x, z, world), {vx: 0, vz: 0, speed: 0});
+      if (yaw != null) kit.cam.yaw = me.yaw = yaw;
+      if (pitch != null) kit.cam.pitch = pitch;
+      lastYaw = kit.cam.yaw; lastPitch = kit.cam.pitch; lastNear = W.near(me, layout); facing = null;
+    },
+    get bob() { return bobOn; },
     walkTo(slug) { const c = layout.cabinets.find((k) => k.slug === slug); if (c) target = W.front(c, standOff()); return !!c; },
     play(slug) { play(layout.cabinets.find((k) => k.slug === slug)); },
     back: closeFrame,
