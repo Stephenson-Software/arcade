@@ -7,6 +7,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- The landing page links each deployed game to its cabinet in the hall ("Visit its cabinet in the hall",
+  `/hall/?at=<slug>`), under the link to the game itself.
+
 - Link previews for the hall: `/hall/` names a 1200x630 card (`og:image`, `twitter:image`) of the arcade
   floor seen from the door, and `/hall/?at=<slug>` names that game's own card (its cabinet, poster on the
   screen) with its title and blurb. The cards are rendered with Strata by `tools/make_hall_cards.py` from

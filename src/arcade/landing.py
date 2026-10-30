@@ -14,6 +14,7 @@ would only answer 404.
 
 import html
 import os
+from urllib.parse import quote
 
 CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
 
@@ -78,6 +79,8 @@ li { background: var(--card); border: 1px solid var(--line); border-radius: .6re
 li a, li span.soon { display: block; padding: .8rem 1rem; color: inherit; text-decoration: none;
   overflow-wrap: anywhere; }
 li a:hover .title { text-decoration: underline; }
+li a.cab { padding: 0 1rem .75rem; margin-top: -.4rem; font-size: .85rem; color: var(--accent); }
+li a.cab:hover { text-decoration: underline; }
 .title { display: block; font-weight: 600; color: var(--accent); }
 .host { display: block; font-size: .85rem; color: var(--muted); }
 span.soon .title { color: var(--fg); }
@@ -88,6 +91,11 @@ footer a { color: inherit; }
 
 def gameUrl(game, domain):
     return "https://%s.%s/" % (game.slug, domain)
+
+
+def cabinetUrl(game):
+    """The game's cabinet in the walkable hall, on this host: the hall opens in front of it."""
+    return "/hall/?at=%s" % quote(game.slug)
 
 
 def render(registry, domain, portalUrl, deployed=lambda slug: True):
@@ -101,8 +109,9 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True):
         host = escape("%s.%s" % (game.slug, domain))
         if deployed(game.slug):
             items.append(
-                '<li><a href="%s"><span class="title">%s</span><span class="host">%s</span></a></li>'
-                % (escape(gameUrl(game, domain)), title, host)
+                '<li><a href="%s"><span class="title">%s</span><span class="host">%s</span></a>'
+                '<a class="cab" href="%s">Visit its cabinet in the hall &rarr;</a></li>'
+                % (escape(gameUrl(game, domain)), title, host, escape(cabinetUrl(game)))
             )
         else:
             items.append(
