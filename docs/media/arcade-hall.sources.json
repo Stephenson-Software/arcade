@@ -1,6 +1,6 @@
 {
   "registry": "https://play.danielstephenson.dev/api/games",
-  "read_at": "2026-10-30T01:11:02Z",
+  "read_at": "2026-10-30T03:51:45Z",
   "strata": "0.7.0",
   "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
   "cabinets": [
@@ -8,113 +8,113 @@
       "slug": "roam",
       "title": "Roam",
       "repo": "Preponderous-Software/roam",
-      "plays": 224,
+      "plays": 226,
       "screen": "https://danielstephenson.dev/trailers/roam.jpg"
     },
     {
       "slug": "env-lib-cpp",
       "title": "env-lib-cpp",
       "repo": "Preponderous-Software/env-lib-cpp",
-      "plays": 377,
+      "plays": 387,
       "screen": "https://danielstephenson.dev/trailers/env-lib-cpp.jpg"
     },
     {
       "slug": "tidewater",
       "title": "Tidewater",
       "repo": "Stephenson-Software/Tidewater",
-      "plays": 289,
+      "plays": 297,
       "screen": "https://danielstephenson.dev/trailers/tidewater.jpg"
     },
     {
       "slug": "fishe",
       "title": "FishE",
       "repo": "Stephenson-Software/FishE",
-      "plays": 262,
+      "plays": 263,
       "screen": "https://danielstephenson.dev/trailers/fishe.jpg"
     },
     {
       "slug": "beyond-nations",
       "title": "Beyond Nations",
       "repo": "Preponderous-Software/beyond-nations",
-      "plays": 231,
+      "plays": 234,
       "screen": "https://danielstephenson.dev/trailers/beyond-nations.jpg"
     },
     {
       "slug": "apex",
       "title": "Apex",
       "repo": "Preponderous-Software/apex",
-      "plays": 222,
+      "plays": 223,
       "screen": "https://danielstephenson.dev/trailers/apex.jpg"
     },
     {
       "slug": "overwinter",
       "title": "Overwinter",
       "repo": "Stephenson-Software/Overwinter",
-      "plays": 204,
+      "plays": 205,
       "screen": "https://danielstephenson.dev/trailers/overwinter.jpg"
     },
     {
       "slug": "orrery",
       "title": "Orrery",
       "repo": "Preponderous-Software/orrery",
-      "plays": 186,
+      "plays": 187,
       "screen": "https://danielstephenson.dev/trailers/orrery.jpg"
     },
     {
       "slug": "frog-hopper",
       "title": "Frog Hopper",
       "repo": "Stephenson-Software/Frog-Hopper-2D",
-      "plays": 158,
+      "plays": 160,
       "screen": "https://danielstephenson.dev/trailers/frog-hopper-2d.jpg"
     },
     {
       "slug": "atman",
       "title": "Atman",
       "repo": "Preponderous-Software/atman",
-      "plays": 154,
+      "plays": 157,
       "screen": "https://danielstephenson.dev/trailers/atman.jpg"
     },
     {
       "slug": "kindling",
       "title": "Kindling",
       "repo": "Preponderous-Software/kindling",
-      "plays": 149,
+      "plays": 151,
       "screen": "https://danielstephenson.dev/trailers/kindling.jpg"
     },
     {
       "slug": "ophidian",
       "title": "Ophidian",
       "repo": "Preponderous-Software/ophidian",
-      "plays": 149,
+      "plays": 150,
       "screen": "https://danielstephenson.dev/trailers/ophidian.jpg"
     },
     {
       "slug": "cave",
       "title": "Cave",
       "repo": "Stephenson-Software/Cave-Console-Game",
-      "plays": 146,
+      "plays": 149,
       "screen": "https://danielstephenson.dev/trailers/cave-console-game.jpg"
     },
     {
       "slug": "night-ferry",
       "title": "Night Ferry",
       "repo": "Stephenson-Software/Night-Ferry",
-      "plays": 137,
+      "plays": 140,
       "screen": "https://danielstephenson.dev/trailers/night-ferry.jpg"
-    },
-    {
-      "slug": "steading",
-      "title": "steading",
-      "repo": "Preponderous-Software/steading",
-      "plays": 130,
-      "screen": "https://danielstephenson.dev/trailers/steading.jpg"
     },
     {
       "slug": "dice",
       "title": "Simple Dice Throw",
       "repo": "Stephenson-Software/simpleDiceThrow",
-      "plays": 129,
+      "plays": 131,
       "screen": "https://danielstephenson.dev/trailers/simple-dice-throw.jpg"
+    },
+    {
+      "slug": "steading",
+      "title": "steading",
+      "repo": "Preponderous-Software/steading",
+      "plays": 131,
+      "screen": "https://danielstephenson.dev/trailers/steading.jpg"
     },
     {
       "slug": "microbiome",
@@ -127,77 +127,77 @@
       "slug": "rock-paper-scissors",
       "title": "Rock Paper Scissors",
       "repo": "Stephenson-Software/Rock-Paper-Scissors-2D",
-      "plays": 125,
+      "plays": 127,
       "screen": "https://danielstephenson.dev/trailers/rock-paper-scissors-2d.jpg"
     },
     {
       "slug": "replay-player",
       "title": "replay-player",
       "repo": "Preponderous-Software/replay-player",
-      "plays": 121,
+      "plays": 123,
       "screen": "https://danielstephenson.dev/trailers/replay-player.jpg"
     },
     {
       "slug": "tic-tac-toe-sdl",
       "title": "Tic Tac Toe (SDL)",
       "repo": "Stephenson-Software/Tic-Tac-Toe-Using-SDL",
-      "plays": 119,
+      "plays": 123,
       "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-using-sdl.jpg"
     },
     {
       "slug": "guess-my-word",
       "title": "Guess My Word",
       "repo": "Stephenson-Software/Guess-My-Word",
-      "plays": 118,
+      "plays": 120,
       "screen": "https://danielstephenson.dev/trailers/guess-my-word.jpg"
+    },
+    {
+      "slug": "sisyphus",
+      "title": "Sisyphus",
+      "repo": "Preponderous-Software/sisyphus",
+      "plays": 118,
+      "screen": "https://danielstephenson.dev/trailers/sisyphus.jpg"
     },
     {
       "slug": "sdl-sketches",
       "title": "SDL Sketches",
       "repo": "dmccoystephenson/sdl-sketches",
-      "plays": 113,
+      "plays": 115,
       "screen": "https://danielstephenson.dev/trailers/sdl-sketches.jpg"
     },
     {
       "slug": "asn1-viz",
       "title": "asn1-viz",
       "repo": "Preponderous-Software/asn1-viz",
-      "plays": 111,
+      "plays": 112,
       "screen": "https://danielstephenson.dev/trailers/asn1-viz.jpg"
     },
     {
       "slug": "interakt",
       "title": "Interakt",
       "repo": "Stephenson-Software/Interakt",
-      "plays": 111,
+      "plays": 112,
       "screen": "https://danielstephenson.dev/trailers/interakt.jpg"
-    },
-    {
-      "slug": "sisyphus",
-      "title": "Sisyphus",
-      "repo": "Preponderous-Software/sisyphus",
-      "plays": 111,
-      "screen": "https://danielstephenson.dev/trailers/sisyphus.jpg"
     },
     {
       "slug": "tic-tac-toe-java",
       "title": "Tic Tac Toe (Java)",
       "repo": "Stephenson-Software/Tic-Tac-Toe-Console-Game",
-      "plays": 108,
+      "plays": 112,
       "screen": "https://danielstephenson.dev/trailers/tic-tac-toe-console-game.jpg"
     },
     {
       "slug": "kreatures",
       "title": "Kreatures",
       "repo": "Stephenson-Software/Kreatures",
-      "plays": 107,
+      "plays": 109,
       "screen": "https://danielstephenson.dev/trailers/kreatures.jpg"
     },
     {
       "slug": "familiar",
       "title": "Familiar",
       "repo": "Preponderous-Software/familiar",
-      "plays": 96,
+      "plays": 104,
       "screen": "title card"
     },
     {
@@ -211,7 +211,7 @@
       "slug": "viron-strata",
       "title": "viron-strata",
       "repo": "Preponderous-Software/viron-strata",
-      "plays": 87,
+      "plays": 89,
       "screen": "https://raw.githubusercontent.com/Preponderous-Software/viron-strata/HEAD/docs/media/web-public.png"
     },
     {
@@ -220,6 +220,27 @@
       "repo": "Stephenson-Software/Tic-Tak-Toe",
       "plays": 73,
       "screen": "https://danielstephenson.dev/trailers/tic-tak-toe.jpg"
+    },
+    {
+      "slug": "mimicking-animation",
+      "title": "Mimicking Animation",
+      "repo": "dmccoystephenson/mimickingAnimation",
+      "plays": 0,
+      "screen": "title card"
+    },
+    {
+      "slug": "simplefight",
+      "title": "SimpleFight",
+      "repo": "dmccoystephenson/SimpleFight",
+      "plays": 0,
+      "screen": "title card"
+    },
+    {
+      "slug": "slow-printer",
+      "title": "Slow Printer",
+      "repo": "dmccoystephenson/slow-printer",
+      "plays": 0,
+      "screen": "title card"
     }
   ]
 }

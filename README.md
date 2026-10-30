@@ -1,6 +1,6 @@
 # arcade
 
-[![A bright 3D arcade floor seen from a corner by the door: islands of back-to-back cabinets on a confetti carpet under lit ceiling panels, one cabinet per game on play.danielstephenson.dev, with a change and prize counter by the entrance. Each screen shows that game's own picture and each marquee its title; side panels are violet, teal or orange by GitHub organisation. Roam stands alone on a raised stage at the back wall under a FEATURED sign. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
+[![A bright 3D arcade floor seen from a corner by the door: islands of back-to-back cabinets on a confetti carpet under lit ceiling panels, one cabinet per game on play.danielstephenson.dev, with a change and prize counter by the entrance. Each screen shows that game's own picture and each marquee its title; each cabinet has a sloped control deck, a coin door with glowing coin slots, a speaker grille, side art made from its poster and a T-molding edge in violet, teal or orange by GitHub organisation. Roam stands alone on a raised stage at the back wall under a FEATURED sign. Rendered with Strata 0.7.0.](docs/media/arcade-hall.png)](docs/media/arcade-hall.gif)
 
 *Every game arcade serves, as a cabinet in one hall: the screen is the game's own poster image (Familiar, with no poster yet, gets a title card) and the marquee its title, the islands nearest the door have the most plays, and Roam has the stage at the back. Drawn with [Strata](https://github.com/Preponderous-Software/strata) 0.7.0 by [`tools/make_hall_media.py`](tools/make_hall_media.py) from the public registry; click for a walk from the door towards the stage. [`arcade-hall.sources.json`](docs/media/arcade-hall.sources.json) lists which image is on which screen.*
 
@@ -177,6 +177,14 @@ the portal keep their lists, and link here with "Walk the hall".
   visitor's place is kept in the URL hash (`#p=x,z,yaw,pitch`) and in `sessionStorage`, and
   `/hall/?at=<slug>` starts in front of a cabinet. Turning framing on needs each game's
   `frame-ancestors` (the gateway's `game-headers`) to name `https://play.<base>` as well as the portal.
+- **Cabinets.** `src/arcade/hall_model.py` builds one cabinet model, shared by the page and the
+  picture: side panels with the classic profile and bevelled edges, edged with a T-molding strip in the
+  organisation's colour; a sloped control deck with a joystick and buttons; a coin door whose two coin
+  slots glow; a bevelled bezel; a speaker grille; the marquee box. The side panels carry side art,
+  `posters/<slug>.side.jpg`, which `tools/make_hall_posters.py` makes from the game's poster (a tall crop
+  of it fading into stripes of its dominant colours; `--sides` remakes them offline). Beyond about 8 m
+  (less in economy) a cabinet is drawn as a few-faced stand-in: `hall3d/main.cpp` swaps the two as the
+  visitor walks, so only the nearest cabinets cost their detail.
 - **Screens.** Each screen starts as a title card and gets its poster when it loads, nearest first.
   Posters are `src/arcade/hall_assets/posters/<slug>.jpg` (512x288), served same-origin because
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
@@ -201,7 +209,8 @@ the portal keep their lists, and link here with "Walk the hall".
   The lines are the public repositories' descriptions, kept in `src/arcade/hall_assets/blurbs.json` by
   `tools/make_hall_blurbs.py` (unauthenticated GitHub API, so only public repositories are read).
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
-  (24, 12, 6 point lights; the nearest cabinets keep theirs). `?quality=0..2` pins a tier, `?fps=1`
+  (24, 12, 6 point lights; the nearest cabinets keep theirs). The room's carpet, walls and ceiling are
+  drawn after the cabinets, so a software renderer never shades the floor a cabinet hides. `?quality=0..2` pins a tier, `?fps=1`
   shows frame time and counts.
 
 The page is `src/arcade/hall_assets/` (HTML, CSS and the page scripts; `hall-walk.js` holds the walking

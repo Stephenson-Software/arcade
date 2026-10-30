@@ -15,6 +15,20 @@
 // its yaw and pitch (looking along -(cos p cos y, sin p, cos p sin y), the
 // direction the kit's orbit eye looks); the build hook replaces the kit's
 // camera and lighting before the frame is drawn.
+//
+// Levels of detail: the page pairs a cabinet's detailed model with a simple
+// stand-in, a centre and a distance (hall_set_lods). Each frame the build
+// hook keeps one of the pair in the engine: the detail within the distance of
+// the eye, the stand-in beyond it, with a little hysteresis so a cabinet does
+// not flicker at the edge. The other stays here, ready to add back.
+//
+// Draw order: the engine draws meshes in the order they were added, and a
+// software renderer (llvmpipe, SwiftShader) pays for every pixel shaded, so
+// the room's big surfaces (meshes the page flags HALL_MESH_LATE: the carpet,
+// walls and ceiling) are kept after the cabinets. Then the pixels of floor
+// and wall a cabinet hides fail the depth test before they are shaded. A
+// detailed model added when the visitor nears is followed by the late meshes
+// added again.
 #define STRATA_KIT_MAIN
 #include "strata_kit.h"
 
@@ -38,6 +52,16 @@ struct Mesh {
     uint32_t flags = 0;
     uint32_t id = 0;
     bool added = false;
+    bool hidden = false;  // the unused half of a level-of-detail pair: kept here, not in the engine
+    bool late = false;    // drawn after the others (HALL_MESH_LATE)
+};
+
+constexpr uint32_t kHallMeshLate = 0x10000u;  // the page's flag, not Strata's
+
+struct Lod {
+    int nearSlot, farSlot;  // farSlot -1: nothing is drawn beyond the distance
+    float x, z, distance;
+    bool near;
 };
 
 std::map<int, Texture> textures;
@@ -45,6 +69,8 @@ std::map<int, Mesh> meshes;
 std::vector<StrataRenderItem> items;
 std::vector<StrataPoint> glow;
 std::vector<StrataPointLight> lights;
+std::vector<Lod> lods;
+constexpr float kLodHysteresis = 0.5f;  // metres either side of a mesh's distance
 float ambient = 0.32f;
 float fovDegrees = 62.0f;
 // Set by the page before the engine starts (hall_configure): a software
@@ -64,6 +90,7 @@ uint32_t uploadTexture(strata_kit::Host& h, Texture& t) {
 void uploadMesh(strata_kit::Host& h, Mesh& m) {
     if (m.added) strata_remove_mesh(h.engine, m.id);
     m.added = false;
+    if (m.hidden || m.positions.empty()) return;
     StrataTexturedMesh tm{};
     tm.mesh.positions = m.positions.data();
     tm.mesh.normals = m.normals.empty() ? nullptr : m.normals.data();
@@ -81,6 +108,12 @@ void uploadMesh(strata_kit::Host& h, Mesh& m) {
         return;
     }
     m.added = true;
+}
+
+// Adds the late meshes again, so they come after everything added since.
+void requeueLate(strata_kit::Host& h) {
+    for (auto& kv : meshes)
+        if (kv.second.late && kv.second.added) uploadMesh(h, kv.second);
 }
 
 void countMeshes(strata_kit::Host& h) {
@@ -106,11 +139,46 @@ void strata_kit_configure(strata_kit::Options& o) {
 
 void strata_kit_engine_ready(strata_kit::Host& h) {
     for (auto& kv : textures) kv.second.id = uploadTexture(h, kv.second);
-    for (auto& kv : meshes) {
-        kv.second.added = false;
-        uploadMesh(h, kv.second);
-    }
+    for (int late = 0; late < 2; ++late)
+        for (auto& kv : meshes) {
+            if (kv.second.late != (late == 1)) continue;
+            kv.second.added = false;
+            uploadMesh(h, kv.second);
+        }
     countMeshes(h);
+}
+
+// Returns whether it added a mesh.
+bool showLod(strata_kit::Host* h, Lod& l, bool near) {
+    bool added = false;
+    l.near = near;
+    const int slots[2] = {l.nearSlot, l.farSlot};
+    for (int k = 0; k < 2; ++k) {
+        if (slots[k] < 0) continue;
+        Mesh& m = meshes[slots[k]];
+        m.hidden = (k == 0) != near;
+        if (h) uploadMesh(*h, m);  // adds it, or removes it
+        added = added || (h && m.added);
+    }
+    return added;
+}
+
+// Swaps the pairs whose side of their distance the eye has crossed.
+void updateLods(strata_kit::Host& h) {
+    bool changed = false, added = false;
+    for (Lod& l : lods) {
+        const float dx = l.x - h.eye[0], dz = l.z - h.eye[2];
+        const float d = std::sqrt(dx * dx + dz * dz);
+        if (!l.near && d < l.distance - kLodHysteresis) {
+            added = showLod(&h, l, true) || added;
+            changed = true;
+        } else if (l.near && d > l.distance + kLodHysteresis) {
+            added = showLod(&h, l, false) || added;
+            changed = true;
+        }
+    }
+    if (added) requeueLate(h);
+    if (changed) countMeshes(h);
 }
 
 void strata_kit_build(strata_kit::Host& h, double) {
@@ -118,6 +186,7 @@ void strata_kit_build(strata_kit::Host& h, double) {
     const float cp = std::cos(h.pitch);
     const float dir[3] = {-cp * std::cos(h.yaw), -std::sin(h.pitch), -cp * std::sin(h.yaw)};
     for (int i = 0; i < 3; ++i) h.eye[i] = h.target[i];
+    updateLods(h);
     const float look[3] = {h.eye[0] + dir[0], h.eye[1] + dir[1], h.eye[2] + dir[2]};
     const float up[3] = {0.0f, 1.0f, 0.0f};
     StrataCamera camera{};
@@ -177,7 +246,8 @@ STRATA_KIT_EXPORT int hall_mesh(int slot, const float* positions, const float* n
     if (uvs) m.uvs.assign(uvs, uvs + nv * 2); else m.uvs.clear();
     m.indices.assign(indices, indices + ni);
     m.texture = textureSlot;
-    m.flags = static_cast<uint32_t>(flags);
+    m.late = (static_cast<uint32_t>(flags) & kHallMeshLate) != 0;
+    m.flags = static_cast<uint32_t>(flags) & ~kHallMeshLate;
     if (!host.engine) return 0;
     uploadMesh(host, m);
     countMeshes(host);
@@ -230,6 +300,33 @@ STRATA_KIT_EXPORT void hall_set_lights(const float* rows, int n) {
         l.intensity = r[7];
         lights.push_back(l);
     }
+}
+
+// rows of 5: detailed mesh slot, stand-in mesh slot (-1: none), x, z,
+// distance. Until the next frame decides, every pair shows its stand-in, so
+// a far cabinet's detail is never uploaded at all. An empty list shows every
+// mesh again.
+STRATA_KIT_EXPORT void hall_set_lods(const float* rows, int n) {
+    strata_kit::Host& host = strata_kit::host();
+    strata_kit::Host* h = host.engine ? &host : nullptr;
+    for (Lod& l : lods) {
+        for (int slot : {l.nearSlot, l.farSlot}) {
+            auto it = meshes.find(slot);
+            if (it == meshes.end() || !it->second.hidden) continue;
+            it->second.hidden = false;
+            if (h) uploadMesh(*h, it->second);
+        }
+    }
+    lods.clear();
+    bool added = false;
+    for (int i = 0; i < n; ++i) {
+        const float* r = rows + i * 5;
+        Lod l{static_cast<int>(r[0]), static_cast<int>(r[1]), r[2], r[3], r[4], false};
+        added = showLod(h, l, false) || added;
+        lods.push_back(l);
+    }
+    if (added) requeueLate(host);
+    if (h) countMeshes(host);
 }
 
 STRATA_KIT_EXPORT void hall_set_view(float ambientLevel, float fov) {

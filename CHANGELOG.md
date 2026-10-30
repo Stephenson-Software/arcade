@@ -56,6 +56,13 @@ All notable changes to this project are documented in this file. The format is b
   version it reports. It is answered on the API host only, never on a game's host, so it cannot
   shadow a static game's own `/version.json`.
 
+- The hall's cabinets are real arcade cabinets (`src/arcade/hall_model.py`, shared by the page and the
+  README picture): bevelled side panels with a T-molding edge in the organisation's colour, a sloped
+  control deck, a coin door with glowing coin slots, a bevelled bezel and a speaker grille. Each side
+  panel carries side art made from the game's poster (`posters/<slug>.side.jpg`, by
+  `tools/make_hall_posters.py`). Cabinets further than about 8 m are drawn as simple stand-ins, swapped
+  by the engine (`hall_set_lods`), so the economy tier keeps 60 fps on a software renderer.
+
 ### Changed
 
 - Files are streamed in 64 KiB chunks instead of being read whole into memory for each response.
