@@ -377,3 +377,22 @@ def test_the_walking_maths_hold_for_the_live_sized_hall(tmp_path):
         timeout=120,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_the_move_into_a_game_and_back():
+    """tests/browser/hall_play_test.cjs (plain node): the state machine that
+    eases the camera to a cabinet's screen, crossfades the game in once it
+    has painted, and reverses on Back."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_play_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr

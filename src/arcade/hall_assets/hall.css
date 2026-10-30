@@ -42,6 +42,19 @@ body.touch #prompt { left: auto; right: max(16px, env(safe-area-inset-right)); t
   bottom: max(48px, env(safe-area-inset-bottom)); max-width: calc(100vw - 190px); white-space: normal; }
 #player { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: #000; }
 #player[hidden] { display: none; }
+/* The game's overlay: the cabinet's poster over a dark tone (set per game),
+   faded in by hall.js once the game has painted; never a blank flash. */
+#player { background: #0d0a1a center / cover no-repeat; }
+#player.loading { pointer-events: none; }
+#player.loading #player-frame, #player.loading #player-bar { visibility: visible; }
+#player-frame { background: transparent; }
+#fade { position: fixed; inset: 0; z-index: 20; background: #0d0a1a; opacity: 0; pointer-events: none; }
+#fade.leaving { transition: opacity .24s ease-in; }
+@media (prefers-reduced-motion: reduce) { #fade.leaving { transition-duration: .1s; } }
+body.moving #prompt, body.moving #stick, body.moving #help { visibility: hidden; }
+#bar { transition: opacity .25s ease; }
+body.moving #bar { opacity: 0; pointer-events: none; }
+body.moving #bar > * { pointer-events: none; }
 #player-bar { display: flex; align-items: center; gap: 8px; min-height: 52px; background: #0d0a1a;
   padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--line); }
