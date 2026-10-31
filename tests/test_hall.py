@@ -640,6 +640,29 @@ def test_the_walking_maths_hold_for_the_live_sized_hall(tmp_path):
     assert run.returncode == 0, run.stdout + run.stderr
 
 
+def test_ghosts_of_recent_visitors_walk_round_the_cabinets(tmp_path):
+    """tests/browser/hall_ghosts_test.cjs (plain node) against a 31-cabinet
+    hall: ghost counts from activity levels, the caps, routes that never
+    cross a cabinet, the seeded crowd, and reduce motion."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=i) for i in range(30)]
+    games.append(entry("roam", "Preponderous-Software/roam", 1, isolation=True))
+    path = tmp_path / "layout.json"
+    path.write_text(json.dumps(hall.layout(games)))
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_ghosts_test.cjs"), str(path)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
 def test_the_move_into_a_game_and_back():
     """tests/browser/hall_play_test.cjs (plain node): the state machine that
     eases the camera to a cabinet's screen, crossfades the game in once it
@@ -700,7 +723,7 @@ def test_the_settings_panel_has_every_setting_and_keeps_them():
         page = f.read()
     with open(os.path.join(hall.ASSETS, "hall.js")) as f:
         js = f.read()
-    for el in ("set-sens", "set-invert", "set-fov", "bob", "set-reduce", "set-hum", "settings-btn"):
+    for el in ("set-sens", "set-invert", "set-fov", "bob", "set-reduce", "set-hum", "set-ghosts", "settings-btn"):
         assert 'id="%s"' % el in page, el
     # Head bob is off unless asked for: its box is never checked in the page.
     assert re.search(r'<input id="bob"[^>]*checked', page) is None
@@ -736,7 +759,7 @@ def test_the_hall_page_loads_its_scripts_in_order():
     with open(os.path.join(hall.ASSETS, "index.html")) as f:
         page = f.read()
     order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall-controls.js", "hall.js"]
-    order += ["hall-share.js", "hall-social.js"]
+    order += ["hall-share.js", "hall-social.js", "hall-ghosts.js"]
     at = [page.index('src="%s"' % name) for name in order]
     assert at == sorted(at)
     assert 'id="sound"' in page and 'aria-pressed="false"' in page

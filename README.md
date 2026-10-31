@@ -258,6 +258,16 @@ the portal keep their lists, and link here with "Walk the hall".
   becomes a heart button (and <kbd>L</kbd> likes): signed in it likes or unlikes the game, signed out it
   goes to the service's sign-in page and comes back to the same cabinet. Until then, or when the service
   is down, the card shows the count alone, or nothing.
+- **Ghosts of recent visitors.** Anonymous, translucent figures drift in through the door, walk the
+  aisles (routed round the cabinets, the stage and the counter on `hall-walk.js`'s floor plan), stand at a
+  cabinet for 20 to 90 seconds as if playing (a busy cabinet can also have one watching beside it), then
+  walk to another or leave. They stand for no particular person: `hall-ghosts.js` makes them up from
+  `GET /api/activity`, a 0 to 4 level per game ([below](#the-api-on-playbase)), one ghost per level
+  point, more for busier games, never more than 12 at once (6 on a phone or in economy), and none for a
+  dark cabinet in a filtered hall. Their paths come from a seeded generator (seeded by the UTC day), so
+  tests are reproducible. Under reduced motion they stand at their cabinets and do not walk. Settings has
+  *Show ghosts of recent visitors* (on by default, remembered). `hall-people.js` draws them
+  (`HallPeople.set("ghosts", [...])`); without it the hall is as it was. RFC 0030 §2.
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
   (24, 12, 6 point lights; the nearest cabinets keep theirs). The room's carpet, walls and ceiling are
   drawn after the cabinets, so a software renderer never shades the floor a cabinet hides. `?quality=0..2` pins a tier, `?fps=1`
@@ -276,9 +286,19 @@ a snapshot of the live registry.
 | `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap (the upload or its unpacked contents), or a `static` tree of more than 10,000 files; **400** for a malformed `<version>`, an upload that is neither a readable zip nor a readable tar, a missing, extra or repeated file, a link or other non-regular file, a refused path (see [Bundle kinds](#bundle-kinds-rfc-0012)), a `version.txt` that is not UTF-8 or disagrees with `<version>`, or a `game.zip` that is unreadable or lacks tak's four assets. |
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
 | `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, added, tags, org, engine (see [The registry](#the-registry)), **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. `/api/games` takes the landing page's `?tag=`, `?org=`, `?engine=` and `?sort=` ([Filters](#filters)). **404** for an unknown slug. |
+| `GET` | `/api/activity` | `{"window_days": 7, "k": 10, "levels": {"<slug>": 0..4}}`: how busy each game has been lately, for the hall's ghosts (RFC 0030 §2.2). The level comes from the plays over the **seven complete UTC days before today**: **0** below k = 10 plays (RFC 0022 §4.2's k: nothing is shown for a game played a handful of times), **1** for 10 to 24, **2** for 25 to 99, **3** for 100 to 399, **4** for 400 or more. Only the level is served: never a count, a date or a time. Today is left out, so a level changes only at midnight UTC and never at the moment someone plays. `Cache-Control: public, max-age=` up to 3600, never past the next midnight UTC; readable cross-origin. Needs no token. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
 | `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. The picture is arcade cabinets rendered in 3D with [Strata](https://github.com/Preponderous-Software/strata), drawn from `og-card/card.json` (see `og-card/README.md`). Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
 | `GET` | `/robots.txt` | `User-agent: *` / `Allow: /` as `text/plain`, with `Cache-Control: public, max-age=3600`. Answered on `play.<base>` only: on a game's host `/robots.txt` is the game's own path. |
+
+**What is kept about plays.** For each game, `<data>/<slug>/plays` holds one all-time count and
+`<data>/<slug>/.plays-daily` holds a count per UTC day, `{"YYYY-MM-DD": n}`, for the last 35 days
+(older days are dropped on each write). Both are updated together, each written atomically, when a
+game's page is served to a person (crawlers and scripts are excluded by User-Agent). They hold dates
+and counts only: no IP address, user agent, time of day or anything else about the visitor. The
+per-day counts are never served; `/api/activity` publishes only the coarse level above. Upgrading
+loses nothing: `plays` is unchanged, and per-day counts start on the day this ships (there is no
+back-fill).
 
 The token is `Authorization: Bearer <token>`, and each game's token deploys only that game. An
 unknown slug and a wrong token both get 403. The last `ARCADE_KEEP_VERSIONS` (5) versions per game

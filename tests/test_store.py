@@ -1,9 +1,11 @@
+import datetime
+import json
 import os
 import time
 
 import pytest
 
-from arcade.store import NoSuchVersion, Store, VersionExists
+from arcade.store import DAILY_DAYS, NoSuchVersion, Store, VersionExists
 from helpers import bundleFiles
 
 
@@ -140,6 +142,61 @@ def test_an_unreadable_counter_reads_as_zero_and_recovers(tmp_path):
     assert store.plays("cave") == 1
 
 
+def test_plays_are_also_counted_per_utc_day_with_dates_and_counts_only(tmp_path):
+    store = Store(str(tmp_path))
+    day = datetime.date(2026, 10, 30)
+    store.addPlay("cave", today=day)
+    store.addPlay("cave", today=day)
+    store.addPlay("cave", today=day + datetime.timedelta(days=1))
+    assert store.plays("cave") == 3  # the all-time counter is unchanged in kind
+    assert store.daily("cave") == {"2026-10-30": 2, "2026-10-31": 1}
+    raw = json.loads((tmp_path / "cave" / ".plays-daily").read_text())
+    assert raw == {"2026-10-30": 2, "2026-10-31": 1}
+    # The file is a dotfile beside the versions: never a version, and no
+    # version name is newly refused.
+    store.add("cave", "plays-daily", bundleFiles("plays-daily"))
+    assert store.versions("cave") == ["plays-daily"]
+    names = os.listdir(str(tmp_path / "cave"))
+    assert not [n for n in names if n.startswith((".plays-", ".daily-")) and n != ".plays-daily"]  # no temporaries
+
+
+def test_per_day_counts_keep_only_the_last_35_days(tmp_path):
+    store = Store(str(tmp_path))
+    start = datetime.date(2026, 1, 1)
+    for k in range(50):
+        store.addPlay("cave", today=start + datetime.timedelta(days=k))
+    days = sorted(store.daily("cave"))
+    assert len(days) == DAILY_DAYS == 35
+    assert days[0] == (start + datetime.timedelta(days=15)).isoformat() and days[-1] == "2026-02-19"
+    assert store.plays("cave") == 50  # nothing pruned from the all-time count
+
+
+def test_recent_plays_count_complete_days_only(tmp_path):
+    store = Store(str(tmp_path))
+    today = datetime.date(2026, 10, 30)
+    for k, n in ((8, 100), (7, 3), (1, 2), (0, 5)):
+        for _ in range(n):
+            store.addPlay("cave", today=today - datetime.timedelta(days=k))
+    # Yesterday back to 7 days ago: 2 + 3. Today (5) and 8 days ago (100) are out.
+    assert store.recentPlays("cave", 7, today=today) == 5
+    assert store.recentPlays("nope", 7, today=today) == 0
+
+
+def test_an_upgrade_loses_nothing_and_a_bad_daily_file_recovers(tmp_path):
+    store = Store(str(tmp_path))
+    os.makedirs(str(tmp_path / "cave"))
+    (tmp_path / "cave" / "plays").write_text("41\n")  # a counter from before per-day counts
+    assert store.daily("cave") == {} and store.recentPlays("cave", 7) == 0
+    store.addPlay("cave", today=datetime.date(2026, 10, 30))
+    assert store.plays("cave") == 42
+    for bad in ("not json", "[1, 2]", '{"x": 3, "2026-10-29": -1, "2026-10-28": true, "2026-10-27": 4}'):
+        (tmp_path / "cave" / ".plays-daily").write_text(bad)
+        expected = {"2026-10-27": 4} if "x" in bad else {}
+        assert store.daily("cave") == expected
+    store.addPlay("cave", today=datetime.date(2026, 10, 30))
+    assert store.daily("cave") == {"2026-10-27": 4, "2026-10-30": 1}
+
+
 def _stamp(tmp_path, slug, version, value):
     (tmp_path / slug / version / ".uploaded").write_text(str(value))
 
@@ -223,7 +280,7 @@ def test_a_failed_counter_write_keeps_the_count_and_leaves_no_temporary(tmp_path
         store.addPlay("cave")
     monkeypatch.undo()
     assert store.plays("cave") == 1
-    assert os.listdir(str(tmp_path / "cave")) == ["plays"]
+    assert sorted(os.listdir(str(tmp_path / "cave"))) == [".plays-daily", "plays"]
 
 
 def test_a_failed_static_write_leaves_nothing_behind(tmp_path, monkeypatch):

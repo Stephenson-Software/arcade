@@ -824,6 +824,7 @@
     soundBtn.setAttribute("aria-pressed", String(hum.on));
     soundBtn.textContent = hum.on ? "Sound on" : "Sound off";
     $("set-hum").checked = hum.on;
+    $("set-ghosts").checked = settings.ghosts;
   }
   function setHum(on) {
     hum.set(on);
@@ -1071,7 +1072,7 @@
   helpBtn.addEventListener("click", () => showHelp($("help").hidden));
 
   /* Settings, in the "?" panel: look sensitivity, invert Y, field of view,
-     head bob, reduce motion and the hum. Each applies at once and is kept. */
+     head bob, reduce motion, the hum and the ghosts. Each applies at once and is kept. */
   const setBtn = $("settings-btn"), setPanel = $("settings");
   function showSettings(on) {
     setPanel.hidden = !on;
@@ -1110,6 +1111,8 @@
   $("bob").addEventListener("change", (e) => changeSetting("bob", e.target.checked));
   $("set-reduce").addEventListener("change", (e) => changeSetting("reduceMotion", e.target.checked));
   $("set-hum").addEventListener("change", (e) => setHum(e.target.checked));
+  // Ghosts of recent visitors (hall-ghosts.js reads it from __hall.settings).
+  $("set-ghosts").addEventListener("change", (e) => changeSetting("ghosts", e.target.checked));
   $("set-reset").addEventListener("click", () => {
     const keepHum = hum.on;
     Object.assign(settings, SET.clean({reduceMotion: matchMedia("(prefers-reduced-motion: reduce)").matches}));

@@ -7,12 +7,16 @@
     <root>/<slug>/<version>/.uploaded     (time.time_ns() at upload, for pruning)
     <root>/<slug>/current                 (the live version's name)
     <root>/<slug>/.added                  (time.time_ns() of the slug's first upload)
+    <root>/<slug>/plays                   (all-time play count)
+    <root>/<slug>/.plays-daily            (plays per UTC day, the last DAILY_DAYS days; RFC 0030 §2.1)
 
 A version is written into a temporary directory and renamed into place, and
 `current` is replaced atomically, so a crash mid-upload leaves the previous
 version live. The last KEEP versions are kept; the current one never goes.
 """
 
+import datetime
+import json
 import os
 import re
 import shutil
@@ -32,6 +36,12 @@ _UPLOADED = ".uploaded"
 _CURRENT = "current"
 _PLAYS = "plays"
 _ADDED = ".added"  # a dotfile: never a version name (VERSION_PATTERN)
+_DAILY = ".plays-daily"  # a dotfile too, so no version name is newly refused
+DAILY_DAYS = 35  # how many UTC days of per-day counts are kept (RFC 0030 §2.1)
+
+
+def utcToday():
+    return datetime.datetime.now(datetime.timezone.utc).date()
 
 
 class VersionExists(Exception):
@@ -216,24 +226,68 @@ class Store(object):
         except (OSError, ValueError):
             return 0
 
-    def addPlay(self, slug):
-        """Count one play. Written atomically, so a crash never leaves a
-        half-written counter; a counter that cannot be read restarts at 0."""
+    def daily(self, slug):
+        """The game's plays per UTC day, {"YYYY-MM-DD": n}, for at most the
+        last DAILY_DAYS days. Dates and counts only: nothing about who
+        played. A file that cannot be read reads as empty."""
+        try:
+            with open(os.path.join(self._slugDirectory(slug), _DAILY), "r") as counts:
+                raw = json.load(counts)
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        out = {}
+        for day, n in raw.items():
+            try:
+                datetime.date.fromisoformat(day)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+                out[day] = n
+        return out
+
+    def recentPlays(self, slug, days, today=None):
+        """Plays over the `days` complete UTC days before `today` (default:
+        the current UTC date). Today itself is never counted, so the total
+        changes only at midnight UTC, never at the moment of a play."""
+        today = today or utcToday()
+        counts = self.daily(slug)
+        back = (today - datetime.timedelta(days=k) for k in range(1, days + 1))
+        return sum(counts.get(day.isoformat(), 0) for day in back)
+
+    def addPlay(self, slug, today=None):
+        """Count one play: the all-time counter and today's (UTC) count, in
+        one critical section. Each file is written atomically, so a crash
+        never leaves a half-written one; a counter that cannot be read
+        restarts at 0. Days older than DAILY_DAYS are dropped on each write."""
+        today = today or utcToday()
         with self._lock:
             slugDirectory = self._slugDirectory(slug)
             os.makedirs(slugDirectory, exist_ok=True)
             count = self.plays(slug) + 1
-            handle, temporary = tempfile.mkstemp(prefix=".plays-", dir=slugDirectory)
+            self._writeAtomically(slugDirectory, _PLAYS, ".plays-", "%d\n" % count)
+            counts = self.daily(slug)
+            key = today.isoformat()
+            counts[key] = counts.get(key, 0) + 1
+            oldest = (today - datetime.timedelta(days=DAILY_DAYS - 1)).isoformat()
+            # ISO dates sort as strings.
+            counts = {day: n for day, n in sorted(counts.items()) if day >= oldest}
+            self._writeAtomically(slugDirectory, _DAILY, ".daily-", json.dumps(counts, sort_keys=True) + "\n")
+
+    @staticmethod
+    def _writeAtomically(directory, name, prefix, text):
+        handle, temporary = tempfile.mkstemp(prefix=prefix, dir=directory)
+        try:
+            with os.fdopen(handle, "w") as out:
+                out.write(text)
+            os.replace(temporary, os.path.join(directory, name))
+        except BaseException:
             try:
-                with os.fdopen(handle, "w") as out:
-                    out.write("%d\n" % count)
-                os.replace(temporary, os.path.join(slugDirectory, _PLAYS))
-            except BaseException:
-                try:
-                    os.unlink(temporary)
-                except OSError:
-                    pass
-                raise
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
 
     def setCurrent(self, slug, version):
         with self._lock:

@@ -7,6 +7,15 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Ghosts of recent visitors in the hall (RFC 0030 §2). arcade now also counts plays per UTC day
+  (`<slug>/.plays-daily`, dates and counts only, the last 35 days, written atomically beside the
+  unchanged all-time `plays`), and `GET /api/activity` publishes only a 0–4 level per game from the
+  seven complete UTC days before today, with nothing below k = 10 plays. `hall-ghosts.js` turns the
+  levels into a few anonymous figures (at most 12, 6 on a phone or in economy) that come in through
+  the door, walk round the cabinets to the busy ones, stand there as if playing and leave, for
+  `hall-people.js` to draw; they stand still under reduced motion. Settings has "Show ghosts of recent
+  visitors" (on by default).
+
 - Filter mode. The registry takes optional `tags:` (theme tags, a flow list, parsed strictly) and
   `engine:` (`strata`, `tak`, `sdl` or `other`; a tak game is always `tak`, a static game defaults to
   `other`), and `/api/games` reports `tags`, `org` (from `repo`) and `engine`. The landing page has

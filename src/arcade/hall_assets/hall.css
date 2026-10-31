@@ -22,7 +22,7 @@ button, a { font: inherit; }
   max-width: 520px; margin-left: auto; padding: 10px 14px; border-radius: 12px; background: var(--panel);
   border: 1px solid var(--line); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 #help p { margin: 0; }
-#help .opt { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 40px; color: var(--muted);
+#help .opt { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 44px; color: var(--muted);
   cursor: pointer; }
 #help .opt input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
 body.touch #help .desk, body:not(.touch) #help .touch { display: none; }
