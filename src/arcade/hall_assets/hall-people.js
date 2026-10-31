@@ -25,6 +25,15 @@
      HallPeople.colorOf(id)           -> [r, g, b] 0..1: a friendly colour of an id
      HallPeople.figure(layer, id)     -> {x, z, y, yaw, leaving, atCabinet} as drawn now, or null
      HallPeople.stats                 -> {drawn, layers: {presence, replays, ghosts}, labels}
+     HallPeople.pick(view, nx, ny, px) -> {layer, id, dist} of the figure drawn under a screen
+                                       point (nx, ny in -1..1, y up; px: the hit radius in CSS
+                                       pixels), nearest first, or null
+     HallPeople.reveal(layer, id)     a tap on a figure: its caption for a few seconds, beyond the
+                                       labels' usual range and count (a live person's name; "A
+                                       recent visitor" for a ghost, "A walk from today" for a replay)
+     HallPeople.hover(hit)            the same while the mouse is over it (hit: pick()'s, or null)
+     HallPeople.dots()                -> [{layer, id, x, z, color}]: everyone where they are now, for the
+                                       map (hall.js drawMap); hidden layers and leavers left out
      HallPeople.frame(view)           -> hall.js, every frame: {items, points, builds, poses, changed}
 
    A person with a cabinet (a slug in this hall) stands beside that cabinet,
@@ -57,6 +66,10 @@
   const SLUG = /^[a-z][a-z0-9-]{0,40}$/;
   const EYE_COLOUR = [0.08, 0.06, 0.16];
   const MESH_SLOT = 3000;                               // hall.js mesh slots 3000..3011: figures as meshes
+  // What a tap on a figure says: a live person's display name, else these (nothing about who).
+  const CAPTION = {ghosts: "A recent visitor", replays: "A walk from today"};
+  const REVEAL = 4;                                     // seconds a tapped figure's caption stays
+  const TALL = {presence: 1.6, replays: 1.25, ghosts: 1.25}, WIDE = 0.32;  // metres, for picking
 
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
   const num = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -190,6 +203,8 @@
     const layers = {};
     for (const l of LAYERS) layers[l] = {at: null, every: 1, hidden: false};
     let layout = null, lastFrame = null, drewSomething = false;
+    let drawn = [];                       // the figures the last frame drew, for picking
+    let tapped = null, hovered = null;    // {key, until}: captions asked for
     const stats = {drawn: 0, layers: {presence: 0, replays: 0, ghosts: 0}, labels: 0};
 
     function sample(f, now) {
@@ -311,6 +326,8 @@
       const wasUsed = pool.used.size > 0;
       pool.used = new Set();
       const keep = new Set();
+      drawn = [];
+      const pinned = [tapped, hovered].filter((p) => p && p.until > now).map((p) => p.key);
       for (const {f, s, d, a, speed} of shown) {
         counts[f.layer]++;
         const key = f.layer + "\u0000" + f.id;
@@ -319,6 +336,14 @@
           bobY = speed > MOVING ? 0.045 * Math.abs(Math.sin(now * 8.5 + f.phase)) : 0.02 * Math.sin(now * 2.1 + f.phase);
         }
         const detail = d < NEAR ? 2 : d < MID ? 1 : 0;
+        const lift = f.layer === "presence" ? bobY : 0.1 + (view.reduced ? 0 : 0.05 * Math.sin(now * 1.7 + f.phase));
+        drawn.push({layer: f.layer, id: f.id, x: s.x, y: s.y + lift, z: s.z});
+        if (pinned.includes(key)) {
+          // Asked for (a tap, the mouse over it): shown whatever the distance or the count.
+          const text = f.label || CAPTION[f.layer] || "";
+          const p = text && view.project ? view.project(view, [s.x, s.y + lift + (f.layer === "presence" ? 1.78 : 1.45), s.z], 1.05) : null;
+          if (p && p.on) labels.push({id: f.id, key, layer: f.layer, text, color: f.color, nx: p.nx, ny: p.ny, d, opacity: Math.max(a, 0.6), pinned: true});
+        }
         if (f.layer === "presence" && a > 0.92) {
           solid(f, s, a, lite ? Math.min(detail, 1) + (d < 4 ? 1 : 0) : detail, bobY, items, points);
         } else {
@@ -332,9 +357,9 @@
             if (!person && detail >= 1) halo(points, s.x, s.y + hover + 0.7, s.z, 1.6, f.color, 0.08 * a);
           }
         }
-        if (f.label && d < LABEL_RANGE && view.project) {
+        if (f.label && d < LABEL_RANGE && view.project && !pinned.includes(key)) {
           const p = view.project(view, [s.x, s.y + bobY + 1.78, s.z], 1.05);
-          if (p.on) labels.push({id: f.id, text: f.label, color: f.color, nx: p.nx, ny: p.ny, d,
+          if (p.on) labels.push({id: f.id, key, text: f.label, color: f.color, nx: p.nx, ny: p.ny, d,
             opacity: a * clamp((LABEL_RANGE - d) / 4, 0, 1)});
         }
       }
@@ -342,8 +367,10 @@
       // Every slot that was ever built is posed each time, an unused one at alpha 0 (taken out).
       for (const slot of pool.built.keys()) if (!pool.used.has(slot)) poses.push([slot, 0, -10, 0, 0, 1, 0]);
       const meshesChanged = pool.used.size > 0 || wasUsed;
+      // Nearest first, at most six (three on a phone); one asked for always, beyond that.
       labels.sort((p, q) => p.d - q.d);
-      labels.length = Math.min(labels.length, lite ? LABELS.lite : LABELS.full);
+      const usual = labels.filter((l) => !l.pinned).slice(0, lite ? LABELS.lite : LABELS.full);
+      labels.splice(0, labels.length, ...labels.filter((l) => l.pinned || usual.includes(l)));
       stats.drawn = shown.length;
       stats.layers = counts;
       stats.labels = labels.length;
@@ -359,6 +386,27 @@
         for (const l of layer === "all" ? LAYERS : [layer]) if (layers[l]) layers[l].hidden = !!on;
       },
       hidden: (layer) => !!(layers[layer] && layers[layer].hidden),
+      /* The figure drawn under a screen point, by the last frame's figures:
+         each a column from its feet to the top of its head, as wide as it
+         is (at least px either side). view as frame()'s, with height (CSS
+         pixels) and project. The nearest one hit wins. */
+      pick(view, nx, ny, px) { return pickFigure(drawn, view, nx, ny, px); },
+      reveal(layer, id, now) { tapped = {key: layer + "\u0000" + id, until: now + REVEAL}; },
+      hover(hit, now) { hovered = hit ? {key: hit.layer + "\u0000" + hit.id, until: Infinity} : null; },
+      // Every figure of a shown layer, wherever it is (the map shows the whole hall), live people first.
+      dots(now) {
+        const out = [];
+        for (const f of figs.values()) {
+          if (f.leaving != null || layers[f.layer].hidden) continue;
+          const s = sample(f, now);
+          out.push({layer: f.layer, id: f.id, x: s.x, z: s.z, color: f.color});
+        }
+        return out.sort((p, q) => LAYERS.indexOf(q.layer) - LAYERS.indexOf(p.layer));
+      },
+      get revealed() {
+        const t = lastFrame == null ? 0 : lastFrame;
+        return [tapped, hovered].filter((p) => p && p.until > t).map((p) => p.key.replace("\u0000", ":"));
+      },
       get size() { return figs.size; },
       figure(layer, id, now) {
         const f = figs.get(layer + "\u0000" + id);
@@ -369,7 +417,33 @@
     };
   }
 
-  const pure = {crowd, layoutKey, colorOf, anchor, clean, ghostMesh, personMesh, LAYERS, CAP, LABELS, FAR, MESH_SLOT};
+  /* drawn: [{layer, id, x, y, z}] (y: the feet); see crowd().pick. */
+  function pickFigure(drawn, view, nx, ny, px) {
+    if (!view || !view.project || !drawn || !drawn.length) return null;
+    const h = view.height || 600, w = h * (view.aspect || 1), t = Math.tan((view.fov || 62) * Math.PI / 360);
+    const sx = (nx + 1) / 2 * w, sy = (1 - ny) / 2 * h;
+    const cp = Math.cos(view.pitch || 0), f = [-cp * Math.cos(view.yaw), -Math.sin(view.pitch || 0), -cp * Math.sin(view.yaw)];
+    let best = null;
+    for (const g of drawn) {
+      const tall = TALL[g.layer] || 1.5, mid = [g.x - view.x, g.y + tall / 2 - view.y, g.z - view.z];
+      const depth = mid[0] * f[0] + mid[1] * f[1] + mid[2] * f[2];
+      if (depth < 0.3) continue;
+      const a = view.project(view, [g.x, g.y, g.z], 50), b = view.project(view, [g.x, g.y + tall, g.z], 50);
+      if (!a.on || !b.on) continue;
+      const ax = (a.nx + 1) / 2 * w, ay = (1 - a.ny) / 2 * h, bx = (b.nx + 1) / 2 * w, by = (1 - b.ny) / 2 * h;
+      // Distance from the point to the column's axis, on screen.
+      const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+      const u = clamp(((sx - ax) * vx + (sy - ay) * vy) / l2, 0, 1);
+      const off = Math.hypot(sx - (ax + vx * u), sy - (ay + vy * u));
+      const half = WIDE / (depth * t) * h / 2;
+      if (off > Math.max(half, px || 0)) continue;
+      const dist = Math.hypot(mid[0], mid[1], mid[2]);
+      if (!best || dist < best.dist) best = {layer: g.layer, id: g.id, dist};
+    }
+    return best;
+  }
+
+  const pure = {crowd, pickFigure, CAPTION, layoutKey, colorOf, anchor, clean, ghostMesh, personMesh, LAYERS, CAP, LABELS, FAR, MESH_SLOT};
   if (typeof module !== "undefined" && module.exports) { module.exports = pure; return; }
 
   /* ------------------------------------------------------- the page */
@@ -393,15 +467,17 @@
     }
     const w = view.width, h = view.height, keep = new Set(), placed = [];
     for (const l of labels) {
-      keep.add(l.id);
-      let t = tags.get(l.id);
+      const k = l.key || l.id;
+      keep.add(k);
+      let t = tags.get(k);
       if (!t) {
         t = document.createElement("span");
         t.className = "person-label";
         box.appendChild(t);
-        tags.set(l.id, t);
+        tags.set(k, t);
       }
       if (t.textContent !== l.text) t.textContent = l.text;
+      t.classList.toggle("anon", !!l.layer && l.layer !== "presence");
       t.style.setProperty("--who", `rgb(${l.color.map((v) => Math.round(v * 255)).join(",")})`);
       // Nearest first; a farther name that would cover a nearer one steps up above it.
       const x = (l.nx + 1) / 2 * w, lw = t.offsetWidth || 60, lh = (t.offsetHeight || 22) + 2;
@@ -426,6 +502,13 @@
     layoutKey, colorOf,
     get stats() { return JSON.parse(JSON.stringify(crowdNow.stats)); },
     figure: (layer, id) => crowdNow.figure(layer, id, clock()),
+    pick(view, nx, ny, px) {
+      return crowdNow.pick(Object.assign({project: root.HallControls && root.HallControls.project}, view), nx, ny, px);
+    },
+    reveal(layer, id) { crowdNow.reveal(layer, id, clock()); },
+    hover(hit) { crowdNow.hover(hit || null, clock()); },
+    get revealed() { return crowdNow.revealed; },
+    dots: () => crowdNow.dots(clock()),
     frame(view) {
       if (view.layout) crowdNow.setLayout(view.layout);
       const out = crowdNow.frame(Object.assign({project: root.HallControls && root.HallControls.project}, view), clock());

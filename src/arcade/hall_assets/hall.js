@@ -1411,9 +1411,19 @@
     if (e.key.toLowerCase() === "m" && !e.repeat && !typing(e) && !e.ctrlKey && !e.metaKey && !e.altKey
       && !(tr && tr.state !== "idle")) showMap(!mapOn, true);
   });
+  /* Others on the map (hall-people.js): a dot in their colour for each live
+     person, a faint one for each ghost or replayed walk, under the visitor's
+     own. Only what the hall shows: "See other people" and the ghosts setting
+     hide theirs here too. */
+  function mapPeople() {
+    const P = window.HallPeople;
+    return P && P.dots ? P.dots() : [];
+  }
   function drawMap() {
     if (!mapOn || !me || !layout) return;
-    const key = `${me.x.toFixed(2)},${me.z.toFixed(2)},${kit.cam.yaw.toFixed(2)},${near ? near.slug : ""}`;
+    const dots = mapPeople();
+    const key = `${me.x.toFixed(2)},${me.z.toFixed(2)},${kit.cam.yaw.toFixed(2)},${near ? near.slug : ""}|`
+      + dots.map((d) => `${d.layer[0]}${(d.x * 5).toFixed(0)},${(d.z * 5).toFixed(0)}`).join(";");
     if (key === mapDrawn) return;
     mapDrawn = key;
     const ctx = mapEl.getContext("2d"), r = layout.room, f = mapFrame(), w = mapEl.width, h = mapEl.height;
@@ -1437,6 +1447,14 @@
       ctx.fillStyle = lit(c) ? `rgb(${rgb255(c.colour)})` : `rgba(${rgb255(c.colour)}, .22)`; ctx.fill();
       if (c === near) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
     }
+    for (const d of dots) {
+      const [px, py] = f.toMap(d.x, d.z), c = rgb255(d.color), live = d.layer === "presence";
+      ctx.beginPath(); ctx.arc(px, py, live ? 3.2 : 2.2, 0, 2 * Math.PI);
+      ctx.fillStyle = live ? `rgb(${c})` : `rgba(${c}, .4)`; ctx.fill();
+      if (live) { ctx.strokeStyle = "rgba(18, 12, 38, .85)"; ctx.lineWidth = 1; ctx.stroke(); }
+    }
+    state.mapPeople = {presence: 0, replays: 0, ghosts: 0};
+    for (const d of dots) state.mapPeople[d.layer]++;
     // You: a dot and the way you look.
     const [mx, my] = f.toMap(me.x, me.z), yaw = kit.cam.yaw, lx = -Math.cos(yaw), lz = -Math.sin(yaw);
     ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.moveTo(mx, my);
@@ -1633,14 +1651,26 @@
       after,
       // The hall's own keys are on window; Tab is left alone, so focus can leave the hall.
       onKey: (e) => e.key !== "Tab",
-      pick(x, y) {
-        const v = view();
-        return W.pick(v, x / canvas.clientWidth * 2 - 1, 1 - y / canvas.clientHeight * 2, layout);
+      pick(x, y, radius) {
+        const v = view(), nx = x / canvas.clientWidth * 2 - 1, ny = 1 - y / canvas.clientHeight * 2;
+        const hit = W.pick(v, nx, ny, layout);
+        // A figure (hall-people.js) in front of what is behind it: its caption, not a walk.
+        const P = window.HallPeople;
+        const who = P && P.pick ? P.pick(Object.assign(v, {height: canvas.clientHeight}), nx, ny, Math.min(radius || 18, 24)) : null;
+        if (who && !(hit && hit.cabinet && hit.t < who.dist - 0.4)) return {person: who};
+        return hit;
       },
-      idOf: (hit) => (hit.cabinet ? hit.cabinet.slug : "floor"),
+      idOf: (hit) => (hit.person ? `${hit.person.layer}:${hit.person.id}` : hit.cabinet ? hit.cabinet.slug : "floor"),
+      onHover(hit) {
+        const who = hit && hit.person && !(tr && tr.state !== "idle") ? hit.person : null;
+        canvas.classList.toggle("on-figure", !!who);
+        if (window.HallPeople && window.HallPeople.hover) window.HallPeople.hover(who);
+      },
       onTap(hit) {
         if (tr && tr.state !== "idle") { if (tr.state !== "playing") tr.skip(nowMs()); return; }
         if (!hit || document.pointerLockElement === canvas) return;
+        // A tap on someone shows who (or, for a ghost or a replay, what) they are; nothing else.
+        if (hit.person) { window.HallPeople.reveal(hit.person.layer, hit.person.id); state.revealed = `${hit.person.layer}:${hit.person.id}`; return; }
         clearFocus();
         if (hit.cabinet) {
           if (near === hit.cabinet) { play(hit.cabinet); return; }

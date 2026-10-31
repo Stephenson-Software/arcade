@@ -20,6 +20,11 @@
    (null elsewhere). arcade-social keeps it in memory for 10 s; nothing
    else about the visitor is sent.
 
+   While it is on, a pill in the bar says so ("Visible as <display name>",
+   a dot alone on a narrow screen, its full sentence for a screen reader),
+   whatever panel is open (RFC 0030: a persistent "you're visible"
+   indicator); a tap on it opens the People settings, to turn it off.
+
    The layout key (layout.json's layoutKey, else HallPeople.layoutKey of the cabinet order) keeps
    poses to halls whose cabinets stand in the same places.
 
@@ -115,6 +120,22 @@
   const hint = document.getElementById("show-me-hint");
   see.checked = state.see;
 
+  /* "You're visible": in the bar, before the sound button, only while shown. */
+  const pill = document.createElement("button");
+  pill.id = "visible-pill";
+  pill.type = "button";
+  pill.hidden = true;
+  pill.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="label"></span>';
+  const bar = document.getElementById("bar");
+  if (bar) bar.insertBefore(pill, document.getElementById("sound"));
+  pill.addEventListener("click", () => {
+    const help = document.getElementById("help"), helpBtn = document.getElementById("help-btn"), setBtn = document.getElementById("settings-btn");
+    if (help && help.hidden && helpBtn) helpBtn.click();
+    if (settings.hidden && setBtn) setBtn.click();
+    wrap.scrollIntoView({block: "nearest"});
+    showMe.focus({preventScroll: true});
+  });
+
   function layoutKey() {
     const l = root.__hall && root.__hall.layout;
     if (l && typeof l.layoutKey === "string" && /^[0-9a-f]{16}$/.test(l.layoutKey)) return l.layoutKey;  // the server's (walk replays use it too)
@@ -148,6 +169,15 @@
         : "Off: you see others, nobody sees you.";
     }
     document.body.classList.toggle("people-off", !state.see);
+    // Shown while this hall sends the visitor's place (opted in, signed in); hidden otherwise.
+    const visible = !!(s && s.signedIn && state.optedIn);
+    const name = s && s.displayName ? s.displayName : "";
+    pill.hidden = !visible;
+    document.body.classList.toggle("visible-me", visible);
+    pill.querySelector(".label").textContent = name ? `Visible as ${name}` : "Visible";
+    pill.setAttribute("aria-label", `You're visible to others in the hall${name ? " as " + name : ""}. People settings`);
+    pill.title = "Others in the hall see you here. Tap to change it.";
+    state.visible = visible;
   }
 
   async function call(path, opts) {
@@ -164,6 +194,7 @@
     const s = await call("/v1/session", {credentials: "include"});
     if (!s || typeof s.signedIn !== "boolean") { state.session = null; render(); return; }
     state.session = {signedIn: s.signedIn,
+      displayName: typeof s.displayName === "string" ? s.displayName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32) : "",
       signInUrl: typeof s.signInUrl === "string" && s.signInUrl.startsWith(API + "/") ? s.signInUrl : API + "/signin"};
     if (s.signedIn) {
       const me = await call("/v1/presence/me", {credentials: "include"});
