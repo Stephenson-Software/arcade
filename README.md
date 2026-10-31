@@ -225,6 +225,15 @@ the portal keep their lists, and link here with "Walk the hall".
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
   refreshes them from the same sources as the picture, and draws a title-card poster (title, blurb,
   address) for a game with no public picture (Familiar).
+- **Live screens.** The screen of the cabinet nearest the visitor (two on a desktop, one on a phone or in
+  economy), when it is in front of them and faces them, plays the game's trailer, silent and looping,
+  in place of its poster, and goes back to the poster when they walk away. Clips are
+  `src/arcade/hall_assets/clips/<slug>.mp4` (384x216, 15 fps, H.264, no sound), re-encoded from
+  danielstephenson.dev's trailers by `tools/make_hall_clips.py` (needs ffmpeg) and served same-origin for
+  the same CORS reason as the posters, with byte ranges (Safari plays a video only from a server that
+  answers them). Frames reach the screen asynchronously where the browser has `VideoFrame`, else through a
+  small canvas, at the clip's 15 fps (10 on a phone or in economy). No trailer plays under reduced motion, while a game is open or the page is hidden, or with
+  `?trailers=0`.
 - **The map.** A "you are here" plan of the floor (top right; *Map* or `M` toggles it, remembered; open by
   default on a desktop, closed on a phone, where it steps aside while the cabinet card shows): the room,
   stage and counter, every cabinet in its org colour, and you with the way you look. Clicking or tapping a
@@ -232,7 +241,23 @@ the portal keep their lists, and link here with "Walk the hall".
 - **Attract mode and sound.** Every few seconds one screen shows its game's title card instead of its
   poster, the nearest screens shimmer faintly (with baked-in scanlines), and the marquees' glow breathes;
   nothing moves under reduced motion. *Sound* (off by default, remembered) plays a quiet arcade hum, made
-  with WebAudio (no audio files), and pauses while a game is open.
+  with WebAudio (no audio files), and pauses while a game is open. With it on, the nearest cabinets (three,
+  two on a phone or in economy) each play a soft attract loop of their own: a short chiptune phrase made up
+  from the game's slug, the same every visit, flavoured by the game (a tak text adventure a slow minor
+  triangle-wave figure, a Halloween game a minor one, the rest a brighter pulse, bell or bass arpeggio),
+  two bars on and two off. Each is placed where the cabinet stands: louder near (silent past about 11 m),
+  panned to the side it is on as the visitor turns, and quieter and muffled from behind it.
+- **Popularity in the room.** The marquees of the most played games (and, once there are enough likes,
+  the most liked: likes weigh up to a third, in full from 30 likes in all) glow a little warmer: redder
+  and brighter, with an amber glow above them. Only the top end warms; the middle of the field is as it
+  was. A *Hall of Fame* board on the wall right of the door, across from the counter, lists the best score
+  on each game's leaderboard (player, game, board, value; at most six, most played games first) and the
+  games whose boards nobody has topped yet. Both come from arcade-social's public reads
+  (`GET /v1/likes/counts`, `GET /v1/games/<slug>/boards`, `GET /v1/boards/<slug>/<board>?limit=1`), at
+  the URL in `<meta name="arcade-social">`, sent without credentials, a few at a time, a moment after the
+  hall loads. The board's data is kept in `sessionStorage` for ten minutes (public data only: the
+  names are the display names the boards already show), so walking round never asks twice. Without
+  arcade-social, or when it is down, the board says the scores are resting and the marquees go by plays.
 - **Seasons.** `src/arcade/seasons.py` dresses the hall by the date in America/Denver: from October 20
   to November 1, Halloween (jack-o'-lanterns that flicker by the door and on the counter, cobwebs in the
   ceiling corners, warmer, more orange light, and a banner for Familiar over the walkway in from the

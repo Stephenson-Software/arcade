@@ -893,6 +893,141 @@ def test_the_marquee_carries_a_new_ribbon():
     assert "if (c.new) newRibbon(ctx, w, h);" in page and '"NEW"' in page
 
 
+# ------------------------------------------------- live screens (trailers)
+
+
+def mp4_size(data):
+    """The (width, height) of an mp4's first track (its tkhd box)."""
+    at = data.index(b"tkhd")
+    return tuple(int.from_bytes(data[at + k : at + k + 2], "big") for k in ((80, 84) if data[at + 4] == 0 else (92, 96)))
+
+
+def test_clip_names_follow_the_trailer_files():
+    assert hall.clip_urls({"slug": "frog-hopper", "repo": "Stephenson-Software/Frog-Hopper-2D"}) == [
+        "https://danielstephenson.dev/trailers/frog-hopper-2d.mp4",
+        "https://danielstephenson.dev/trailers/frog-hopper.mp4",
+    ]
+
+
+def test_every_clip_is_a_small_16_by_9_mp4_for_a_live_game():
+    with open(os.path.join(ROOT, "docs", "media", "arcade-hall.sources.json")) as f:
+        slugs = {c["slug"] for c in json.load(f)["cabinets"]}
+    names = sorted(os.listdir(hall.CLIPS))
+    assert len(names) >= 20
+    total = 0
+    for name in names:
+        assert name.endswith(".mp4"), name
+        with open(os.path.join(hall.CLIPS, name), "rb") as f:
+            data = f.read()
+        total += len(data)
+        assert data[4:8] == b"ftyp", name
+        # The index first (faststart), so a clip starts before it has all arrived.
+        assert data.index(b"moov") < data.index(b"mdat"), name
+        assert mp4_size(data) == (384, 216), name
+        assert len(data) < 256 * 1024, name
+        assert hall.asset_path("clips/" + name)
+    assert total < 3 * 1024 * 1024
+    assert {n[:-4] for n in names} <= slugs | {"museum"}
+
+
+def test_served_layout_names_only_clips_arcade_has(tmp_path, monkeypatch):
+    (tmp_path / "tidewater.mp4").write_bytes(b"x")
+    monkeypatch.setattr(hall, "CLIPS", str(tmp_path))
+    doc = {c["slug"]: c for c in hall.served_layout(GAMES, True)["cabinets"]}
+    assert doc["tidewater"]["clip"] == "clips/tidewater.mp4"
+    assert doc["roam"]["clip"] is None
+
+
+def test_byte_ranges():
+    r = server.byteRange
+    assert r(None, 100) is None and r("", 100) is None
+    assert r("bytes=0-1", 100) == (0, 1)
+    assert r("bytes=10-", 100) == (10, 99)
+    assert r("bytes=90-500", 100) == (90, 99)
+    assert r("bytes=-10", 100) == (90, 99)
+    assert r("bytes=-500", 100) == (0, 99)
+    assert r("bytes=100-", 100) == "unsatisfiable"
+    assert r("bytes=-0", 100) == "unsatisfiable"
+    # Not handled: the whole file instead.
+    assert r("bytes=0-1,5-6", 100) is None
+    assert r("items=0-1", 100) is None
+    assert r("bytes=5-1", 100) is None
+
+
+def test_clips_are_served_in_byte_ranges_for_safari(running):
+    port = running()
+    name = sorted(os.listdir(hall.CLIPS))[0]
+    with open(os.path.join(hall.CLIPS, name), "rb") as f:
+        data = f.read()
+    res, body = get(port, "/hall/clips/" + name)
+    assert res.status == 200 and body == data
+    assert res.getheader("Content-Type") == "video/mp4" and res.getheader("Accept-Ranges") == "bytes"
+    res, body = get(port, "/hall/clips/" + name, headers={"Range": "bytes=0-1"})
+    assert res.status == 206 and body == data[:2]
+    assert res.getheader("Content-Range") == "bytes 0-1/%d" % len(data)
+    res, body = get(port, "/hall/clips/" + name, headers={"Range": "bytes=100-"})
+    assert res.status == 206 and body == data[100:] and res.getheader("Content-Length") == str(len(data) - 100)
+    res, body = get(port, "/hall/clips/" + name, headers={"Range": "bytes=%d-" % len(data)})
+    assert res.status == 416 and res.getheader("Content-Range") == "bytes */%d" % len(data)
+    # A compressed variant is never cut into ranges: the whole of it, as before.
+    res, body = get(port, "/hall/hall-engine.wasm", headers={"Accept-Encoding": "gzip", "Range": "bytes=0-1"})
+    assert res.status == 200 and res.getheader("Content-Encoding") == "gzip"
+
+
+def test_which_screens_play_their_trailer():
+    """tests/browser/hall_trailers_test.cjs (plain node): the nearest screens
+    in sight play, at most a few, kept a little past the edge of range."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_trailers_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+# ----------------------------------------------- popularity and the Hall of Fame
+
+
+def test_the_hall_of_fame_hangs_by_the_door_across_from_the_counter():
+    room = big_hall()["room"]
+    fame, counter = room["fame"], {s["text"]: s for s in room["signs"]}["CHANGE · PRIZES"]
+    # On the near wall, facing in, right of the door (the counter is left of it).
+    assert fame["facing"] == -1 and room["near"] - 0.1 < fame["z"] < room["near"]
+    assert fame["x"] - fame["w"] / 2 > room["door"][1] + 0.3 and counter["x"] < 0
+    assert fame["x"] + fame["w"] / 2 < room["halfWidth"]
+    # Up off the floor (over a lantern or a stool), under the ceiling, readable from the walkway.
+    assert 0.9 < fame["y"] - fame["h"] / 2 and fame["y"] + fame["h"] / 2 < room["height"] - 0.5
+    # Clear of every other sign on that wall.
+    for s in room["signs"]:
+        if abs(s["z"] - fame["z"]) < 0.6:
+            assert abs(s["x"] - fame["x"]) >= (s["w"] + fame["w"]) / 2, s["text"]
+
+
+def test_popularity_warmth_board_rows_and_values():
+    """tests/browser/hall_fame_test.cjs (plain node): which marquees glow
+    warmer, and what the Hall of Fame board lists."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_fame_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
 def test_the_card_shows_likes_and_boards_from_arcade_social(running):
     """tests/browser/hall_social_test.cjs (plain node) for the text; the page
     names arcade-social's URL and the card has a place for its line."""

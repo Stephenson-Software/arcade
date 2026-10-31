@@ -288,6 +288,24 @@
     mesh(screenSlot(i), q, screenSlot(i), 1 /* STRATA_MESH_UNLIT */);
   }
 
+  /* A cabinet's marquee, lit a little warmer (redder, brighter) the more its
+     game is played and liked (hall-fame.js warmth(): only the top few). */
+  function marqueeQuad(c, i) {
+    const [x0, y0, x1, y1, z] = layout.cabinet.marquee, fr = c.fr, q = new MeshBuilder();
+    const m = shade(c, DIM_MARQUEE), w = warmOf(c);
+    q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1),
+      [m * (1 + 0.12 * w), m * (1 - 0.03 * w), m * (1 - 0.28 * w)]);
+    mesh(marqueeSlot(i), q, marqueeSlot(i), 1 /* STRATA_MESH_UNLIT */);
+  }
+  const warmOf = (c) => (lit(c) ? c.warm || 0 : 0);
+  const WARM_GLOW = [1.0, 0.66, 0.30];
+  // The marquee's glow (a soft point above it): toward amber and stronger when warm.
+  function glowRow(c) {
+    const w = warmOf(c), base = c.colour.map((v) => 0.4 + 0.6 * v);
+    return base.map((v, k) => v + (WARM_GLOW[k] - v) * 0.5 * w);
+  }
+  const glowStrength = (c) => 0.16 * (1 + 0.6 * warmOf(c)) * shade(c, DIM_LIGHT);
+
   /* Attract mode (hall-life.js): now and then a screen shows its game's title
      card instead of its poster, the nearest screens shimmer faintly and the
      marquees' glow breathes. Nothing moves under reduced motion. */
@@ -298,7 +316,7 @@
     lifeAt = t;
     const cs = layout.cabinets;
     let k = HallLife.attract(t, cs.length);
-    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing || !lit(cs[k]))) k = -1;
+    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing || !lit(cs[k]) || (trailers && trailers.has(k)))) k = -1;
     if (k !== attractIdx) {
       if (attractIdx >= 0 && cs[attractIdx].posterPx) texture(screenSlot(attractIdx), SCREEN_TEX[0], SCREEN_TEX[1], cs[attractIdx].posterPx, TEX_MIPS | TEX_CLAMP);
       if (k >= 0) texture(screenSlot(k), SCREEN_TEX[0], SCREEN_TEX[1], cs[k].titlePx, TEX_MIPS | TEX_CLAMP);
@@ -307,7 +325,7 @@
     }
     cs.forEach((c, i) => {
       if (me && Math.hypot(c.x - me.x, c.z - me.z) < 8) screenQuad(c, i, HallLife.flicker(t, i));
-      scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i) * shade(c, DIM_LIGHT);
+      scenePoints[c.glowPoint][8] = glowStrength(c) * HallLife.pulse(t, i);
     });
     seasonLife(t);
     pushPoints();
@@ -353,15 +371,13 @@
       art.model(fr, model.art, colours, atlas.uv(i), full);
       const P = (x, y, z) => fr.p(x, y, z);
       c.glowPoint = points.length;
-      points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16 * shade(c, DIM_LIGHT)]);
+      points.push([...P(0, 2.15, 0.45), 0, 1.3, ...glowRow(c), glowStrength(c)]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
       c.titlePx = titleCard(c);
       texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], c.titlePx, TEX_MIPS | TEX_CLAMP);
       texture(marqueeSlot(i), MARQUEE_TEX[0], MARQUEE_TEX[1], marquee(c), TEX_MIPS | TEX_CLAMP);
       screenQuad(c, i, 1);
-      const [x0, y0, x1, y1, z] = cab.marquee, q = new MeshBuilder(), m = shade(c, DIM_MARQUEE);
-      q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1), [m, m, m]);
-      mesh(marqueeSlot(i), q, marqueeSlot(i), 1 /* STRATA_MESH_UNLIT */);
+      marqueeQuad(c, i);
     });
     scenePoints = points;
     mesh(ACCENT_SLOT, accent, -1, 1 /* STRATA_MESH_UNLIT */);
@@ -420,10 +436,70 @@
       mesh(slot, q, slot, 1);
       points.push([sg.x, sg.y, sg.z + 0.15 * sg.facing, 0, sg.w * (sg.neon ? 1.2 : 0.9), ...sg.colour, sg.neon ? 0.16 : 0.10]);
     });
+    if (room.fame) buildFame(room.fame, points);
     // A soft pool under each lit ceiling panel's light.
     for (const l of room.lights.slice(2)) points.push([l[0], l[1] + 0.4, l[2], 0, 1.5, ...st.panel, 0.18]);
   }
   const signSlot = (i) => 700 + i, CARPET_TILE = 1.6, CEILING_SLOT = 902;
+
+  /* -------------------------------------- popularity (hall-fame.js)
+     The Hall of Fame board by the door lists each leaderboard's best score;
+     the marquees of the most played and liked games glow a little warmer.
+     Both from public reads of arcade-social (<meta name="arcade-social">);
+     without it the board says the scores are resting and the marquees go by
+     plays alone. */
+  const FAME_SLOT = 905, FAME_TEX = [1024, 636];
+  const socialMeta = document.querySelector('meta[name="arcade-social"]');
+  const SOCIAL = socialMeta && /^https:\/\/[a-z0-9.-]+$/.test(socialMeta.content) ? socialMeta.content : null;
+  let fameView = {state: SOCIAL ? "loading" : "off", rows: [], games: []}, likes = null;
+  function drawFame() {
+    if (!layout.room.fame || typeof HallFame === "undefined") return;
+    const [w, h] = FAME_TEX, [, ctx] = canvas2d(w, h);
+    HallFame.draw(ctx, w, h, fameView);
+    texture(FAME_SLOT, w, h, pixels(ctx, w, h), TEX_MIPS | TEX_CLAMP);
+    state.fame = {state: fameView.state, rows: fameView.rows.length, games: fameView.games.length};
+  }
+  function buildFame(fm, points) {
+    drawFame();
+    const q = new MeshBuilder(), x0 = fm.x - fm.w / 2 * fm.facing, x1 = fm.x + fm.w / 2 * fm.facing;
+    const y0 = fm.y - fm.h / 2, y1 = fm.y + fm.h / 2;
+    q.quad([[x0, y0, fm.z], [x1, y0, fm.z], [x1, y1, fm.z], [x0, y1, fm.z]], [0, 0, fm.facing]);
+    mesh(FAME_SLOT, q, FAME_SLOT, 1 /* STRATA_MESH_UNLIT */);
+    points.push([fm.x, fm.y, fm.z + 0.2 * fm.facing, 0, fm.w * 1.1, 1.0, 0.78, 0.36, 0.12]);
+  }
+  async function loadFame() {
+    if (!SOCIAL || typeof HallFame === "undefined" || !layout.room.fame) return;
+    let store = null;
+    try { store = window.sessionStorage; } catch (e) { /* blocked */ }
+    const doc = await HallFame.load(SOCIAL, layout.cabinets, store);
+    const titles = new Map(layout.cabinets.map((c) => [c.slug, c.title]));
+    fameView = {state: doc.off ? "off" : "ready", rows: HallFame.champions(doc.found, layout.cabinets),
+      games: doc.games.map((s) => titles.get(s)).filter(Boolean), open: HallFame.open(doc.found, layout.cabinets)};
+    drawFame();
+  }
+  // The marquees' warmth, from plays (live, else the layout's) and likes.
+  function applyWarmth() {
+    if (typeof HallFame === "undefined" || !scenePoints) return;
+    const plays = {};
+    for (const c of layout.cabinets) plays[c.slug] = livePlays && livePlays[c.slug] != null ? livePlays[c.slug] : c.plays || 0;
+    const w = HallFame.warmth(plays, likes || {}), warm = {};
+    layout.cabinets.forEach((c, i) => {
+      const v = w[c.slug] || 0;
+      if (v) warm[c.slug] = v;
+      if (Math.abs((c.warm || 0) - v) < 0.01) return;
+      c.warm = v;
+      marqueeQuad(c, i);
+      const row = scenePoints[c.glowPoint];
+      row.splice(5, 4, ...glowRow(c), glowStrength(c));
+    });
+    rows(mod._hall_set_points, scenePoints);
+    state.warm = warm;
+  }
+  async function refreshLikes() {
+    if (!SOCIAL || typeof HallFame === "undefined") return;
+    const got = await HallFame.likes(SOCIAL);
+    if (got) { likes = got; applyWarmth(); }
+  }
   /* The carpet tile: hall.py's carpet_pattern() (make_hall_media.py draws
      the same): squiggles, rings, triangles, stars and confetti, wrapped so
      the tile repeats without seams. */
@@ -678,7 +754,7 @@
           ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
           const px = HallLife.scanlines(pixels(ctx, w, h), w, h);
           c.posterPx = px;
-          if (i !== attractIdx) texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
+          if (i !== attractIdx && !(trailers && trailers.shown(i))) texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
           c.glow = glowOf(px);
           setLights();
           state.posters++;
@@ -688,6 +764,65 @@
       img.onerror = () => { state.posterErrors++; resolve(); };
       img.src = c.poster;
     });
+  }
+
+  /* ------------------------------------- live screens (hall-trailers.js)
+     The nearest screens in sight play their game's trailer instead of the
+     poster: two at most, one on a phone or in economy (at 10 fps there), none
+     under reduced motion. Each frame goes through the same scanlines as the poster. */
+  let trailers = null, trailersAt = -1;
+  const TRAILER_PICK_MS = 250, TRAILER_LITE_S = 0.1;
+  const trailerMax = () => (reducedMotion ? 0 : economy || touchFirst ? 1 : 2);
+  function startTrailers() {
+    if (typeof HallTrailers === "undefined" || params.get("trailers") === "0") return;
+    trailers = HallTrailers.screens({
+      cabinet: (i) => layout.cabinets[i],
+      upload(i, w, h, rgba) {
+        const t0 = performance.now();
+        HallLife.scanlines(rgba, w, h);
+        texture(screenSlot(i), w, h, rgba, TEX_MIPS | TEX_CLAMP);
+        // What a frame of a trailer costs the page (ms, smoothed), for tools that watch the frame rate.
+        state.trailerMs = +(0.9 * (state.trailerMs || 0) + 0.1 * (performance.now() - t0)).toFixed(2);
+      },
+      restore(i) {
+        const c = layout.cabinets[i], px = i === attractIdx ? c.titlePx : c.posterPx || c.titlePx;
+        texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], px, TEX_MIPS | TEX_CLAMP);
+      },
+    });
+  }
+  function stepTrailers(now) {
+    if (!trailers) return;
+    if (now - trailersAt >= TRAILER_PICK_MS || trailersAt < 0) {
+      trailersAt = now;
+      trailers.want(HallTrailers.pick(me, layout.cabinets, {max: trailerMax(), playing: trailers.playing}));
+      state.trailers = trailers.playing.map((i) => layout.cabinets[i].slug);
+    }
+    // On a phone or in economy, ten frames a second of the clip's fifteen.
+    trailers.draw(now, economy || touchFirst ? TRAILER_LITE_S : HallTrailers.FRAME_S);
+    state.trailerHow = trailers.how;
+  }
+  /* The cabinets' own sounds (hall-life.js): with Sound on, the nearest few
+     each play their attract loop, placed by where they stand from the
+     visitor (louder near, panned to their side, muffled from behind). */
+  const VOICES_MAX = 3, VOICES_LITE = 2, VOICE_MS = 100;
+  let voicesAt = -1;
+  function stepVoices(now) {
+    if (!hum.running || now - voicesAt < VOICE_MS) return;
+    voicesAt = now;
+    const heard = [];
+    for (const c of layout.cabinets) {
+      if (!c.deployed || !lit(c)) continue;
+      const sp = HallLife.spatial(me, c);
+      if (sp.gain > 0.002) heard.push(Object.assign(sp, {id: c.slug, c}));
+    }
+    heard.sort((a, b) => b.gain - a.gain);
+    const list = heard.slice(0, economy || touchFirst ? VOICES_LITE : VOICES_MAX);
+    for (const v of list) v.tune = v.c.tune || (v.c.tune = HallLife.tune(v.c));
+    hum.cabinets(list);
+    state.voices = list.map((v) => ({slug: v.id, gain: +v.gain.toFixed(3), pan: +v.pan.toFixed(2), muffle: v.muffle, wave: v.tune.wave}));
+  }
+  function pauseTrailers() {
+    if (trailers) trailers.pause(document.hidden || !!playing);
   }
 
   /* ------------------------------------------------- where you stand */
@@ -807,6 +942,7 @@
         $("back").focus();
         kit.running = false;  // the hall rests under the game
         hum.pause(true);
+        pauseTrailers();
         state.lastShown = playing.slug;
         startPadLoop();
         if (padSeen) toast("Hold B (or press View) to come back to the hall");
@@ -817,6 +953,7 @@
         state.lastBack = playing ? playing.slug : null;
         hum.pause(document.hidden);
         playing = null;
+        pauseTrailers();
         document.body.classList.remove("moving");
         if (standAt) Object.assign(kit.cam, {yaw: standAt.yaw, pitch: standAt.pitch, tx: standAt.x, ty: standAt.y, tz: standAt.z});
         canvas.focus({preventScroll: true});
@@ -865,7 +1002,10 @@
     window.addEventListener("pointerdown", first, {once: true, capture: true});
     window.addEventListener("keydown", first, {once: true, capture: true});
   }
-  document.addEventListener("visibilitychange", () => hum.pause(document.hidden || document.body.classList.contains("playing")));
+  document.addEventListener("visibilitychange", () => {
+    hum.pause(document.hidden || document.body.classList.contains("playing"));
+    pauseTrailers();
+  });
   showSound();
   // "Open full page": a short fade before the page goes.
   $("player-open").addEventListener("click", (e) => {
@@ -1229,6 +1369,8 @@
     }
     if (input) me = W.step(me, input, dt, world);
     near = W.near(me, layout);
+    stepTrailers(now);
+    stepVoices(now);
     let eye = W.EYE;
     if (bobOn && !reducedMotion && me.speed > 0.05) {
       bobPhase += dt * 2 * Math.PI * (1.5 + 0.25 * me.speed);
@@ -1379,6 +1521,7 @@
       for (const g of doc.games || []) map[g.slug] = g.plays || 0;
       livePlays = map;
       state.livePlays = true;
+      applyWarmth();
       if (cardFor) { const c = cardFor; cardFor = null; showCard(c); }
     } catch (e) { /* the layout's counts stand */ }
   }
@@ -1534,10 +1677,15 @@
     }
     canvas.focus({preventScroll: true});
     queuePosters();
+    startTrailers();
     const savedMap = StrataKit.store.get(MAP_KEY);
     showMap(savedMap != null ? savedMap === "1" : !touchSeen, false);
+    applyWarmth();
     refreshPlays();
     setInterval(() => { if (!document.hidden) refreshPlays(); }, 60000);
+    // arcade-social's reads, once the hall has settled: likes (every few minutes) and the board.
+    setTimeout(() => { refreshLikes(); loadFame(); }, 2500);
+    setInterval(() => { if (!document.hidden) refreshLikes(); }, 300000);
     savePlace();
   }
 
@@ -1554,6 +1702,7 @@
     get filter() { return layout && layout.filter ? Object.assign({}, layout.filter, {lit: layout.cabinets.filter(lit).map((c) => c.slug)}) : null; },
     economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
+    get trailers() { return trailers ? trailers.playing.map((i) => ({slug: layout.cabinets[i].slug, shown: trailers.shown(i)})) : []; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) {

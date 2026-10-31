@@ -73,6 +73,31 @@ _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
 # registered in arcade.precompress, which the store shares.
 
 
+_RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def byteRange(header, size):
+    """The (first, last) byte a Range header asks for, both inclusive; None to
+    send the whole file (no header, or one this does not handle: several
+    ranges, another unit); "unsatisfiable" when it starts past the end."""
+    m = _RANGE.match((header or "").strip())
+    if not m or (not m.group(1) and not m.group(2)):
+        return None
+    if not m.group(1):
+        # The last N bytes.
+        n = int(m.group(2))
+        if n == 0:
+            return "unsatisfiable"
+        return (max(0, size - n), size - 1) if size else "unsatisfiable"
+    start = int(m.group(1))
+    if start >= size:
+        return "unsatisfiable"
+    end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+    if end < start:
+        return None
+    return (start, end)
+
+
 def log(message):
     print("[arcade] %s" % message, file=sys.stderr, flush=True)
 
@@ -403,10 +428,12 @@ def makeHandler(arcade):
         def _file(self, slug, version, name, contentType):
             self._stream(arcade.store.filePath(slug, version, name), contentType, '"%s-%s"' % (version, name))
 
-        def _stream(self, path, contentType, etag, extra=(), backfill=True):
+        def _stream(self, path, contentType, etag, extra=(), backfill=True, ranges=False):
             """Send a stored file - or its .br/.gz sibling, if the client
             accepts it - in chunks, never read whole. False if it is missing
-            (a 404 has been sent)."""
+            (a 404 has been sent). With `ranges`, an uncompressed file also
+            answers a single byte range (Safari plays a video only from a
+            server that does: the hall's trailer clips)."""
             canCompress = precompress.compressible(contentType)
             # The hall's files ship in the image, read-only: their .gz copies
             # are made by hall3d/build.sh, never at run time.
@@ -440,7 +467,24 @@ def makeHandler(arcade):
                 if self.headers.get("If-None-Match") == etag:
                     self._notModified(headers)
                     return True
-                self.send_response(200)
+                span = None
+                if ranges and encoding is None:
+                    headers.append(("Accept-Ranges", "bytes"))
+                    span = byteRange(self.headers.get("Range"), size)
+                    if span == "unsatisfiable":
+                        self.send_response(416)
+                        self.send_header("Content-Range", "bytes */%d" % size)
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return True
+                if span:
+                    start, end = span
+                    served.seek(start)
+                    self.send_response(206)
+                    self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+                    size = end - start + 1
+                else:
+                    self.send_response(200)
                 self.send_header("Content-Type", contentType)
                 self.send_header("Content-Length", str(size))
                 for name, value in headers:
@@ -449,10 +493,12 @@ def makeHandler(arcade):
                     self.send_header("Link", '<%s>; rel="canonical"' % self.canonical)
                 self.end_headers()
                 if self.command != "HEAD":
-                    while True:
-                        chunk = served.read(precompress.CHUNK_BYTES)
+                    left = size
+                    while left > 0:
+                        chunk = served.read(min(precompress.CHUNK_BYTES, left))
                         if not chunk:
                             break
+                        left -= len(chunk)
                         self.wfile.write(chunk)
             return True
 
@@ -605,7 +651,7 @@ def makeHandler(arcade):
             if stored is None:
                 self._text(404, "Not found")
                 return
-            self._stream(stored, precompress.guessType(name), '"%s"' % hall.etag(stored), backfill=False)
+            self._stream(stored, precompress.guessType(name), '"%s"' % hall.etag(stored), backfill=False, ranges=True)
 
         # --- walk replays (RFC 0030 §3) ----------------------------------
 

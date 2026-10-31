@@ -81,4 +81,53 @@ test("a jack-o'-lantern's flame flickers, never goes out, and each its own way",
   assert.notStrictEqual(L.candle(5, 0).toFixed(3), L.candle(5, 1).toFixed(3));
 });
 
+test("each cabinet's loop is its own, the same every visit, and flavoured by its game", () => {
+  const a = L.tune({slug: "apex"}), b = L.tune({slug: "apex"}), c = L.tune({slug: "orrery"});
+  assert.deepStrictEqual(a, b);
+  assert.notDeepStrictEqual(a.notes, c.notes);
+  const text = L.tune({slug: "tidewater", engine: "tak"});
+  assert.strictEqual(text.wave, "triangle");
+  assert.ok(text.bpm < 95, `text bpm ${text.bpm}`);
+  assert.deepStrictEqual(text.scale.slice(0, 3), [0, 3, 5], "minor");
+  assert.deepStrictEqual(L.tune({slug: "familiar", tags: ["halloween"]}).scale.slice(0, 3), [0, 3, 5]);
+  const slugs = ["apex", "roam", "orrery", "kindling", "sisyphus", "steading", "atman", "microbiome", "ophidian", "interakt"];
+  const waves = new Set(slugs.map((s) => L.tune({slug: s}).wave));
+  assert.ok(waves.size >= 2, "more than one flavour");
+  for (const s of slugs.concat(["tidewater", "fishe", ""])) {
+    const t = L.tune({slug: s, engine: s === "fishe" ? "tak" : "other"});
+    assert.strictEqual(t.notes.length, 32);
+    assert.strictEqual(t.notes[0], 0, "starts on the root");
+    const sounding = t.notes.filter((n) => n >= 0).length;
+    assert.ok(sounding >= 3 && sounding <= 24, `${s}: ${sounding} notes`);
+    for (let k = 0; k < 32; k++) {
+      const hz = L.noteHz(t, k);
+      assert.ok(hz === 0 || (hz > 50 && hz < 2000), `${s} note ${k}: ${hz}`);
+    }
+    assert.ok(t.bpm >= 70 && t.bpm <= 140);
+  }
+});
+
+test("a cabinet is heard louder near, to its side, muffled from behind, and not across the hall", () => {
+  const cab = {x: 0, z: 0, angle: 0};  // screen (and speaker) faces +z
+  const front = (d, yaw = Math.PI / 2) => L.spatial({x: 0, z: 0.4 + d, yaw}, cab);
+  assert.ok(front(1).gain > front(3).gain && front(3).gain > front(6).gain);
+  assert.ok(front(0.6).gain > 0.85 && front(0.6).gain <= 1);
+  assert.strictEqual(front(L.HEAR + 0.1).gain, 0);
+  assert.ok(Math.abs(front(2).pan) < 1e-9, "dead ahead is centred");
+  // Standing in front, looking along -x (yaw 0): the cabinet is on the right.
+  assert.ok(L.spatial({x: 0, z: 2, yaw: 0}, cab).pan > 0.5);
+  assert.ok(L.spatial({x: 0, z: 2, yaw: Math.PI}, cab).pan < -0.5);
+  // From behind its back, as far from its speaker: quieter and muffled.
+  const behind = L.spatial({x: 0, z: -1.6, yaw: -Math.PI / 2}, cab);
+  assert.strictEqual(behind.muffle, 1);
+  assert.ok(behind.gain < front(2).gain * 0.6, `behind ${behind.gain}`);
+  assert.strictEqual(front(2).muffle, 0);
+});
+
+test("without WebAudio the cabinets are silent too, and say so", () => {
+  const h = L.hum();
+  assert.strictEqual(h.cabinets([{id: "apex", tune: L.tune({slug: "apex"}), gain: 1, pan: 0, muffle: 0}]), 0);
+  assert.deepStrictEqual(h.voices, []);
+});
+
 process.exit(failures ? 1 : 0);
