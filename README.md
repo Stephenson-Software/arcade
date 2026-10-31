@@ -253,9 +253,11 @@ the portal keep their lists, and link here with "Walk the hall".
   was. A *Hall of Fame* board on the wall right of the door, across from the counter, lists the best score
   on each game's leaderboard (player, game, board, value; at most six, most played games first) and the
   games whose boards nobody has topped yet. Both come from arcade-social's public reads
-  (`GET /v1/likes/counts`, `GET /v1/games/<slug>/boards`, `GET /v1/boards/<slug>/<board>?limit=1`), at
-  the URL in `<meta name="arcade-social">`, sent without credentials, a few at a time, a moment after the
-  hall loads. The board's data is kept in `sessionStorage` for ten minutes (public data only: the
+  (`GET /v1/likes/counts` and `GET /v1/boards/top`, every board's #1 in one request), at the URL in
+  `<meta name="arcade-social">`, sent without credentials, a moment after the hall loads. Against an
+  arcade-social without `/v1/boards/top` (a 404, which reaches the page as a network error since it has
+  no CORS headers) the board falls back to `GET /v1/games/<slug>/boards` and
+  `GET /v1/boards/<slug>/<board>?limit=1` per game, a few at a time; a 429 or 5xx does not fall back. The board's data is kept in `sessionStorage` for ten minutes (public data only: the
   names are the display names the boards already show), so walking round never asks twice. Without
   arcade-social, or when it is down, the board says the scores are resting and the marquees go by plays.
 - **Seasons.** `src/arcade/seasons.py` dresses the hall by the date in America/Denver: from October 20
