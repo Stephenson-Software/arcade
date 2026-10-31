@@ -964,3 +964,39 @@ def test_which_screens_play_their_trailer():
         timeout=120,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+# ----------------------------------------------- popularity and the Hall of Fame
+
+
+def test_the_hall_of_fame_hangs_by_the_door_across_from_the_counter():
+    room = big_hall()["room"]
+    fame, counter = room["fame"], {s["text"]: s for s in room["signs"]}["CHANGE · PRIZES"]
+    # On the near wall, facing in, right of the door (the counter is left of it).
+    assert fame["facing"] == -1 and room["near"] - 0.1 < fame["z"] < room["near"]
+    assert fame["x"] - fame["w"] / 2 > room["door"][1] + 0.3 and counter["x"] < 0
+    assert fame["x"] + fame["w"] / 2 < room["halfWidth"]
+    # Up off the floor (over a lantern or a stool), under the ceiling, readable from the walkway.
+    assert 0.9 < fame["y"] - fame["h"] / 2 and fame["y"] + fame["h"] / 2 < room["height"] - 0.5
+    # Clear of every other sign on that wall.
+    for s in room["signs"]:
+        if abs(s["z"] - fame["z"]) < 0.6:
+            assert abs(s["x"] - fame["x"]) >= (s["w"] + fame["w"]) / 2, s["text"]
+
+
+def test_popularity_warmth_board_rows_and_values():
+    """tests/browser/hall_fame_test.cjs (plain node): which marquees glow
+    warmer, and what the Hall of Fame board lists."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_fame_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr

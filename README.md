@@ -247,6 +247,17 @@ the portal keep their lists, and link here with "Walk the hall".
   triangle-wave figure, a Halloween game a minor one, the rest a brighter pulse, bell or bass arpeggio),
   two bars on and two off. Each is placed where the cabinet stands: louder near (silent past about 11 m),
   panned to the side it is on as the visitor turns, and quieter and muffled from behind it.
+- **Popularity in the room.** The marquees of the most played games (and, once there are enough likes,
+  the most liked: likes weigh up to a third, in full from 30 likes in all) glow a little warmer: redder
+  and brighter, with an amber glow above them. Only the top end warms; the middle of the field is as it
+  was. A *Hall of Fame* board on the wall right of the door, across from the counter, lists the best score
+  on each game's leaderboard (player, game, board, value; at most six, most played games first) and the
+  games whose boards nobody has topped yet. Both come from arcade-social's public reads
+  (`GET /v1/likes/counts`, `GET /v1/games/<slug>/boards`, `GET /v1/boards/<slug>/<board>?limit=1`), at
+  the URL in `<meta name="arcade-social">`, sent without credentials, a few at a time, a moment after the
+  hall loads. The board's data is kept in `sessionStorage` for ten minutes (public data only: the
+  names are the display names the boards already show), so walking round never asks twice. Without
+  arcade-social, or when it is down, the board says the scores are resting and the marquees go by plays.
 - **Seasons.** `src/arcade/seasons.py` dresses the hall by the date in America/Denver: from October 20
   to November 1, Halloween (jack-o'-lanterns that flicker by the door and on the counter, cobwebs in the
   ceiling corners, warmer, more orange light, and a banner for Familiar over the walkway in from the

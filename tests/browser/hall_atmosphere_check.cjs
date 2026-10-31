@@ -44,6 +44,37 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
       return {rms: +Math.sqrt(sum / n).toFixed(4), peak: +peak.toFixed(3)};
     };
   });
+  // arcade-social: the page names it in <meta name="arcade-social"> and allows it
+  // in connect-src (arcade PR #59, feat/hall-social); added here when the hall
+  // under test predates that. opts.fake answers its boards with made-up scores.
+  const API = "https://api.play.danielstephenson.dev";
+  await ctx.route((u) => new URL(u).pathname.match(/\/hall\/(index\.html)?$/), async (route) => {
+    const res = await route.fetch();
+    let body = await res.text();
+    if (!body.includes('name="arcade-social"')) body = body.replace("</head>", `<meta name="arcade-social" content="${API}">\n</head>`);
+    const headers = Object.assign({}, res.headers());
+    for (const k of Object.keys(headers)) {
+      if (k.toLowerCase() === "content-security-policy" && !headers[k].includes(API)) headers[k] = headers[k].replace("connect-src 'self'", `connect-src 'self' ${API}`);
+    }
+    await route.fulfill({response: res, body, headers});
+  });
+  if (opts.fake) {
+    await ctx.route(API + "/v1/**", async (route) => {
+      const p = new URL(route.request().url()).pathname;
+      const decl = {
+        roam: [{id: "most-days", title: "Most days in one world", unit: "days", integer: true}, {id: "most-rooms", title: "Most rooms explored", unit: "rooms", integer: true}],
+        "frog-hopper": [{id: "fastest-crossing", title: "Fastest crossing", unit: "seconds"}],
+        "rock-paper-scissors": [{id: "best-streak", title: "Best streak", unit: "wins", integer: true}],
+      };
+      const top = {"roam/most-days": ["Wren", 212], "roam/most-rooms": ["Otto", 1840], "frog-hopper/fastest-crossing": ["Marisol", 7.25], "rock-paper-scissors/best-streak": ["Scout", 14]};
+      let body = null, m;
+      if ((m = p.match(/^\/v1\/games\/([a-z0-9-]+)\/boards$/))) body = {boards: decl[m[1]] || []};
+      else if ((m = p.match(/^\/v1\/boards\/([a-z0-9-]+)\/([a-z0-9-]+)$/))) { const t = top[m[1] + "/" + m[2]]; body = {entries: t ? [{displayName: t[0], value: t[1], rank: 1}] : []}; }
+      else if (p === "/v1/likes/counts") body = {roam: 12, tidewater: 9, apex: 2};
+      if (!body) return route.continue();
+      await route.fulfill({status: 200, contentType: "application/json", headers: {"access-control-allow-origin": "*"}, body: JSON.stringify(body)});
+    });
+  }
   const page = await ctx.newPage();
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text().slice(0, 200)); });
@@ -61,6 +92,8 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
     warm: __hall.state.warm || null, fame: __hall.state.fame || null, trailerMs: __hall.state.trailerMs || 0,
   }));
   r.fps = +((await page.evaluate(() => __hall.state.frames) - f0) / ((Date.now() - t0) / 1000)).toFixed(1);
+  r.profile = name;
+  await page.screenshot({path: path.join(out, `${name}.png`)});
   if (opts.sound) {
     r.loud = await page.evaluate(() => window.__rms(6000));
     // From the middle of the far walkway, by the wall: the cabinets fade, the hum stays.
@@ -70,15 +103,17 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
     r.voicesFar = await page.evaluate(() => __hall.state.voices);
     await page.evaluate((s) => __hall.walkTo(s), opts.at || "tidewater");
   }
-  r.profile = name;
-  r.errors = errors.slice(0, 5);
-  await page.screenshot({path: path.join(out, `${name}.png`)});
   if (opts.fame) {
+    // From inside the door, down the hall: the warm marquees of the most played.
+    await page.evaluate(() => __hall.place(-1.0, 3.2, Math.PI / 2 - 0.25, -0.05));
+    await page.waitForTimeout(2500);
+    await page.screenshot({path: path.join(out, `${name}-door.png`)});
     // Turn round to face the door: the Hall of Fame board beside it.
     await page.evaluate((at) => __hall.place(at.x, at.z, at.yaw, 0.02), opts.fame);
     await page.waitForTimeout(3000);
     await page.screenshot({path: path.join(out, `${name}-fame.png`)});
   }
+  r.errors = errors.slice(0, 5);
   await ctx.close();
   return r;
 }
@@ -89,8 +124,9 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
   const b = await chromium.launch({args: GL});
   const results = [];
   const desk = {viewport: {width: 1024, height: 640}};
-  const fame = {x: 3.6, z: 1.2, yaw: -Math.PI / 2};
+  const fame = {x: 4.2, z: 1.3, yaw: -Math.PI / 2};
   results.push(await run(b, hallUrl, out, "desktop", desk, "", {sound: true, fame}));
+  results.push(await run(b, hallUrl, out, "desktop-fake-scores", desk, "", {fame, fake: true, wait: 4000}));
   if (only === "desktop") { console.log(JSON.stringify(results[0])); await b.close(); return; }
   results.push(await run(b, hallUrl, out, "iphone13", devices["iPhone 13"], "", {sound: true, fame}));
   results.push(await run(b, hallUrl, out, "economy", desk, "&economy=1", {sound: true}));

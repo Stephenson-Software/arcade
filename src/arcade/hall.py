@@ -349,6 +349,10 @@ def room_for(count, style=None):
         "thingParts": hall_model.things(),
         "ceilingTile": ceiling_tile_size(),
         "signs": signs,
+        # The Hall of Fame: a board on the wall right of the door, across from
+        # the counter, that hall.js fills with each leaderboard's best score.
+        "fame": {"x": round(DOOR_HALF_WIDTH + 3.3, 4), "y": 1.95, "z": round(near - 0.04, 4), "w": 2.9, "h": 1.8,
+                 "facing": -1},
         "lights": [[round(v, 4) for v in l] for l in lights],
         "obstacles": [[round(v, 4) for v in o] for o in obstacles],
         "style": dict(st, pattern=carpet_pattern()),
