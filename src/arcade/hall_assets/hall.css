@@ -246,3 +246,25 @@ body.touch:has(.sk-slow) #toast { bottom: calc(max(24px, env(safe-area-inset-bot
 body:not(.touch) .sk-slow { left: auto !important; transform: none !important; right: max(16px, env(safe-area-inset-right));
   bottom: max(24px, env(safe-area-inset-bottom)) !important; max-width: min(460px, calc(50vw - 140px)) !important; }
 body:not(.touch):has(.sk-slow) #help { max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - 52px - max(24px, env(safe-area-inset-bottom)) - 96px); }
+
+/* "You're visible" (hall-presence.js): while the visitor is shown to others, a pill in the
+   bar, whatever is open; a dot alone (44 px) on a narrow screen. */
+#bar #visible-pill { flex: none; gap: 7px; max-width: 30vw; white-space: nowrap; border-color: rgba(120, 230, 160, .55); }
+#bar #visible-pill[hidden] { display: none; }
+#visible-pill .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #6fe39a;
+  box-shadow: 0 0 0 3px rgba(111, 227, 154, .22); }
+#visible-pill .label { overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  #bar #visible-pill { padding: 0; width: 40px; justify-content: center; }
+  #bar #visible-pill .label { display: none; }
+}
+body.touch #bar #visible-pill { min-height: 44px; min-width: 44px; }
+/* With the pill, a phone's bar holds six controls: a little tighter again, so none leaves the screen. */
+@media (max-width: 480px) {
+  body.visible-me #bar { gap: 4px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  body.visible-me #bar a, body.visible-me #bar #sound, body.visible-me #bar #map-btn { padding: 0 7px; }
+}
+@media (max-width: 400px) {
+  body.visible-me #bar #leave { font-size: 13px; }
+  body.visible-me #bar #sound, body.visible-me #bar #map-btn { font-size: 13px; }
+}

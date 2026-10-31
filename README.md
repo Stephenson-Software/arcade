@@ -292,7 +292,11 @@ the portal keep their lists, and link here with "Walk the hall".
   and then only moved by `hall_pose_meshes` in `hall3d/main.cpp`). At most 12 are drawn (6 on a phone or
   in economy): live players first, then replays, then ghosts, nearest first; names for the nearest 6 (3)
   within 14 m; nothing beyond 30 m. Figures are never obstacles, and under reduced motion they neither bob
-  nor sway.
+  nor sway. A tap or a click on a figure (or, on a desktop, the mouse over it) shows its caption for a
+  few seconds, past those limits: a live player's display name, "A recent visitor" for a ghost, "A walk
+  from today" for a replay; a tap anywhere else walks or plays as before. The map shows them too: a dot
+  in their colour for each live player, a faint one for each ghost or replay, only for the layers the
+  settings show.
 - **Seeing each other, opt-in** (`hall-presence.js`). Watching needs no account: while the hall is
   visible and **See other people** (in the settings, on by default) is on, it asks arcade-social who is
   here (`GET /v1/presence?layout=<key>`, without credentials): once a second while anyone is, every 10 s
@@ -308,7 +312,10 @@ the portal keep their lists, and link here with "Walk the hall".
   and the hall stores nothing about other people (the only things kept in the browser are the "See other
   people" choice in `localStorage` and, for 10 minutes around a sign-in, the wish to be shown in
   `sessionStorage`). A visitor never sees their own figure. When arcade-social is down the hall is
-  exactly as it was, with nobody in it.
+  exactly as it was, with nobody in it. While **Show me in the hall** is on, a pill in the bar says so
+  ("Visible as <display name>"; a green dot alone on a narrow screen, with the full sentence for a screen
+  reader), whatever is open, and a tap on it opens the People settings; the name is the one
+  `GET /v1/session` already returns, and nothing more is fetched or kept for it.
 - **Ghosts of recent visitors.** Anonymous, translucent figures drift in through the door, walk the
   aisles (routed round the cabinets, the stage and the counter on `hall-walk.js`'s floor plan), stand at a
   cabinet for 20 to 90 seconds as if playing (a busy cabinet can also have one watching beside it), then
