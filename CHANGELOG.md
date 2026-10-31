@@ -15,6 +15,15 @@ All notable changes to this project are documented in this file. The format is b
   the door, walk round the cabinets to the busy ones, stand there as if playing and leave, for
   `hall-people.js` to draw; they stand still under reduced motion. Settings has "Show ghosts of recent
   visitors" (on by default).
+- Walk replays in the hall (RFC 0030 §3), opt-in. "Share my walk anonymously" in the hall's settings
+  (off by default) records a coarse outline of the visit (a point every 0.5 s of walking, rounded to
+  0.25 m, at most 60 s, and the cabinets walked up to) and sends it once, when the page is left or a
+  game opens. `POST /api/walks` checks it strictly, re-clamps every point to walkable floor (a Python
+  port of `hall-walk.js`'s collision, `src/arcade/walks.py`) and keeps it under the UTC day with no
+  identifiers: at most 200 a day (a random sample), 7 days. "The hall today" (in the help panel, shown
+  only when there are at least 10 walks; `/hall/?replay=today`) plays a sample back as grey figures
+  through `HallPeople`, re-anchored to each cabinet by slug when the cabinets have moved since.
+  `layout.json` gains `layoutKey`, a hash of the cabinets' order. See the README's privacy notes.
 
 - Filter mode. The registry takes optional `tags:` (theme tags, a flow list, parsed strictly) and
   `engine:` (`strata`, `tak`, `sdl` or `other`; a tak game is always `tak`, a static game defaults to

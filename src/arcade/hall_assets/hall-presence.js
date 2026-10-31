@@ -20,7 +20,7 @@
    (null elsewhere). arcade-social keeps it in memory for 10 s; nothing
    else about the visitor is sent.
 
-   The layout key (HallPeople.layoutKey of the hall's cabinet order) keeps
+   The layout key (layout.json's layoutKey, else HallPeople.layoutKey of the cabinet order) keeps
    poses to halls whose cabinets stand in the same places.
 
    The pure parts are tested under node (tests/browser/hall_presence_test.cjs):
@@ -117,6 +117,7 @@
 
   function layoutKey() {
     const l = root.__hall && root.__hall.layout;
+    if (l && typeof l.layoutKey === "string" && /^[0-9a-f]{16}$/.test(l.layoutKey)) return l.layoutKey;  // the server's (walk replays use it too)
     return l && root.HallPeople ? root.HallPeople.layoutKey(l.cabinets.map((c) => c.slug)) : null;
   }
   // Back to this spot after signing in: the hall keeps the visitor's place in the hash.
