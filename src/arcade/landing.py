@@ -113,7 +113,17 @@ footer { margin-top: 2.5rem; font-size: .85rem; color: var(--muted); }
 footer a { color: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
   white-space: nowrap; border: 0; }
-.filters { margin: 0 0 1.75rem; }
+.filterbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .25rem 1rem; margin: 0 0 1.25rem; }
+.filters { flex: 1 1 18rem; min-width: 0; }
+.filters summary { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; min-height: 44px; cursor: pointer;
+  color: var(--accent); font-weight: 600; list-style: none; }
+.filters summary::-webkit-details-marker { display: none; }
+.filters summary::before { content: "\\25B8"; display: inline-block; transition: transform .15s; }
+.filters[open] summary::before { transform: rotate(90deg); }
+.filters[open] summary { margin-bottom: .6rem; }
+.filters summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.filters .applied { color: var(--muted); font-weight: 400; }
+@media (prefers-reduced-motion: reduce) { .filters summary::before { transition: none; } }
 .facet { margin: 0 0 .9rem; }
 .facet-name { display: block; font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--muted); margin: 0 0 .35rem; }
@@ -127,7 +137,7 @@ a.chip .n { font-size: .8rem; color: var(--muted); }
 a.chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg);
   font-weight: 600; }
 a.chip[aria-current="true"] .n { color: inherit; }
-a.chip[aria-current="true"]::before { content: "\2713"; }
+a.chip[aria-current="true"]::before { content: "\\2713"; }
 a.chip:focus-visible, a.clear:focus-visible, .shown a:focus-visible { outline: 3px solid var(--accent);
   outline-offset: 3px; }
 a.clear { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 600; }
@@ -198,9 +208,15 @@ def _filterPanel(escape, facetValues, chosen):
         'Order</span><ul class="chips">%s</ul></div>' % "".join(sorts)
     )
     clear = '<a class="clear" href="/">Clear filters</a>' if chosen.active or chosen.sort != "name" else ""
+    # Collapsed by default so the games come first; the summary says what is
+    # applied, and "Clear filters" stays outside the fold so it is always one tap.
+    applied = chosen.summary()
+    if chosen.sort != "name":
+        applied = ", ".join(x for x in (applied, filters.SORT_LABELS[chosen.sort]) if x)
+    note = ' <span class="applied">%s</span>' % escape(applied) if applied else ""
     return (
-        '<section class="filters" aria-labelledby="filters-h"><h2 class="sr-only" id="filters-h">Filter and sort '
-        "the games</h2>%s%s</section>" % ("".join(groups), clear)
+        '<div class="filterbar"><details class="filters"><summary><span id="filters-h">Filter and sort</span>%s'
+        "</summary>%s</details>%s</div>" % (note, "".join(groups), clear)
     )
 
 

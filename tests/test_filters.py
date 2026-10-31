@@ -169,6 +169,20 @@ def test_the_landing_page_has_chips_for_every_facet_and_order():
     assert 'role="group" aria-labelledby="facet-engine"' in page
 
 
+def test_the_filter_panel_is_folded_away_so_the_games_come_first():
+    for query in ("", "tag=halloween", "sort=plays"):
+        page = render(query)
+        # A closed <details>: the chips are one tap away, not in front of the games.
+        assert '<details class="filters"><summary>' in page, query
+        assert "<details class=\"filters\" open" not in page, query
+        assert page.index('<details class="filters">') < page.index('id="games-h"'), query
+    # The folded summary says what is applied, and Clear filters stays outside the fold.
+    page = render("tag=halloween&sort=plays")
+    assert '<span id="filters-h">Filter and sort</span> <span class="applied">Halloween, Most played</span>' in page
+    assert page.index("</details>") < page.index('<a class="clear" href="/">Clear filters</a>')
+    assert '<span class="applied">' not in render()
+
+
 def test_the_server_renders_the_filtered_list_without_script():
     page = render("tag=halloween")
     assert listed(page) == ["Familiar"]

@@ -95,6 +95,10 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
+- The list page puts the games first: Filter and sort is folded into one line (a closed `<details>`)
+  that names what is applied ("Halloween, Most played"), with Clear filters beside it, so a filtered
+  link such as `/?tag=halloween` opens on the games rather than on rows of chips.
+
 - The Hall of Fame board reads every board's #1 from arcade-social's `GET /v1/boards/top` in one request,
   instead of one request per game and one per board (about 36 per tab every ten minutes). Against an
   arcade-social without that route it falls back to the per-game reads.
@@ -109,6 +113,9 @@ All notable changes to this project are documented in this file. The format is b
   allow) and is pre-rendered, so nothing 3D runs on the landing page.
 
 ### Fixed
+
+- The tick on the chosen filter chip and order showed as stray characters ("¹3 A–Z"): the CSS escape
+  `"\2713"` sat in a plain Python string, which read it as an octal escape. It is now escaped for CSS.
 
 - A registry file that does not exist or cannot be read is reported by `routers`, `hosts`,
   `check-registry` and `serve` as one `arcade: <message>` line on stderr (exit status 1, as before)
