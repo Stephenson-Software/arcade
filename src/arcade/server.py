@@ -40,7 +40,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, filters, hall, landing, precompress, registry as registryModule, routers
+from arcade import __version__, activity, bundle, filters, hall, landing, precompress, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -504,6 +504,20 @@ def makeHandler(arcade):
                 if chosen.sort != "name":
                     described = chosen.order(described)
                 self._json(200, {"games": described}, public=True)
+                return
+            if read and path == "/api/activity":
+                # The hall's ghosts: a 0..4 level per game, never a count (RFC 0030 §2.2).
+                doc = activity.document(
+                    [game.slug for game in arcade.registry.registry],
+                    lambda slug: arcade.store.recentPlays(slug, activity.WINDOW_DAYS),
+                )
+                body = (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
+                maxAge = activity.maxAge(datetime.datetime.now(datetime.timezone.utc))
+                headers = (
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Cache-Control", "public, max-age=%d" % maxAge),
+                )
+                self._send(200, body, "application/json", headers=headers)
                 return
             match = _API_GAME.match(path)
             if match and read:

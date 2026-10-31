@@ -83,7 +83,7 @@
      Storage may be missing or throw (a private window, blocked site data);
      the hall then runs on the defaults and nothing is lost but the memory. */
   const KEY = "arcade-hall.settings";
-  const DEFAULTS = Object.freeze({sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false});
+  const DEFAULTS = Object.freeze({sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false, ghosts: true});
   const RANGE = {sensitivity: [0.3, 3], fov: [50, 90]};
   function clean(s, base = DEFAULTS) {
     const out = Object.assign({}, DEFAULTS, base);
