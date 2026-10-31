@@ -250,6 +250,14 @@ the portal keep their lists, and link here with "Walk the hall".
   organisation, one line about it and its play count (live from `/api/games`, refreshed every minute).
   The lines are the public repositories' descriptions, kept in `src/arcade/hall_assets/blurbs.json` by
   `tools/make_hall_blurbs.py` (unauthenticated GitHub API, so only public repositories are read).
+- **Likes, boards and achievements on the card** (`hall-social.js`). Under the play count the card shows
+  the game's likes, how many achievements it declares and the top three of its first leaderboard, from
+  [arcade-social](https://github.com/Stephenson-Software/arcade-social) at `https://api.<domain>` (the
+  page names it in `<meta name="arcade-social">`; the CSP's `connect-src` allows it and nothing else).
+  These reads are public. When arcade-social answers the hall's origin with credentials, the count
+  becomes a heart button (and <kbd>L</kbd> likes): signed in it likes or unlikes the game, signed out it
+  goes to the service's sign-in page and comes back to the same cabinet. Until then, or when the service
+  is down, the card shows the count alone, or nothing.
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
   (24, 12, 6 point lights; the nearest cabinets keep theirs). The room's carpet, walls and ceiling are
   drawn after the cabinets, so a software renderer never shades the floor a cabinet hides. `?quality=0..2` pins a tier, `?fps=1`
