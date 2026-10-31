@@ -40,7 +40,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, filters, hall, landing, precompress, registry as registryModule, routers
+from arcade import __version__, activity, bundle, filters, hall, landing, precompress, registry as registryModule, routers, walks
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -233,6 +233,12 @@ class Arcade(object):
         # Versions stored before arcade wrote .gz siblings get theirs the
         # first time each file is asked for, one file at a time.
         self.backfill = precompress.Backfill()
+        # Walk replays (RFC 0030 §3, opt-in in the hall): kept per UTC day
+        # beside the games (a dot name, so never a slug); the layouts a walk
+        # may name, and the per-client rate limit, in memory only.
+        self.walks = walks.Walks(os.path.join(config.dataDirectory, ".hall-walks"))
+        self.layouts = walks.Layouts()
+        self.walkLimit = walks.RateLimit()
 
     def gameForHost(self, host):
         """The Game a request's Host header names, or None."""
@@ -304,11 +310,13 @@ def makeHandler(arcade):
         def _text(self, status, message):
             self._send(status, (message + "\n").encode("utf-8"))
 
-        def _json(self, status, payload, public=False):
+        def _json(self, status, payload, public=False, cache=None):
             body = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
             # Public reads (the game list, with play counts) may be fetched by
             # the portal from another origin; writes never are.
             headers = (("Access-Control-Allow-Origin", "*"),) if public else ()
+            if cache:
+                headers += (("Cache-Control", cache),)
             self._send(status, body, "application/json", headers)
 
         def log_message(self, *args):
@@ -551,6 +559,25 @@ def makeHandler(arcade):
                     described = chosen.order(described)
                 self._json(200, {"games": described}, public=True)
                 return
+            if read and path == "/api/activity":
+                # The hall's ghosts: a 0..4 level per game, never a count (RFC 0030 §2.2).
+                doc = activity.document(
+                    [game.slug for game in arcade.registry.registry],
+                    lambda slug: arcade.store.recentPlays(slug, activity.WINDOW_DAYS),
+                )
+                body = (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
+                maxAge = activity.maxAge(datetime.datetime.now(datetime.timezone.utc))
+                headers = (
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Cache-Control", "public, max-age=%d" % maxAge),
+                )
+                self._send(200, body, "application/json", headers=headers)
+            if path == "/api/walks" and self.command == "POST":
+                self._leaveWalk()
+                return
+            if read and path == "/api/walks/today":
+                self._json(200, {"dt": walks.DT, "walks": arcade.walks.sample()}, cache="public, max-age=60")
+                return
             match = _API_GAME.match(path)
             if match and read:
                 game = arcade.registry.registry.get(match.group(1))
@@ -613,6 +640,10 @@ def makeHandler(arcade):
                 doc = hall.served_layout(
                     games, config.hallEmbed, season=season, chosen=filters.Filter.parse(query)
                 )
+                if season is None:
+                    # A walk left in this hall is clamped against this room (a
+                    # filter moves nothing; ?season= is for testing only).
+                    arcade.layouts.remember(doc)
                 body = (json.dumps(doc, indent=1) + "\n").encode("utf-8")
                 self._send(200, body, "application/json", headers=(("Cache-Control", "no-cache"),))
                 return
@@ -621,6 +652,54 @@ def makeHandler(arcade):
                 self._text(404, "Not found")
                 return
             self._stream(stored, precompress.guessType(name), '"%s"' % hall.etag(stored), backfill=False, ranges=True)
+
+        # --- walk replays (RFC 0030 §3) ----------------------------------
+
+        def _client(self):
+            # Behind Traefik the client is the last address it appended; held
+            # only by the rate limit, hashed, in memory, for one window.
+            forwarded = [a.strip() for a in (self.headers.get("X-Forwarded-For") or "").split(",") if a.strip()]
+            return forwarded[-1] if forwarded else self.client_address[0]
+
+        def _currentLayout(self):
+            games = [self._describe(game) for game in arcade.registry.registry]
+            return hall.served_layout(games, config.hallEmbed)
+
+        def _leaveWalk(self):
+            length = self._contentLength()
+            if length is None:
+                self.close_connection = True
+                self._json(411, {"error": "Content-Length is required"})
+                return
+            if length > walks.MAX_BODY:
+                self.close_connection = True
+                self._json(413, {"error": "a walk is at most %d bytes" % walks.MAX_BODY})
+                return
+            data = self.rfile.read(length)
+            try:
+                payload = json.loads(data.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                self._json(400, {"error": "expected a JSON walk"})
+                return
+            key = payload.get("layout") if isinstance(payload, dict) else None
+            if isinstance(key, str) and arcade.layouts.get(key) is None:
+                # Not served since this process started: today's hall may be it.
+                arcade.layouts.remember(self._currentLayout())
+            try:
+                walk = walks.clean(payload, arcade.layouts)
+            except walks.Refused as e:
+                self._json(400, {"error": str(e)})
+                return
+            if not arcade.walkLimit.allow(self._client()):
+                self._json(429, {"error": "one walk per visitor every %d minutes" % (walks.RATE_WINDOW // 60)})
+                return
+            try:
+                arcade.walks.add(walk)
+            except OSError as e:
+                log("could not keep a walk: %s" % e)
+                self._json(503, {"error": "the walk could not be kept"})
+                return
+            self._json(202, {"kept": True})
 
         def _version(self):
             # The version of the code this process is running, so a deploy can

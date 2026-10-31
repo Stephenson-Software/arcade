@@ -409,6 +409,44 @@ def test_describe_endpoints(arcade):
     assert request(arcade, "GET", API, "/api/other")[0].status == 404
 
 
+def test_activity_publishes_only_a_coarse_level_over_seven_complete_days(arcade):
+    from arcade import activity
+
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    yesterday = today - datetime.timedelta(days=1)
+    for _ in range(9):
+        arcade.store.addPlay("tidewater", today=yesterday)
+    for _ in range(30):
+        arcade.store.addPlay("overwinter", today=yesterday)
+    for _ in range(500):
+        arcade.store.addPlay("rps", today=today)  # today is never counted
+    response, data = request(arcade, "GET", API, "/api/activity")
+    assert response.status == 200
+    assert response.getheader("Access-Control-Allow-Origin") == "*"
+    cache = response.getheader("Cache-Control")
+    assert cache.startswith("public, max-age=") and 0 < int(cache.split("=")[1]) <= 3600
+    doc = json.loads(data)
+    assert doc == {
+        "window_days": 7,
+        "k": 10,
+        "levels": {"overwinter": 2, "pthreads": 0, "rps": 0, "tidewater": 0},  # 9 < k: nothing shown
+    }
+    text = data.decode()
+    assert "plays" not in text and str(yesterday) not in text and str(today) not in text
+    assert [activity.level(n) for n in (0, 9, 10, 24, 25, 99, 100, 399, 400, 10 ** 6)] == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+    # Only on the API host: on a game's host the path is the game's.
+    assert b'"levels"' not in request(arcade, "GET", TIDEWATER, "/api/activity")[1]
+
+
+def test_activity_may_be_cached_until_midnight_utc_at_most():
+    from arcade import activity
+
+    utc = datetime.timezone.utc
+    assert activity.maxAge(datetime.datetime(2026, 10, 30, 12, 0, tzinfo=utc)) == 3600
+    assert activity.maxAge(datetime.datetime(2026, 10, 30, 23, 50, tzinfo=utc)) == 600
+    assert activity.maxAge(datetime.datetime(2026, 10, 30, 23, 59, 59, 900000, tzinfo=utc)) == 1
+
+
 def test_registry_changes_are_picked_up_and_bad_ones_ignored(arcade):
     newGame = "newgame." + DOMAIN
     assert request(arcade, "GET", newGame, "/")[0].status == 404

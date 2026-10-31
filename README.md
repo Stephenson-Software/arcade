@@ -283,6 +283,54 @@ the portal keep their lists, and link here with "Walk the hall".
   becomes a heart button (and <kbd>L</kbd> likes): signed in it likes or unlikes the game, signed out it
   goes to the service's sign-in page and comes back to the same cabinet. Until then, or when the service
   is down, the card shows the count alone, or nothing.
+- **People in the hall** (`hall-people.js`, RFC 0030). Other modules hand it figures by layer
+  (`HallPeople.set("presence" | "replays" | "ghosts", people)`, positions in hall metres); it eases each
+  one between updates, turns it to face the way it walks, stands it beside a cabinet it is "at" (to one
+  side, so the visitor's view of the screen stays clear) and fades it in and out. Live players are solid
+  little people (the engine's capsule and sphere primitives) in a colour of their id, with their display
+  name above them; ghosts and replays are translucent arcade ghosts (a mesh from a pool of 12, built once
+  and then only moved by `hall_pose_meshes` in `hall3d/main.cpp`). At most 12 are drawn (6 on a phone or
+  in economy): live players first, then replays, then ghosts, nearest first; names for the nearest 6 (3)
+  within 14 m; nothing beyond 30 m. Figures are never obstacles, and under reduced motion they neither bob
+  nor sway.
+- **Seeing each other, opt-in** (`hall-presence.js`). Watching needs no account: while the hall is
+  visible and **See other people** (in the settings, on by default) is on, it asks arcade-social who is
+  here (`GET /v1/presence?layout=<key>`, without credentials): once a second while anyone is, every 10 s
+  while nobody is, at least every 3 s when the browser asks to save data, and never while the tab is
+  hidden or the setting is off. Being seen is **Show me in the hall**: off by default, per account (kept
+  by arcade-social), and only for a signed-in player; signed out, the setting links to the sign-in page,
+  which comes back to the same spot (and turns it on, if that is what was asked within 10 minutes). Only
+  while it is on and the hall is visible does the hall send `POST /v1/presence` once a second with
+  `{x, z, yaw, cabinet, layout}`: the position rounded to 0.25 m, the facing to 10 degrees, the cabinet
+  stood at or played (else `null`) and the layout key (a hash of the hall's cabinet order, so poses are
+  shared only between halls whose cabinets stand in the same places). arcade-social holds it in memory
+  for 10 s and shows it to others under the player's display name; nothing else about the visitor is sent,
+  and the hall stores nothing about other people (the only things kept in the browser are the "See other
+  people" choice in `localStorage` and, for 10 minutes around a sign-in, the wish to be shown in
+  `sessionStorage`). A visitor never sees their own figure. When arcade-social is down the hall is
+  exactly as it was, with nobody in it.
+- **Ghosts of recent visitors.** Anonymous, translucent figures drift in through the door, walk the
+  aisles (routed round the cabinets, the stage and the counter on `hall-walk.js`'s floor plan), stand at a
+  cabinet for 20 to 90 seconds as if playing (a busy cabinet can also have one watching beside it), then
+  walk to another or leave. They stand for no particular person: `hall-ghosts.js` makes them up from
+  `GET /api/activity`, a 0 to 4 level per game ([below](#the-api-on-playbase)), one ghost per level
+  point, more for busier games, never more than 12 at once (6 on a phone or in economy), and none for a
+  dark cabinet in a filtered hall. Their paths come from a seeded generator (seeded by the UTC day), so
+  tests are reproducible. Under reduced motion they stand at their cabinets and do not walk. Settings has
+  *Show ghosts of recent visitors* (on by default, remembered). `hall-people.js` draws them
+  (`HallPeople.set("ghosts", [...])`); without it the hall is as it was. RFC 0030 §2.
+- **The hall today (opt-in walk replays, RFC 0030 §3).** *Share my walk anonymously*, in Settings, is
+  off by default and kept per browser (`localStorage`). While it is on, `hall-replays.js` records a coarse
+  outline of the visit: a point every 0.5 s of walking (standing still adds none), rounded to 0.25 m, at
+  most 60 s (120 points), the cabinets walked up to (at most 10), and the layout key. It sends it once,
+  with `sendBeacon`, when the page is hidden or left or a game opens; turning the option off throws away
+  what was recorded. *The hall today*, in the help panel (shown only when arcade has enough walks), or
+  `/hall/?replay=today`, plays a sample of them back as translucent grey figures through `HallPeople`
+  (`hall-people.js`), time-compressed, standing a moment at each cabinet, staggered so they do not move
+  in step, and standing still under reduced motion. `layout.json` carries `layoutKey`, a hash of the
+  cabinets' slugs in order: a walk made in a hall whose cabinets have since moved is re-anchored, walking
+  round the cabinets from where it began to each cabinet it visited, by slug, in front of where it stands
+  now (a cabinet that is gone is dropped). See [Privacy](#privacy) for what is kept.
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
   (24, 12, 6 point lights; the nearest cabinets keep theirs). The room's carpet, walls and ceiling are
   drawn after the cabinets, so a software renderer never shades the floor a cabinet hides. `?quality=0..2` pins a tier, `?fps=1`
@@ -301,9 +349,21 @@ a snapshot of the live registry.
 | `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a `Content-Length`; **413** over the size cap (the upload or its unpacked contents), or a `static` tree of more than 10,000 files; **400** for a malformed `<version>`, an upload that is neither a readable zip nor a readable tar, a missing, extra or repeated file, a link or other non-regular file, a refused path (see [Bundle kinds](#bundle-kinds-rfc-0012)), a `version.txt` that is not UTF-8 or disagrees with `<version>`, or a `game.zip` that is unreadable or lacks tak's four assets. |
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
 | `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, added, tags, org, engine (see [The registry](#the-registry)), **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. `/api/games` takes the landing page's `?tag=`, `?org=`, `?engine=` and `?sort=` ([Filters](#filters)). **404** for an unknown slug. |
+| `GET` | `/api/activity` | `{"window_days": 7, "k": 10, "levels": {"<slug>": 0..4}}`: how busy each game has been lately, for the hall's ghosts (RFC 0030 §2.2). The level comes from the plays over the **seven complete UTC days before today**: **0** below k = 10 plays (RFC 0022 §4.2's k: nothing is shown for a game played a handful of times), **1** for 10 to 24, **2** for 25 to 99, **3** for 100 to 399, **4** for 400 or more. Only the level is served: never a count, a date or a time. Today is left out, so a level changes only at midnight UTC and never at the moment someone plays. `Cache-Control: public, max-age=` up to 3600, never past the next midnight UTC; readable cross-origin. Needs no token. |
+| `POST` | `/api/walks` | One walk for "the hall today" (opt-in in the hall), `{"layout": "<layoutKey>", "dt": 0.5, "points": [[x, z], ...], "visits": [{"slug", "at"}]}`, at most 16 KiB. Refused (**400**, with the reason) unless the layout key is one this process has served (the last 32), `dt` is 0.5, there are at least 4 points, every point is two finite numbers inside the room (1 m slack), no two points are further apart than a run covers in 0.5 s (plus rounding), and visits name cabinets in that layout with point indices in walking order. More than 120 points or 10 visits are truncated, not refused. Every point is rounded to 0.25 m and pushed out of the cabinets and walls, then kept (**202**). **413** over the size, **411** without a `Content-Length`, **429** for a second walk from the same client within 10 minutes. Needs no token. |
+| `GET` | `/api/walks/today` | `{"dt": 0.5, "walks": [...]}`: up to 12 of today's walks (UTC) at random, with yesterday's pooled in when today has fewer than 10, and none at all when the pool is under 10. `Cache-Control: public, max-age=60`. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
 | `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. The picture is arcade cabinets rendered in 3D with [Strata](https://github.com/Preponderous-Software/strata), drawn from `og-card/card.json` (see `og-card/README.md`). Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
 | `GET` | `/robots.txt` | `User-agent: *` / `Allow: /` as `text/plain`, with `Cache-Control: public, max-age=3600`. Answered on `play.<base>` only: on a game's host `/robots.txt` is the game's own path. |
+
+**What is kept about plays.** For each game, `<data>/<slug>/plays` holds one all-time count and
+`<data>/<slug>/.plays-daily` holds a count per UTC day, `{"YYYY-MM-DD": n}`, for the last 35 days
+(older days are dropped on each write). Both are updated together, each written atomically, when a
+game's page is served to a person (crawlers and scripts are excluded by User-Agent). They hold dates
+and counts only: no IP address, user agent, time of day or anything else about the visitor. The
+per-day counts are never served; `/api/activity` publishes only the coarse level above. Upgrading
+loses nothing: `plays` is unchanged, and per-day counts start on the day this ships (there is no
+back-fill).
 
 The token is `Authorization: Bearer <token>`, and each game's token deploys only that game. An
 unknown slug and a wrong token both get 403. The last `ARCADE_KEEP_VERSIONS` (5) versions per game
@@ -386,6 +446,29 @@ a person (the same User-Agent rule as `plays`: crawlers and scripts are not repo
 count of page loads, not of players. Nothing about the visitor is sent: no IP address,
 user agent or path beyond the slug. `TRACE_USAGE_REPORTING=off` or `DO_NOT_TRACK=1` turns it off,
 as for every trace client.
+
+## Privacy
+
+arcade keeps no access log (`log_message` is a no-op) and stores no IP address or user agent.
+
+- **Plays.** `<data>/<slug>/plays` is one integer per game: page loads by people (crawlers and scripts
+  are told apart by User-Agent, which is read and not kept).
+- **Walk replays (opt-in only).** When a visitor turns on *Share my walk anonymously* in the hall, one
+  walk per visit is kept in `<data>/.hall-walks/<YYYY-MM-DD>.json` (UTC day):
+  `{"seen": n, "walks": [{"layout", "points", "visits"}]}`. A walk is the layout key, its points
+  (rounded to 0.25 m and clamped to the floor by the server) and the slugs of the cabinets walked up to,
+  with the index of the point where each was reached. Nothing else: no time of day, no session or device
+  identifier, no IP address, no user agent, no referrer, no account. The day's walks are stored
+  shuffled, so their order says nothing about when each was left. At most 200 are kept a day, a uniform
+  random sample of the `seen` walks accepted that day; day files older than 7 days are deleted on the
+  next write. They are shown to everyone through `/api/walks/today`, and only once there are at least 10
+  in the pool, so one visitor on a quiet day is never on show alone. A walk carries no identifier, so it
+  cannot be found and deleted per visitor; the operator can delete a day by removing its file.
+- **Rate limit memory.** To allow one walk per client per 10 minutes, arcade holds a keyed hash of the
+  client's address (the key is random per process) in memory only, until its 10-minute window ends. It
+  is never written down, and a restart forgets it.
+- **Layouts.** The last 32 hall layouts served are held in memory (cabinet positions only), to clamp a
+  walk against the hall it was made in.
 
 ## Development
 
