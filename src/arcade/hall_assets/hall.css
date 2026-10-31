@@ -175,3 +175,9 @@ body.moving #pointer { visibility: hidden; }
   body.filtered #help { top: calc(max(8px, env(safe-area-inset-top)) + 92px); }
   body.filtered.touch #card { top: calc(max(8px, env(safe-area-inset-top)) + 94px); }
 }
+
+/* Walk replays (hall-replays.js): the opt-in's note, and "The hall today". */
+#settings .note { margin: 2px 0 0 28px; font-size: 13px; line-height: 1.4; color: var(--muted); }
+#help #today-btn { margin-right: 8px; }
+#help #today-btn[aria-pressed="true"] { background: var(--accent); color: #120c26; border-color: transparent; }
+@media (pointer: coarse) { #help .disclose { min-height: 44px; } #help .opt { min-height: 44px; } }

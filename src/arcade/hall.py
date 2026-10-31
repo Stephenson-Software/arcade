@@ -348,6 +348,14 @@ def room_for(count, style=None):
     }
 
 
+def layout_key(slugs):
+    """The layout key (RFC 0030 §1): a short hash of the cabinets' slugs in
+    placement order. Cabinets are placed by plays, so two halls with the same
+    key have every cabinet in the same place; walk replays and presence carry
+    it so a position can be re-anchored to its cabinet when the hall moved."""
+    return hashlib.sha256("\n".join(slugs).encode("utf-8")).hexdigest()[:16]
+
+
 def layout(games, style=None):
     """The hall as plain data (JSON-ready): the room and one entry per
     cabinet, in placement order. `games` are /api/games entries; `style`
@@ -389,6 +397,7 @@ def layout(games, style=None):
             "sideShade": SIDE_SHADE,
         },
         "cabinets": cabinets,
+        "layoutKey": layout_key([c["slug"] for c in cabinets]),
     }
 
 
