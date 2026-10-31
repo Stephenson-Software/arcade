@@ -50,7 +50,7 @@ class Season(object):
     """first and last are (month, day), both included; a range may wrap the
     new year (last before first)."""
 
-    def __init__(self, name, first, last, light, panel, decor, ready=True):
+    def __init__(self, name, first, last, light, panel, decor, ready=True, page=None):
         self.name = name
         self.first = first
         self.last = last
@@ -58,6 +58,9 @@ class Season(object):
         self.panel = panel
         self.decor = decor
         self.ready = ready
+        # The colours of the season's own landing page (/halloween, arcade.landing):
+        # CSS colours by role, or None for a season without one.
+        self.page = page
 
     def covers(self, day):
         md = (day.month, day.day)
@@ -123,6 +126,19 @@ def _halloween(doc):
     return out
 
 
+# /halloween's colours: night purple, candle-lit text, and the banner's orange
+# (the "Happy Halloween" banner's colour above) for links and the chips.
+HALLOWEEN_PAGE = {
+    "bg": "#140d1c",
+    "fg": "#f7efe4",
+    "muted": "#d2bfae",
+    "card": "#21162c",
+    "line": "#3d2b4c",
+    "accent": "#ff8c1f",
+    "accentFg": "#1a0e04",
+}
+
+
 def _counter(room):
     """The change counter's top, (x0, z0, x1, z1, y), found as the prop that
     hall.py puts just above 1 m: None if the room has none."""
@@ -142,7 +158,8 @@ def _winter(doc):
 
 
 SEASONS = (
-    Season("halloween", (10, 20), (11, 1), light=[1.0, 0.70, 0.42], panel=[1.0, 0.86, 0.62], decor=_halloween),
+    Season("halloween", (10, 20), (11, 1), light=[1.0, 0.70, 0.42], panel=[1.0, 0.86, 0.62], decor=_halloween,
+           page=HALLOWEEN_PAGE),
     Season("winter", (12, 1), (1, 6), light=[0.92, 0.90, 1.0], panel=[0.94, 0.96, 1.0], decor=_winter,
            ready=False),
 )

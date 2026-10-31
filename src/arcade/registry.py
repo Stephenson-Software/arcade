@@ -19,6 +19,8 @@ database").
         isolation: on                        # optional: on/off (see below)
         canonical: https://example.com/play/tidewater   # optional (see below)
         added: 2026-10-01                    # optional (see below)
+        tags: [story, puzzle]                # optional, flow list only (see below)
+        engine: strata                       # optional (see below)
 
 `games: []` is an empty registry.
 
@@ -46,11 +48,24 @@ two weeks. Without it, arcade uses the time of the game's first upload,
 which it records itself (arcade.store.Store.added); for a game uploaded
 before arcade kept that record and since pruned to its last few versions,
 the day is unknown until it is given here.
+
+tags: short lowercase theme tags (halloween, story, puzzle, sim, ...), at most
+MAX_TAGS, each matching TAG_PATTERN, none twice. /api/games reports them as
+`tags`, and the landing page, the hall and /api/games filter by them
+(?tag=halloween; see arcade.filters). Without it a game has no tags.
+
+engine: what the build runs on, for the ?engine= filter: strata (Strata's
+WebGL 2 backend), tak (tak's console runtime), sdl (SDL through Emscripten) or
+other. A static bundle does not say which engine made it, so it is written
+here: a `tak` game is always `tak` (and may say nothing else), and a `static`
+game without it is `other`.
 """
 
 import datetime
 
 import re
+
+from arcade import filters
 
 SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 TOKEN_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -65,7 +80,10 @@ CANONICAL_PATTERN = re.compile(r"^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?$"
 RESERVED_SLUGS = frozenset(("play", "www", "api", "arcade", "admin", "static"))
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
-OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added")
+OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added", "tags", "engine")
+LIST_KEYS = ("aliases", "tags")
+TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,23}$")
+MAX_TAGS = 6
 ADDED_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KINDS = ("tak", "static")
 _SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
@@ -77,7 +95,10 @@ class RegistryError(ValueError):
 
 
 class Game(object):
-    __slots__ = ("slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical", "added")
+    __slots__ = (
+        "slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical", "added",
+        "tags", "engine",
+    )
 
     def __init__(
         self,
@@ -91,6 +112,8 @@ class Game(object):
         isolation=None,
         canonical=None,
         added=None,
+        tags=(),
+        engine=None,
     ):
         self.slug = slug
         self.title = title
@@ -102,6 +125,12 @@ class Game(object):
         self.isolation = (kind == "tak") if isolation is None else bool(isolation)
         self.canonical = canonical
         self.added = added  # a datetime.date, or None
+        self.tags = tuple(tags)
+        self.engine = engine or filters.default_engine(kind)
+
+    @property
+    def org(self):
+        return filters.org_of(self.repo)
 
     def __repr__(self):
         return "Game(%r)" % self.slug
@@ -219,7 +248,7 @@ def parse(text):
             )
         if key in current:
             raise RegistryError("line %d: %r given twice in one entry" % (lineNumber, key))
-        current[key] = _flowList(value, lineNumber) if key == "aliases" else _scalar(value, lineNumber)
+        current[key] = _flowList(value, lineNumber) if key in LIST_KEYS else _scalar(value, lineNumber)
     if not seenHeader:
         raise RegistryError("the registry is empty; it must contain at least 'games: []'")
     return entries
@@ -300,6 +329,29 @@ def validate(entries, domain=None):
                 raise RegistryError(
                     "line %d: added for %r must be a date, YYYY-MM-DD, got %r" % (lineNumber, slug, entry["added"])
                 )
+        tags = entry.get("tags", [])
+        for tag in tags:
+            if not TAG_PATTERN.match(tag):
+                raise RegistryError(
+                    "line %d: tag %r for %r must be short and lowercase, matching %s"
+                    % (lineNumber, tag, slug, TAG_PATTERN.pattern)
+                )
+        if len(set(tags)) != len(tags):
+            raise RegistryError("line %d: %r lists a tag twice" % (lineNumber, slug))
+        if len(tags) > MAX_TAGS:
+            raise RegistryError("line %d: %r has %d tags; at most %d" % (lineNumber, slug, len(tags), MAX_TAGS))
+        engine = entry.get("engine")
+        if engine is not None:
+            if engine not in filters.ENGINES:
+                raise RegistryError(
+                    "line %d: engine %r for %r must be one of %s"
+                    % (lineNumber, engine, slug, ", ".join(filters.ENGINES))
+                )
+            if kind == "tak" and engine != "tak":
+                raise RegistryError(
+                    "line %d: %r is a tak game, which runs on tak's console runtime; its engine is tak, not %r"
+                    % (lineNumber, slug, engine)
+                )
         games.append(
             Game(
                 slug=slug,
@@ -312,6 +364,8 @@ def validate(entries, domain=None):
                 isolation=isolation,
                 canonical=canonical,
                 added=added,
+                tags=tags,
+                engine=engine,
             )
         )
     return Registry(games)

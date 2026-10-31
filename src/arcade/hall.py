@@ -32,7 +32,7 @@ import os
 import re
 from urllib.parse import quote
 
-from arcade import seasons
+from arcade import filters, seasons
 
 from arcade import hall_model
 
@@ -372,6 +372,8 @@ def layout(games, style=None):
                 "angle": round(angle, 6),
                 "featured": game["slug"] == FEATURED,
                 "added": game.get("added"),
+                "tags": list(game.get("tags") or ()),
+                "engine": game.get("engine") or "other",
             }
         )
     return {
@@ -478,13 +480,19 @@ def is_new(added, now=None):
     return datetime.timedelta(0) <= age < datetime.timedelta(days=NEW_DAYS)
 
 
-def served_layout(games, embed, season=None, now=None):
+def served_layout(games, embed, season=None, now=None, chosen=None):
     """layout.json: the layout, plus each cabinet's poster when arcade has
     one, whether it is new (a NEW ribbon on its marquee: added in the last
     NEW_DAYS days, at `now`), and whether games are played in a frame (embed)
     and whether the hall may reload itself to match a game's isolation
     (modes). The season in force at `now` in Denver (or the one `season`
-    names: ?season=) tints the lights and adds its decor (arcade.seasons)."""
+    names: ?season=) tints the lights and adds its decor (arcade.seasons).
+
+    `chosen` (an arcade.filters.Filter, from ?tag=, ?org=, ?engine=) marks
+    each cabinet `lit` or not: hall.js darkens the ones that do not match. The
+    layout itself never changes with it (no cabinet moves, no walkway
+    narrows), so a filtered hall is the same room with some screens off.
+    doc["filter"] says what was asked for: None when nothing was."""
     which = seasons.pick(now, season)
     doc = layout(games, seasons.style(which, STYLE))
     lines = blurbs()
@@ -497,6 +505,19 @@ def served_layout(games, embed, season=None, now=None):
         # Its side art (tools/make_hall_posters.py), else the panels are its organisation's colour.
         side = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".side.jpg"))
         cabinet["side"] = "posters/%s.side.jpg" % cabinet["slug"] if side else None
+    lit = 0
+    for cabinet in doc["cabinets"]:
+        cabinet["lit"] = chosen.matches(cabinet) if chosen is not None and chosen.active else True
+        lit += cabinet["lit"]
+    if chosen is not None and chosen.active:
+        doc["filter"] = {
+            "query": chosen.query(sort=None),
+            "summary": chosen.summary(),
+            "lit": lit,
+            "of": len(doc["cabinets"]),
+        }
+    else:
+        doc["filter"] = None
     doc["embed"] = bool(embed)
     doc["modes"] = True
     return seasons.dress(doc, which)

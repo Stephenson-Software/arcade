@@ -160,3 +160,18 @@ body.moving #pointer { visibility: hidden; }
 /* The share note reuses the gamepad's toast; a link shown to copy by hand wraps and can be selected. */
 #toast.url { pointer-events: auto; -webkit-user-select: all; user-select: all; white-space: normal;
   overflow-wrap: anywhere; border-radius: 12px; }
+/* A filtered hall (?tag=halloween): what is lit, as a pill in the bar that lights every cabinet again. */
+#bar #filtered { gap: 8px; background: var(--accent); color: #120c26; border-color: transparent; font-weight: 600;
+  max-width: 46vw; white-space: nowrap; }
+#bar #filtered[hidden] { display: none; }
+#filtered-what { overflow: hidden; text-overflow: ellipsis; }
+#filtered .x { font-size: 18px; line-height: 1; }
+/* On a phone the bar is already full: the pill sits just under it, on the left, and what
+   opens under the bar (the help, the card at a cabinet) starts below the pill. */
+@media (max-width: 640px) {
+  #bar #filtered { position: fixed; top: calc(max(8px, env(safe-area-inset-top)) + 48px);
+    left: max(12px, env(safe-area-inset-left)); min-height: 34px; max-width: calc(100vw - 24px); font-size: 13px;
+    padding: 0 12px; }
+  body.filtered #help { top: calc(max(8px, env(safe-area-inset-top)) + 92px); }
+  body.filtered.touch #card { top: calc(max(8px, env(safe-area-inset-top)) + 94px); }
+}

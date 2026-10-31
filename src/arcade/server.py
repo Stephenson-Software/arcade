@@ -8,6 +8,7 @@ One process answers two kinds of host:
                             the portal), /version.json: the running arcade's
                             own version, {"version": "<x.y.z>"}, and the
                             landing page's /robots.txt and /og.png
+  play.<base>/halloween     the landing page for one theme tag (landing.THEMES)
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
   <alias>                   a game's old hostname (registry `aliases`)
 
@@ -39,7 +40,7 @@ import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, bundle, hall, landing, precompress, registry as registryModule, routers
+from arcade import __version__, bundle, filters, hall, landing, precompress, registry as registryModule, routers
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -473,6 +474,10 @@ def makeHandler(arcade):
             if read and path in ("/", "/index.html"):
                 self._landing()
                 return
+            if read and path.startswith("/") and path.strip("/") in landing.THEMES:
+                # /halloween: the landing page for one theme tag (?tag=halloween), in its colours.
+                self._landing(theme=path.strip("/"))
+                return
             if read and path == "/version.json":
                 self._version()
                 return
@@ -491,8 +496,14 @@ def makeHandler(arcade):
                 self._send(200, landing.ogImage(), "image/png", headers=headers)
                 return
             if read and path == "/api/games":
-                registry = arcade.registry.registry
-                self._json(200, {"games": [self._describe(game) for game in registry]}, public=True)
+                # ?tag=, ?org=, ?engine= narrow the list and ?sort= orders it, as on the landing page.
+                chosen = filters.Filter.parse(urlparse(self.path).query)
+                described = [self._describe(game) for game in arcade.registry.registry]
+                if chosen.active:
+                    described = [game for game in described if chosen.matches(game)]
+                if chosen.sort != "name":
+                    described = chosen.order(described)
+                self._json(200, {"games": described}, public=True)
                 return
             match = _API_GAME.match(path)
             if match and read:
@@ -552,7 +563,10 @@ def makeHandler(arcade):
                 games = [self._describe(game) for game in registry]
                 # ?season=halloween (or none) shows a season's decor on any date, for testing.
                 season = parse_qs(query).get("season", [None])[0]
-                doc = hall.served_layout(games, config.hallEmbed, season=season)
+                # ?tag=halloween (and org, engine): the cabinets that match stay lit, the rest go dark.
+                doc = hall.served_layout(
+                    games, config.hallEmbed, season=season, chosen=filters.Filter.parse(query)
+                )
                 body = (json.dumps(doc, indent=1) + "\n").encode("utf-8")
                 self._send(200, body, "application/json", headers=(("Cache-Control", "no-cache"),))
                 return
@@ -570,8 +584,8 @@ def makeHandler(arcade):
             body = json.dumps({"version": __version__}).encode("utf-8")
             self._send(200, body, "application/json", headers=(("Cache-Control", "no-store"),))
 
-        def _landing(self):
-            if config.landingMode == "redirect":
+        def _landing(self, theme=None):
+            if config.landingMode == "redirect" and theme is None:
                 self._send(302, b"", headers=(("Location", config.landingUrl),))
                 return
             body = landing.render(
@@ -579,6 +593,10 @@ def makeHandler(arcade):
                 config.domain,
                 config.landingUrl,
                 deployed=lambda slug: arcade.store.current(slug) is not None,
+                plays=arcade.store.plays,
+                added=lambda game: addedOf(game, arcade.store),
+                query=urlparse(self.path).query,
+                theme=theme,
             )
             self._send(
                 200,
@@ -606,6 +624,9 @@ def makeHandler(arcade):
                 "versions": arcade.store.versions(game.slug),
                 "plays": arcade.store.plays(game.slug),
                 "added": addedOf(game, arcade.store),
+                "tags": list(game.tags),
+                "org": game.org,
+                "engine": game.engine,
             }
 
         def _authorise(self, slug):
