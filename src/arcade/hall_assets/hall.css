@@ -175,3 +175,22 @@ body.moving #pointer { visibility: hidden; }
   body.filtered #help { top: calc(max(8px, env(safe-area-inset-top)) + 92px); }
   body.filtered.touch #card { top: calc(max(8px, env(safe-area-inset-top)) + 94px); }
 }
+
+/* The card's social line (hall-social.js): likes, achievements, the top of the first leaderboard. */
+#card-social { margin-top: 6px; font-size: 12px; color: var(--muted); }
+#card-social .social-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+#card-social .likes { color: var(--fg); }
+#card-social .heart { pointer-events: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 32px;
+  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg);
+  font: inherit; cursor: pointer; }
+#card-social .heart .h { font-size: 16px; line-height: 1; }
+#card-social .heart.on .h { color: #ff5c7a; }
+#card-social .heart:disabled { opacity: .6; cursor: progress; }
+body.touch #card-social .heart { min-height: 44px; padding: 2px 14px; }
+#card-social .board { list-style: none; margin: 6px 0 0; padding: 0; }
+#card-social .board li { display: flex; gap: 6px; line-height: 1.5; }
+#card-social .board .board-title { color: var(--fg); font-weight: 600; }
+#card-social .board .r { width: 1.6em; color: var(--muted); }
+#card-social .board .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+#card-social .board .v { font-variant-numeric: tabular-nums; }
+#card:not(.on) #card-social .heart, body.moving #card-social .heart { pointer-events: none; }
