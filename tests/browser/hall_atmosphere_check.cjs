@@ -18,6 +18,32 @@ const GL = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swifts
 async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
   const ctx = await b.newContext(ctxOpts);
   if (opts.reduce) await ctx.addInitScript(() => localStorage.setItem("arcade-hall.settings", JSON.stringify({reduceMotion: true})));
+  // Every sound the page makes passes an analyser on its way out, to measure how loud it is.
+  await ctx.addInitScript(() => {
+    const connect = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      if (dest instanceof AudioDestinationNode) {
+        const c = dest.context;
+        if (!c.__meter) { c.__meter = c.createAnalyser(); c.__meter.fftSize = 2048; connect.call(c.__meter, dest); window.__meterCtx = c; }
+        return connect.call(this, c.__meter, ...rest);
+      }
+      return connect.call(this, dest, ...rest);
+    };
+    window.__rms = async (ms) => {
+      const c = window.__meterCtx;
+      if (!c) return null;
+      const a = c.__meter, buf = new Float32Array(a.fftSize);
+      let sum = 0, n = 0, peak = 0;
+      const end = performance.now() + ms;
+      while (performance.now() < end) {
+        a.getFloatTimeDomainData(buf);
+        for (const v of buf) { sum += v * v; peak = Math.max(peak, Math.abs(v)); }
+        n += buf.length;
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      return {rms: +Math.sqrt(sum / n).toFixed(4), peak: +peak.toFixed(3)};
+    };
+  });
   const page = await ctx.newPage();
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text().slice(0, 200)); });
@@ -35,6 +61,15 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
     warm: __hall.state.warm || null, fame: __hall.state.fame || null, trailerMs: __hall.state.trailerMs || 0,
   }));
   r.fps = +((await page.evaluate(() => __hall.state.frames) - f0) / ((Date.now() - t0) / 1000)).toFixed(1);
+  if (opts.sound) {
+    r.loud = await page.evaluate(() => window.__rms(6000));
+    // From the middle of the far walkway, by the wall: the cabinets fade, the hum stays.
+    await page.evaluate(() => __hall.place(-9.2, -17.5, Math.PI / 2, 0.05));
+    await page.waitForTimeout(1500);
+    r.loudFar = await page.evaluate(() => window.__rms(6000));
+    r.voicesFar = await page.evaluate(() => __hall.state.voices);
+    await page.evaluate((s) => __hall.walkTo(s), opts.at || "tidewater");
+  }
   r.profile = name;
   r.errors = errors.slice(0, 5);
   await page.screenshot({path: path.join(out, `${name}.png`)});
@@ -49,13 +84,14 @@ async function run(b, hallUrl, out, name, ctxOpts, query, opts = {}) {
 }
 
 (async () => {
-  const [hallUrl, out] = process.argv.slice(2);
+  const [hallUrl, out, only] = process.argv.slice(2);
   fs.mkdirSync(out, {recursive: true});
   const b = await chromium.launch({args: GL});
   const results = [];
   const desk = {viewport: {width: 1024, height: 640}};
   const fame = {x: 3.6, z: 1.2, yaw: -Math.PI / 2};
   results.push(await run(b, hallUrl, out, "desktop", desk, "", {sound: true, fame}));
+  if (only === "desktop") { console.log(JSON.stringify(results[0])); await b.close(); return; }
   results.push(await run(b, hallUrl, out, "iphone13", devices["iPhone 13"], "", {sound: true, fame}));
   results.push(await run(b, hallUrl, out, "economy", desk, "&economy=1", {sound: true}));
   results.push(await run(b, hallUrl, out, "reduce-motion", desk, "", {reduce: true}));

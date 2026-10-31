@@ -701,6 +701,26 @@
     trailers.draw(now);
     state.trailerHow = trailers.how;
   }
+  /* The cabinets' own sounds (hall-life.js): with Sound on, the nearest few
+     each play their attract loop, placed by where they stand from the
+     visitor (louder near, panned to their side, muffled from behind). */
+  const VOICES_MAX = 3, VOICES_LITE = 2, VOICE_MS = 100;
+  let voicesAt = -1;
+  function stepVoices(now) {
+    if (!hum.running || now - voicesAt < VOICE_MS) return;
+    voicesAt = now;
+    const heard = [];
+    for (const c of layout.cabinets) {
+      if (!c.deployed || !lit(c)) continue;
+      const sp = HallLife.spatial(me, c);
+      if (sp.gain > 0.002) heard.push(Object.assign(sp, {id: c.slug, c}));
+    }
+    heard.sort((a, b) => b.gain - a.gain);
+    const list = heard.slice(0, economy || touchFirst ? VOICES_LITE : VOICES_MAX);
+    for (const v of list) v.tune = v.c.tune || (v.c.tune = HallLife.tune(v.c));
+    hum.cabinets(list);
+    state.voices = list.map((v) => ({slug: v.id, gain: +v.gain.toFixed(3), pan: +v.pan.toFixed(2), muffle: v.muffle, wave: v.tune.wave}));
+  }
   function pauseTrailers() {
     if (trailers) trailers.pause(document.hidden || !!playing);
   }
@@ -1244,6 +1264,7 @@
     if (input) me = W.step(me, input, dt, world);
     near = W.near(me, layout);
     stepTrailers(now);
+    stepVoices(now);
     let eye = W.EYE;
     if (bobOn && !reducedMotion && me.speed > 0.05) {
       bobPhase += dt * 2 * Math.PI * (1.5 + 0.25 * me.speed);

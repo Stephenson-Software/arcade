@@ -241,7 +241,12 @@ the portal keep their lists, and link here with "Walk the hall".
 - **Attract mode and sound.** Every few seconds one screen shows its game's title card instead of its
   poster, the nearest screens shimmer faintly (with baked-in scanlines), and the marquees' glow breathes;
   nothing moves under reduced motion. *Sound* (off by default, remembered) plays a quiet arcade hum, made
-  with WebAudio (no audio files), and pauses while a game is open.
+  with WebAudio (no audio files), and pauses while a game is open. With it on, the nearest cabinets (three,
+  two on a phone or in economy) each play a soft attract loop of their own: a short chiptune phrase made up
+  from the game's slug, the same every visit, flavoured by the game (a tak text adventure a slow minor
+  triangle-wave figure, a Halloween game a minor one, the rest a brighter pulse, bell or bass arpeggio),
+  two bars on and two off. Each is placed where the cabinet stands: louder near (silent past about 11 m),
+  panned to the side it is on as the visitor turns, and quieter and muffled from behind it.
 - **Seasons.** `src/arcade/seasons.py` dresses the hall by the date in America/Denver: from October 20
   to November 1, Halloween (jack-o'-lanterns that flicker by the door and on the counter, cobwebs in the
   ceiling corners, warmer, more orange light, and a banner for Familiar over the walkway in from the
