@@ -14,3 +14,5 @@ games:
     isolation: on
     canonical: https://danielstephenson.dev/play/tidewater
     added: 2026-10-01
+    tags: [story, puzzle]
+    engine: tak

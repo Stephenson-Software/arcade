@@ -7,6 +7,15 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Filter mode. The registry takes optional `tags:` (theme tags, a flow list, parsed strictly) and
+  `engine:` (`strata`, `tak`, `sdl` or `other`; a tak game is always `tak`, a static game defaults to
+  `other`), and `/api/games` reports `tags`, `org` (from `repo`) and `engine`. The landing page has
+  chips for each tag, organisation and engine and an order (A–Z, most played, newest), all in the
+  query string (`/?tag=halloween&engine=strata&sort=plays`) and rendered by the server without script.
+  `/halloween` is the Halloween list in the hall season's colours. The hall takes the same query
+  (`/hall/?tag=halloween`, with `?at=` too): matching cabinets stay lit and the rest go dark, with
+  nothing moved. `/api/games` filters by the same query. `src/arcade/filters.py` holds the matching.
+
 - "Share this spot" in the hall's bar: copies a link to where the visitor stands (with a short note to say
   so), or opens the share sheet on a phone (Web Share API). At a cabinet the link is `/hall/?at=<slug>`,
   elsewhere `/hall/#p=<place>`. On a phone the bar's controls are a little tighter so none wraps.

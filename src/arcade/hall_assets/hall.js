@@ -140,12 +140,12 @@
     }
     // A part of the cabinet's model (hall_model.py) in a cabinet's frame,
     // coloured by role; uv maps its texture coordinates (the side art's atlas).
-    model(fr, part, colours, uv) {
+    model(fr, part, colours, uv, fallback = [1, 1, 1]) {
       const base = this.positions.length / 3, p = part.p, n = part.n, t = part.t;
       for (let k = 0; k < part.r.length; k++) {
         this.positions.push(...fr.p(p[3 * k], p[3 * k + 1], p[3 * k + 2]));
         this.normals.push(...fr.n(n[3 * k], n[3 * k + 1], n[3 * k + 2]));
-        this.colors.push(...(colours[part.r[k]] || [1, 1, 1]));
+        this.colors.push(...(colours[part.r[k]] || fallback));
         this.uvs.push(...(t && uv ? uv(t[2 * k], t[2 * k + 1]) : [0, 0]));
       }
       for (const i of part.i) this.indices.push(base + i);
@@ -221,6 +221,14 @@
 
   /* ------------------------------------------------------ the scene */
   const screenSlot = (i) => 100 + i, marqueeSlot = (i) => 400 + i;
+  /* A filtered hall (?tag=halloween, ?org=, ?engine=: layout.json marks each
+     cabinet lit or not, hall.py served_layout): the cabinets that do not
+     match go dark and recede, with their screen and marquee turned down, their
+     glow and light nearly out and their body in shadow. Nothing moves: the
+     room, the walkways and every cabinet's place are the same as unfiltered. */
+  const DIM_SCREEN = 0.16, DIM_MARQUEE = 0.2, DIM_BODY = 0.42, DIM_LIGHT = 0.12;
+  const lit = (c) => c.lit !== false;
+  const shade = (c, k) => (lit(c) ? 1 : k);
   // The cabinets' models: each one's detailed mesh and its simple stand-in
   // (hall3d/main.cpp draws one of the two, by the visitor's distance), and
   // one mesh for every cabinet's coin slots (unlit) and side art (one atlas).
@@ -275,7 +283,8 @@
   // A cabinet's screen, at a brightness (its vertex colour: the attract-mode shimmer).
   function screenQuad(c, i, b) {
     const [x0, y0, x1, y1, z] = layout.cabinet.screen, fr = c.fr, q = new MeshBuilder();
-    q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1), [b, b, b]);
+    const v = b * shade(c, DIM_SCREEN);
+    q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1), [v, v, v]);
     mesh(screenSlot(i), q, screenSlot(i), 1 /* STRATA_MESH_UNLIT */);
   }
 
@@ -289,7 +298,7 @@
     lifeAt = t;
     const cs = layout.cabinets;
     let k = HallLife.attract(t, cs.length);
-    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing)) k = -1;
+    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing || !lit(cs[k]))) k = -1;
     if (k !== attractIdx) {
       if (attractIdx >= 0 && cs[attractIdx].posterPx) texture(screenSlot(attractIdx), SCREEN_TEX[0], SCREEN_TEX[1], cs[attractIdx].posterPx, TEX_MIPS | TEX_CLAMP);
       if (k >= 0) texture(screenSlot(k), SCREEN_TEX[0], SCREEN_TEX[1], cs[k].titlePx, TEX_MIPS | TEX_CLAMP);
@@ -298,7 +307,7 @@
     }
     cs.forEach((c, i) => {
       if (me && Math.hypot(c.x - me.x, c.z - me.z) < 8) screenQuad(c, i, HallLife.flicker(t, i));
-      scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i);
+      scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i) * shade(c, DIM_LIGHT);
     });
     seasonLife(t);
     rows(mod._hall_set_points, scenePoints);
@@ -311,23 +320,25 @@
     layout.cabinets.forEach((c, i) => {
       const fr = W.frame(c);
       c.fr = fr;
-      const colours = roleColours(model.roles, c.colour), detail = new MeshBuilder(), lod = new MeshBuilder();
-      detail.model(fr, model.detail, colours);
+      const tone = shade(c, DIM_BODY), full = [tone, tone, tone];
+      const colours = Object.fromEntries(Object.entries(roleColours(model.roles, c.colour)).map(([k, v]) => [k, v.map((x) => x * tone)]));
+      const detail = new MeshBuilder(), lod = new MeshBuilder();
+      detail.model(fr, model.detail, colours, undefined, full);
       mesh(detailSlot(i), detail);
-      lod.model(fr, model.lod, colours);
+      lod.model(fr, model.lod, colours, undefined, full);
       mesh(lodSlot(i), lod);
-      accent.model(fr, model.accent, colours);
-      art.model(fr, model.art, colours, atlas.uv(i));
+      accent.model(fr, model.accent, colours, undefined, full);
+      art.model(fr, model.art, colours, atlas.uv(i), full);
       const P = (x, y, z) => fr.p(x, y, z);
       c.glowPoint = points.length;
-      points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16]);
+      points.push([...P(0, 2.15, 0.45), 0, 1.3, ...c.colour.map((v) => 0.4 + 0.6 * v), 0.16 * shade(c, DIM_LIGHT)]);
       c.glow = c.colour.map((v) => 0.35 + 0.65 * v);
       c.titlePx = titleCard(c);
       texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], c.titlePx, TEX_MIPS | TEX_CLAMP);
       texture(marqueeSlot(i), MARQUEE_TEX[0], MARQUEE_TEX[1], marquee(c), TEX_MIPS | TEX_CLAMP);
       screenQuad(c, i, 1);
-      const [x0, y0, x1, y1, z] = cab.marquee, q = new MeshBuilder();
-      q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1));
+      const [x0, y0, x1, y1, z] = cab.marquee, q = new MeshBuilder(), m = shade(c, DIM_MARQUEE);
+      q.quad([fr.p(x0, y0, z), fr.p(x1, y0, z), fr.p(x1, y1, z), fr.p(x0, y1, z)], fr.n(0, 0, 1), [m, m, m]);
       mesh(marqueeSlot(i), q, marqueeSlot(i), 1 /* STRATA_MESH_UNLIT */);
     });
     scenePoints = points;
@@ -604,7 +615,7 @@
   function setLights() {
     if (economy) { rows(mod._hall_set_lights, []); return; }
     const lights = layout.room.lights.slice();
-    for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.2]);
+    for (const c of layout.cabinets) lights.push([...c.fr.p(0, 1.5, 1.0), 2.6, ...c.glow, 1.2 * shade(c, DIM_LIGHT)]);
     lights.push(...seasonLights());
     rows(mod._hall_set_lights, lights);
   }
@@ -909,7 +920,8 @@
       // Shift+Tab before a walk-through has begun leaves the hall backwards, to the page's controls.
       if (dir < 0) return false;
       const at = (c) => { const f = W.front(c, standOff()); return [f.x, f.z]; };
-      tabList = C.order(me, layout.cabinets, at);
+      // In a filtered hall, Tab walks only to the cabinets that are lit.
+      tabList = C.order(me, layout.cabinets.filter(lit), at);
       tabAt = -1;
     }
     tabAt += dir;
@@ -1251,7 +1263,7 @@
         const p = fr.p(lx, 0, lz); return f.toMap(p[0], p[2]);
       });
       ctx.beginPath(); pts.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); ctx.closePath();
-      ctx.fillStyle = `rgb(${rgb255(c.colour)})`; ctx.fill();
+      ctx.fillStyle = lit(c) ? `rgb(${rgb255(c.colour)})` : `rgba(${rgb255(c.colour)}, .22)`; ctx.fill();
       if (c === near) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
     }
     // You: a dot and the way you look.
@@ -1389,12 +1401,42 @@
   }
 
 
+  const FILTER_KEYS = ["tag", "org", "engine"];
+  function layoutQuery() {
+    const q = new URLSearchParams();
+    for (const k of ["season", ...FILTER_KEYS]) if (params.get(k)) q.set(k, params.get(k));
+    const s = q.toString();
+    return s ? "?" + s : "";
+  }
+  /* What a filtered hall shows, in the bar: "Halloween: 6 lit", a link back
+     to the whole hall (the same spot), and "All games" keeps the filter. */
+  function showFilter() {
+    const f = layout.filter, el = $("filtered");
+    if (!f) { el.hidden = true; return; }
+    const all = new URL(location.href);
+    for (const k of FILTER_KEYS) all.searchParams.delete(k);
+    el.href = all.pathname + all.search + all.hash;
+    $("filtered-what").textContent = `${f.summary}: ${f.lit} of ${f.of}`;
+    el.setAttribute("aria-label", `Showing ${f.summary} games: ${f.lit} of ${f.of} cabinets lit. Light every cabinet`);
+    el.hidden = false;
+    document.body.classList.add("filtered");
+    $("leave").href = "../?" + f.query;
+    state.filter = {summary: f.summary, lit: f.lit, of: f.of};
+    // To the whole hall from where the visitor stands now (savePlace keeps it in the hash).
+    el.addEventListener("click", () => {
+      const now = new URL(location.href);
+      for (const k of FILTER_KEYS) now.searchParams.delete(k);
+      el.href = now.pathname + now.search + now.hash;
+    });
+  }
+
   async function boot() {
-    // ?season=halloween (or none) dresses the hall for a season on any date.
-    const season = params.get("season");
-    const res = await fetch("layout.json" + (season ? "?season=" + encodeURIComponent(season) : ""), {cache: "no-cache"});
+    // ?season=halloween (or none) dresses the hall for a season on any date;
+    // ?tag=, ?org= and ?engine= light only the cabinets that match.
+    const res = await fetch("layout.json" + layoutQuery(), {cache: "no-cache"});
     if (!res.ok) throw new Error("layout " + res.status);
     layout = await res.json();
+    showFilter();
     world = W.world(layout);
     document.body.classList.toggle("touch", touchFirst);
     // Reloaded into the other isolation mode with a game open: its poster
@@ -1479,6 +1521,7 @@
     get layout() { return layout; },
     get map() { return {on: mapOn, target: state.mapTarget || null}; },
     get season() { return layout && layout.season ? layout.season.name : null; },
+    get filter() { return layout && layout.filter ? Object.assign({}, layout.filter, {lit: layout.cabinets.filter(lit).map((c) => c.slug)}) : null; },
     economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },

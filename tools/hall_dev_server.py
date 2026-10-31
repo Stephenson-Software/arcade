@@ -54,6 +54,10 @@ def main():
         ]
         if g.get("added"):  # the day it joined, so NEW ribbons match the live hall
             lines.append("    added: %s" % g["added"][:10])
+        if g.get("tags"):  # so ?tag= lights the same cabinets as the live hall
+            lines.append("    tags: [%s]" % ", ".join(g["tags"]))
+        if g.get("engine"):
+            lines.append("    engine: %s" % g["engine"])
     registry = os.path.join(work, "games.yaml")
     with open(registry, "w") as f:
         f.write("\n".join(lines) + "\n")

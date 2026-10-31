@@ -80,7 +80,8 @@ def test_every_game_is_linked_at_its_own_host_by_default():
     registry = games(("rps", "RPS"), ("tak", "Tak"))
     page = landing.render(registry, "play.example.com", "https://example.com/play").decode("utf-8")
     assert '<a href="https://rps.play.example.com/"><span class="title">RPS</span>' in page
-    assert '<span class="host">tak.play.example.com</span></a>' in page
+    # Then its tags and engine (none here but its engine: a tak game by default).
+    assert '<span class="host">tak.play.example.com</span><span class="meta">tak console</span></a>' in page
     assert "Coming soon" not in page
     assert "Games served here (2)" in page
 
@@ -98,7 +99,8 @@ def test_an_undeployed_game_is_listed_without_a_link_or_host():
     assert sorted(asked) == ["rps", "soon"]
     assert "soon.play.example.com" not in page
     assert (
-        '<li><span class="soon"><span class="title">Soon</span><span class="host">Coming soon</span></span></li>'
+        '<li><span class="soon"><span class="title">Soon</span><span class="host">Coming soon</span>'
+        '<span class="meta">tak console</span></span></li>'
         in page
     )
     assert '<a href="https://rps.play.example.com/">' in page

@@ -188,5 +188,5 @@ def test_the_page_asks_for_the_season_it_was_given_and_draws_it():
 
     with open(os.path.join(hall.ASSETS, "hall.js")) as f:
         page = f.read()
-    assert '"layout.json" + (season ? "?season="' in page
+    assert "\"layout.json\" + layoutQuery()" in page and "[\"season\", ...FILTER_KEYS]" in page
     assert "buildSeason(points)" in page and "HallLife.candle" in page

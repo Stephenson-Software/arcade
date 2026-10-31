@@ -19,6 +19,9 @@
     const url = new URL("./", location.href);
     url.search = "";
     url.hash = "";
+    // A filtered hall's link keeps its filter (?tag=halloween), so it opens with the same cabinets lit.
+    const here = new URLSearchParams(location.search);
+    for (const k of ["tag", "org", "engine"]) if (here.get(k)) url.searchParams.set(k, here.get(k));
     const slug = h && h.near;
     const cab = slug && h.layout ? h.layout.cabinets.find((c) => c.slug === slug) : null;
     if (cab) {
