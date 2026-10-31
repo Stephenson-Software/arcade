@@ -298,7 +298,7 @@
     lifeAt = t;
     const cs = layout.cabinets;
     let k = HallLife.attract(t, cs.length);
-    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing || !lit(cs[k]))) k = -1;
+    if (k >= 0 && (!cs[k].posterPx || cs[k] === near || cs[k] === playing || !lit(cs[k]) || (trailers && trailers.has(k)))) k = -1;
     if (k !== attractIdx) {
       if (attractIdx >= 0 && cs[attractIdx].posterPx) texture(screenSlot(attractIdx), SCREEN_TEX[0], SCREEN_TEX[1], cs[attractIdx].posterPx, TEX_MIPS | TEX_CLAMP);
       if (k >= 0) texture(screenSlot(k), SCREEN_TEX[0], SCREEN_TEX[1], cs[k].titlePx, TEX_MIPS | TEX_CLAMP);
@@ -655,7 +655,7 @@
           ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
           const px = HallLife.scanlines(pixels(ctx, w, h), w, h);
           c.posterPx = px;
-          if (i !== attractIdx) texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
+          if (i !== attractIdx && !(trailers && trailers.shown(i))) texture(screenSlot(i), w, h, px, TEX_MIPS | TEX_CLAMP);
           c.glow = glowOf(px);
           setLights();
           state.posters++;
@@ -665,6 +665,44 @@
       img.onerror = () => { state.posterErrors++; resolve(); };
       img.src = c.poster;
     });
+  }
+
+  /* ------------------------------------- live screens (hall-trailers.js)
+     The nearest screens in sight play their game's trailer instead of the
+     poster: two at most, one on a phone or in economy, none under reduced
+     motion. Each frame goes through the same scanlines as the poster. */
+  let trailers = null, trailersAt = -1;
+  const TRAILER_PICK_MS = 250;
+  const trailerMax = () => (reducedMotion ? 0 : economy || touchFirst ? 1 : 2);
+  function startTrailers() {
+    if (typeof HallTrailers === "undefined" || params.get("trailers") === "0") return;
+    trailers = HallTrailers.screens({
+      cabinet: (i) => layout.cabinets[i],
+      upload(i, w, h, rgba) {
+        const t0 = performance.now();
+        HallLife.scanlines(rgba, w, h);
+        texture(screenSlot(i), w, h, rgba, TEX_MIPS | TEX_CLAMP);
+        // What a frame of a trailer costs the page (ms, smoothed), for tools that watch the frame rate.
+        state.trailerMs = +(0.9 * (state.trailerMs || 0) + 0.1 * (performance.now() - t0)).toFixed(2);
+      },
+      restore(i) {
+        const c = layout.cabinets[i], px = i === attractIdx ? c.titlePx : c.posterPx || c.titlePx;
+        texture(screenSlot(i), SCREEN_TEX[0], SCREEN_TEX[1], px, TEX_MIPS | TEX_CLAMP);
+      },
+    });
+  }
+  function stepTrailers(now) {
+    if (!trailers) return;
+    if (now - trailersAt >= TRAILER_PICK_MS || trailersAt < 0) {
+      trailersAt = now;
+      trailers.want(HallTrailers.pick(me, layout.cabinets, {max: trailerMax(), playing: trailers.playing}));
+      state.trailers = trailers.playing.map((i) => layout.cabinets[i].slug);
+    }
+    trailers.draw(now);
+    state.trailerHow = trailers.how;
+  }
+  function pauseTrailers() {
+    if (trailers) trailers.pause(document.hidden || !!playing);
   }
 
   /* ------------------------------------------------- where you stand */
@@ -784,6 +822,7 @@
         $("back").focus();
         kit.running = false;  // the hall rests under the game
         hum.pause(true);
+        pauseTrailers();
         state.lastShown = playing.slug;
         startPadLoop();
         if (padSeen) toast("Hold B (or press View) to come back to the hall");
@@ -794,6 +833,7 @@
         state.lastBack = playing ? playing.slug : null;
         hum.pause(document.hidden);
         playing = null;
+        pauseTrailers();
         document.body.classList.remove("moving");
         if (standAt) Object.assign(kit.cam, {yaw: standAt.yaw, pitch: standAt.pitch, tx: standAt.x, ty: standAt.y, tz: standAt.z});
         canvas.focus({preventScroll: true});
@@ -841,7 +881,10 @@
     window.addEventListener("pointerdown", first, {once: true, capture: true});
     window.addEventListener("keydown", first, {once: true, capture: true});
   }
-  document.addEventListener("visibilitychange", () => hum.pause(document.hidden || document.body.classList.contains("playing")));
+  document.addEventListener("visibilitychange", () => {
+    hum.pause(document.hidden || document.body.classList.contains("playing"));
+    pauseTrailers();
+  });
   showSound();
   // "Open full page": a short fade before the page goes.
   $("player-open").addEventListener("click", (e) => {
@@ -1200,6 +1243,7 @@
     }
     if (input) me = W.step(me, input, dt, world);
     near = W.near(me, layout);
+    stepTrailers(now);
     let eye = W.EYE;
     if (bobOn && !reducedMotion && me.speed > 0.05) {
       bobPhase += dt * 2 * Math.PI * (1.5 + 0.25 * me.speed);
@@ -1504,6 +1548,7 @@
     }
     canvas.focus({preventScroll: true});
     queuePosters();
+    startTrailers();
     const savedMap = StrataKit.store.get(MAP_KEY);
     showMap(savedMap != null ? savedMap === "1" : !touchSeen, false);
     refreshPlays();
@@ -1524,6 +1569,7 @@
     get filter() { return layout && layout.filter ? Object.assign({}, layout.filter, {lit: layout.cabinets.filter(lit).map((c) => c.slug)}) : null; },
     economy: (on) => setEconomy(on),
     get sound() { return {on: hum.on, running: hum.running}; },
+    get trailers() { return trailers ? trailers.playing.map((i) => ({slug: layout.cabinets[i].slug, shown: trailers.shown(i)})) : []; },
     get card() { const c = $("card"); return c.classList.contains("on") ? {title: $("card-title").textContent, org: $("card-org").textContent, blurb: $("card-blurb").textContent, plays: $("card-plays").textContent} : null; },
     get kit() { return kit; },
     place(x, z, yaw, pitch) {

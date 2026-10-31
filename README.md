@@ -225,6 +225,15 @@ the portal keep their lists, and link here with "Walk the hall".
   danielstephenson.dev sends no CORS header and WebGL needs one; `tools/make_hall_posters.py`
   refreshes them from the same sources as the picture, and draws a title-card poster (title, blurb,
   address) for a game with no public picture (Familiar).
+- **Live screens.** The screen of the cabinet nearest the visitor (two on a desktop, one on a phone or in
+  economy), when it is in front of them and faces them, plays the game's trailer, silent and looping,
+  in place of its poster, and goes back to the poster when they walk away. Clips are
+  `src/arcade/hall_assets/clips/<slug>.mp4` (384x216, 15 fps, H.264, no sound), re-encoded from
+  danielstephenson.dev's trailers by `tools/make_hall_clips.py` (needs ffmpeg) and served same-origin for
+  the same CORS reason as the posters, with byte ranges (Safari plays a video only from a server that
+  answers them). Frames reach the screen asynchronously where the browser has `VideoFrame`, else through a
+  small canvas. No trailer plays under reduced motion, while a game is open or the page is hidden, or with
+  `?trailers=0`.
 - **The map.** A "you are here" plan of the floor (top right; *Map* or `M` toggles it, remembered; open by
   default on a desktop, closed on a phone, where it steps aside while the cabinet card shows): the room,
   stage and counter, every cabinet in its org colour, and you with the way you look. Clicking or tapping a

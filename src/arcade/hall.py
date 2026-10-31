@@ -38,6 +38,8 @@ from arcade import hall_model
 
 FEATURED = "roam"
 POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
+# The trailer clip beside each poster: the screen plays it when a visitor is near.
+CLIP = "https://danielstephenson.dev/trailers/{}.mp4"
 RAW = "https://raw.githubusercontent.com/{repo}/HEAD/{path}"
 # Games with no trailer poster yet: a picture from the game's own README.
 SCREEN_OVERRIDES = {
@@ -114,6 +116,11 @@ def poster_urls(game):
     if game["slug"] in SCREEN_OVERRIDES:
         urls.append(RAW.format(repo=game["repo"], path=SCREEN_OVERRIDES[game["slug"]]))
     return urls
+
+
+def clip_urls(game):
+    """Where a game's trailer clip may be, best first (named like its poster)."""
+    return [CLIP.format(poster_name(game["repo"])), CLIP.format(game["slug"])]
 
 
 def org_colour(repo):
@@ -401,7 +408,10 @@ POSTERS = os.path.join(ASSETS, "posters")
 # cards/<slug>.jpg for /hall/?at=<slug>.
 CARDS = os.path.join(ASSETS, "cards")
 CARD_WIDTH, CARD_HEIGHT = 1200, 630
-_ASSET_NAME = re.compile(r"^(?:posters/|cards/)?[a-z0-9][a-z0-9._-]{0,80}$")
+# Trailer clips (tools/make_hall_clips.py): clips/<slug>.mp4, played on a
+# cabinet's screen when a visitor stands near it.
+CLIPS = os.path.join(ASSETS, "clips")
+_ASSET_NAME = re.compile(r"^(?:posters/|cards/|clips/)?[a-z0-9][a-z0-9._-]{0,80}$")
 EMBED_MODES = ("on", "off")
 # One line per game for the card at a cabinet (tools/make_hall_blurbs.py).
 BLURBS = os.path.join(ASSETS, "blurbs.json")
@@ -505,6 +515,9 @@ def served_layout(games, embed, season=None, now=None, chosen=None):
         # Its side art (tools/make_hall_posters.py), else the panels are its organisation's colour.
         side = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".side.jpg"))
         cabinet["side"] = "posters/%s.side.jpg" % cabinet["slug"] if side else None
+        # Its trailer clip, for the screen when a visitor is near (else the poster stays).
+        clip = os.path.isfile(os.path.join(CLIPS, cabinet["slug"] + ".mp4"))
+        cabinet["clip"] = "clips/%s.mp4" % cabinet["slug"] if clip else None
     lit = 0
     for cabinet in doc["cabinets"]:
         cabinet["lit"] = chosen.matches(cabinet) if chosen is not None and chosen.active else True
