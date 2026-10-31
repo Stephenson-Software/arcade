@@ -745,10 +745,10 @@
 
   /* ------------------------------------- live screens (hall-trailers.js)
      The nearest screens in sight play their game's trailer instead of the
-     poster: two at most, one on a phone or in economy, none under reduced
-     motion. Each frame goes through the same scanlines as the poster. */
+     poster: two at most, one on a phone or in economy (at 10 fps there), none
+     under reduced motion. Each frame goes through the same scanlines as the poster. */
   let trailers = null, trailersAt = -1;
-  const TRAILER_PICK_MS = 250;
+  const TRAILER_PICK_MS = 250, TRAILER_LITE_S = 0.1;
   const trailerMax = () => (reducedMotion ? 0 : economy || touchFirst ? 1 : 2);
   function startTrailers() {
     if (typeof HallTrailers === "undefined" || params.get("trailers") === "0") return;
@@ -774,7 +774,8 @@
       trailers.want(HallTrailers.pick(me, layout.cabinets, {max: trailerMax(), playing: trailers.playing}));
       state.trailers = trailers.playing.map((i) => layout.cabinets[i].slug);
     }
-    trailers.draw(now);
+    // On a phone or in economy, ten frames a second of the clip's fifteen.
+    trailers.draw(now, economy || touchFirst ? TRAILER_LITE_S : HallTrailers.FRAME_S);
     state.trailerHow = trailers.how;
   }
   /* The cabinets' own sounds (hall-life.js): with Sound on, the nearest few

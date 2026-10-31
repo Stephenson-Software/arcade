@@ -232,7 +232,7 @@ the portal keep their lists, and link here with "Walk the hall".
   danielstephenson.dev's trailers by `tools/make_hall_clips.py` (needs ffmpeg) and served same-origin for
   the same CORS reason as the posters, with byte ranges (Safari plays a video only from a server that
   answers them). Frames reach the screen asynchronously where the browser has `VideoFrame`, else through a
-  small canvas. No trailer plays under reduced motion, while a game is open or the page is hidden, or with
+  small canvas, at the clip's 15 fps (10 on a phone or in economy). No trailer plays under reduced motion, while a game is open or the page is hidden, or with
   `?trailers=0`.
 - **The map.** A "you are here" plan of the floor (top right; *Map* or `M` toggles it, remembered; open by
   default on a desktop, closed on a phone, where it steps aside while the cabinet card shows): the room,

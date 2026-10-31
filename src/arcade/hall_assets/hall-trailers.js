@@ -119,14 +119,14 @@
         for (const i of [...live.keys()]) if (!keep.has(i)) stop(i);
         for (const i of list) if (!live.has(i)) start(i, hooks.cabinet(i));
       },
-      // Each frame: a new video frame, at most FRAME_S apart, onto its
-      // screen. -> how many were started.
-      draw(now) {
+      // Each frame: a new video frame, at least gapS seconds apart (FRAME_S:
+      // the clips' own rate), onto its screen. -> how many were started.
+      draw(now, gapS = FRAME_S) {
         let n = 0;
         if (paused) return n;
         for (const [i, rec] of live) {
           const v = rec.video;
-          if (rec.busy || v.readyState < 2 || v.currentTime === rec.at || now - rec.t < FRAME_S * 1000) continue;
+          if (rec.busy || v.readyState < 2 || v.currentTime === rec.at || now - rec.t < gapS * 1000) continue;
           rec.at = v.currentTime; rec.t = now; rec.busy = true; n++;
           grab(i, rec).catch(() => stop(i)).finally(() => { rec.busy = false; });
         }
