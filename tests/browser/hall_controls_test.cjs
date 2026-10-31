@@ -88,16 +88,20 @@ function memoryStorage(init = {}) {
 }
 const S = C.settings;
 
-test("the defaults: sensitivity 1, no invert, 62 degree view, head bob off, no reduced motion, hum off", () => {
+test("the defaults: sensitivity 1, no invert, 62 degree view, head bob off, no reduced motion, hum off, ghosts on", () => {
   const s = S.load(memoryStorage());
-  assert.deepStrictEqual(s, {sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false});
+  assert.deepStrictEqual(s, {sensitivity: 1, invertY: false, fov: 62, bob: false, reduceMotion: false, hum: false, ghosts: true});
+  // Settings saved before the ghosts existed read back with them on.
+  const old = memoryStorage({[S.KEY]: JSON.stringify({sensitivity: 1.5, hum: true})});
+  assert.strictEqual(S.load(old).ghosts, true);
 });
 
 test("settings are kept and read back as one object", () => {
   const st = memoryStorage();
-  assert.strictEqual(S.save(st, {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true}), true);
-  assert.deepStrictEqual(JSON.parse(st.map.get(S.KEY)), {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true});
-  assert.deepStrictEqual(S.load(st), {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true});
+  const all = {sensitivity: 1.7, invertY: true, fov: 75, bob: true, reduceMotion: true, hum: true, ghosts: false};
+  assert.strictEqual(S.save(st, all), true);
+  assert.deepStrictEqual(JSON.parse(st.map.get(S.KEY)), all);
+  assert.deepStrictEqual(S.load(st), all);
 });
 
 test("storage that throws or is missing never breaks the hall: the defaults, and save says no", () => {

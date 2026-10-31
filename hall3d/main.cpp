@@ -54,6 +54,11 @@ struct Mesh {
     bool added = false;
     bool hidden = false;  // the unused half of a level-of-detail pair: kept here, not in the engine
     bool late = false;    // drawn after the others (HALL_MESH_LATE)
+    // Posed by hall_pose_meshes (people in the hall): a model matrix, and the
+    // mesh's alpha (STRATA_MESH_TRANSLUCENT reads it from its colour).
+    bool posed = false, off = false;
+    float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float alpha = 1.0f;
 };
 
 constexpr uint32_t kHallMeshLate = 0x10000u;  // the page's flag, not Strata's
@@ -90,7 +95,7 @@ uint32_t uploadTexture(strata_kit::Host& h, Texture& t) {
 void uploadMesh(strata_kit::Host& h, Mesh& m) {
     if (m.added) strata_remove_mesh(h.engine, m.id);
     m.added = false;
-    if (m.hidden || m.positions.empty()) return;
+    if (m.hidden || m.off || m.positions.empty()) return;
     StrataTexturedMesh tm{};
     tm.mesh.positions = m.positions.data();
     tm.mesh.normals = m.normals.empty() ? nullptr : m.normals.data();
@@ -98,7 +103,8 @@ void uploadMesh(strata_kit::Host& h, Mesh& m) {
     tm.mesh.indices = m.indices.data();
     tm.mesh.vertex_count = static_cast<int32_t>(m.positions.size() / 3);
     tm.mesh.index_count = static_cast<int32_t>(m.indices.size());
-    tm.mesh.color[0] = tm.mesh.color[1] = tm.mesh.color[2] = tm.mesh.color[3] = 1.0f;
+    tm.mesh.color[0] = tm.mesh.color[1] = tm.mesh.color[2] = 1.0f;
+    tm.mesh.color[3] = m.alpha;
     tm.uvs = m.uvs.empty() ? nullptr : m.uvs.data();
     auto it = m.texture >= 0 ? textures.find(m.texture) : textures.end();
     tm.texture = it != textures.end() ? it->second.id : 0;
@@ -108,6 +114,7 @@ void uploadMesh(strata_kit::Host& h, Mesh& m) {
         return;
     }
     m.added = true;
+    if (m.posed) strata_set_mesh_transform(h.engine, m.id, m.model);
 }
 
 // Adds the late meshes again, so they come after everything added since.
@@ -332,6 +339,40 @@ STRATA_KIT_EXPORT void hall_set_lods(const float* rows, int n) {
 STRATA_KIT_EXPORT void hall_set_view(float ambientLevel, float fov) {
     ambient = std::clamp(ambientLevel, 0.0f, 1.0f);
     fovDegrees = std::clamp(fov, 20.0f, 110.0f);
+}
+
+// rows of 7: slot, x, y, z, yaw, scale, alpha. Moves and turns meshes built
+// round the origin (people in the hall, hall-people.js): the matrix is all
+// that changes, unless the alpha moves by more than a step (it is baked into
+// the mesh when added) or reaches 0 (the mesh is taken out until it is back).
+// yaw: the page's (it looks along (-cos yaw, -sin yaw)); a mesh built looking
+// along -x turns to it.
+STRATA_KIT_EXPORT void hall_pose_meshes(const float* rows, int n) {
+    strata_kit::Host& host = strata_kit::host();
+    bool changed = false;
+    for (int i = 0; i < n; ++i) {
+        const float* r = rows + i * 7;
+        auto it = meshes.find(static_cast<int>(r[0]));
+        if (it == meshes.end()) continue;
+        Mesh& m = it->second;
+        const float c = std::cos(-r[4]), s = std::sin(-r[4]), k = r[5];
+        const float model[16] = {c * k, 0, -s * k, 0, 0, k, 0, 0, s * k, 0, c * k, 0, r[1], r[2], r[3], 1};
+        std::memcpy(m.model, model, sizeof model);
+        m.posed = true;
+        const bool off = !(r[6] > 0.004f) || !(k > 0.0f);
+        const float alpha = std::clamp(r[6], 0.0f, 1.0f);
+        const bool reAdd = off != m.off || (!off && std::fabs(alpha - m.alpha) > 1.0f / 32.0f);
+        m.off = off;
+        if (reAdd) m.alpha = alpha;
+        if (!host.engine) continue;
+        if (reAdd) {
+            uploadMesh(host, m);
+            changed = true;
+        } else if (m.added) {
+            strata_set_mesh_transform(host.engine, m.id, m.model);
+        }
+    }
+    if (changed) countMeshes(host);
 }
 
 // Before StrataKit.create (sk_init): multisampling, and whether frames are

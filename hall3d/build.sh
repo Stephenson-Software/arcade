@@ -35,7 +35,7 @@ export KIT_SOURCE="$here/main.cpp"
 export KIT_OUT="$repo/src/arcade/hall_assets"
 export KIT_NAME=hall-engine
 export KIT_EXPORT_NAME=createHallEngine
-export KIT_EXPORTS=_hall_texture,_hall_mesh,_hall_set_items,_hall_set_points,_hall_set_lights,_hall_set_view,_hall_configure,_hall_set_lods
+export KIT_EXPORTS=_hall_texture,_hall_mesh,_hall_set_items,_hall_set_points,_hall_set_lights,_hall_set_view,_hall_configure,_hall_set_lods,_hall_pose_meshes
 export KIT_WORK="$work"
 export EMSDK_VERSION=6.0.11
 
