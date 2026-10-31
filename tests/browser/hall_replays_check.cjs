@@ -46,6 +46,14 @@ async function run(name, contextOptions, hallUrl, out) {
   // per 10 minutes) does not refuse the second device's walk.
   const ctx = await b.newContext(Object.assign({extraHTTPHeaders: {"X-Forwarded-For": "198.51.100." + (Date.now() % 250)}}, contextOptions));
   await ctx.addInitScript(STAND_IN);
+  // With the real hall-people.js, keep what each layer was last given, as the stand-in does.
+  await ctx.addInitScript(() => window.addEventListener("DOMContentLoaded", () => {
+    const P = window.HallPeople;
+    if (!P || P.standIn || P.layers) return;
+    const set = P.set.bind(P);
+    P.layers = {};
+    P.set = (layer, people) => { P.layers[layer] = people.map((p) => Object.assign({}, p)); return set(layer, people); };
+  }));
   const r = {device: name};
   const posts = [];
   ctx.on("request", (q) => { if (q.method() === "POST" && q.url().includes("/api/walks")) posts.push(q.postData()); });

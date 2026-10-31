@@ -96,7 +96,7 @@ const NAMES = ["Ada", "Bo", "Cyrus", "Dee"];
     await page.waitForTimeout(2500);
     const seen = await page.evaluate(() => ({stats: __hall.state.people,
       labels: [...document.querySelectorAll(".person-label")].map((e) => e.textContent),
-      key: HallPeople.layoutKey(__hall.layout.cabinets.map((c) => c.slug)),
+      key: __hall.layout.layoutKey || HallPeople.layoutKey(__hall.layout.cabinets.map((c) => c.slug)),
       at: (() => { const f = HallPeople.figure("presence", "sess-3"); return f && f.atCabinet; })()}));
     check(label, "four people drawn", seen.stats.drawn === 4 && seen.stats.layers.presence === 4, seen.stats);
     check(label, "names show", seen.labels.length >= 2 && seen.labels.every((n) => NAMES.includes(n)), seen.labels);
