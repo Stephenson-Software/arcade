@@ -95,6 +95,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
+- The Hall of Fame board reads every board's #1 from arcade-social's `GET /v1/boards/top` in one request,
+  instead of one request per game and one per board (about 36 per tab every ten minutes). Against an
+  arcade-social without that route it falls back to the per-game reads.
 - Files are streamed in 64 KiB chunks instead of being read whole into memory for each response.
   Ten parallel downloads of an 18 MB file peaked at 180 MB RSS before and 25 MB after.
 

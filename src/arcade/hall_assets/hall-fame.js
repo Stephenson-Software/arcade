@@ -15,9 +15,11 @@
                                         [{game, board, name, value}], at most MAX
      HallFame.draw(ctx, w, h, view)  -> paints the board (a 2D canvas context)
 
-   HallFame.load(api, cabinets, store) fetches what the board shows (each game's
-   boards, then each board's top entry), a few at a time, kept for FRESH_MS in
-   sessionStorage so walking round the hall never asks twice. */
+   HallFame.load(api, cabinets, store) fetches what the board shows in one
+   request (GET /v1/boards/top: every board's #1), kept for FRESH_MS in
+   sessionStorage so walking round the hall never asks twice. Against an
+   arcade-social without that route (a 404) it falls back to each game's
+   boards, then each board's top entry, a few at a time. */
 (function (root) {
   const LIKES_FULL = 30;
   const MAX = 6, FRESH_MS = 10 * 60 * 1000, AT_ONCE = 3, KEY = "arcade-hall.fame";
@@ -134,15 +136,18 @@
   }
 
   /* ----------------------------------------------------- fetching */
-  async function getJson(api, path) {
+  // {status, body}: status 0 when the request itself failed; body null unless 2xx JSON.
+  async function request(api, path) {
     const ctl = typeof AbortController === "function" ? new AbortController() : null;
     const timer = ctl ? setTimeout(() => ctl.abort(), 8000) : 0;
     try {
       const res = await fetch(api + path, Object.assign({headers: {accept: "application/json"}, credentials: "omit"},
         ctl ? {signal: ctl.signal} : {}));
-      return res.ok ? await res.json() : null;
-    } catch (e) { return null; } finally { clearTimeout(timer); }
+      return {status: res.status || (res.ok ? 200 : 0), body: res.ok ? await res.json() : null};
+    } catch (e) { return {status: 0, body: null}; } finally { clearTimeout(timer); }
   }
+
+  async function getJson(api, path) { return (await request(api, path)).body; }
 
   async function pool(items, fn) {
     const out = [];
@@ -159,12 +164,28 @@
     } catch (e) { return null; }
   }
 
-  async function load(api, cabinets, store) {
-    const hit = store && cached(store);
-    if (hit) return hit;
-    const slugs = cabinets.filter((c) => c.deployed && SLUG.test(c.slug)).map((c) => c.slug);
+  const boardOf = (b) => ({id: b.id, title: b.title, unit: b.unit, integer: !!b.integer});
+  const topOf = (e) => (e && typeof e === "object" ? {displayName: e.displayName, value: e.value} : null);
+
+  /* One request: [{slug, board, top}] for every board of every game, kept to the
+     hall's deployed cabinets in the service's order. null when the route may be
+     missing: a 404, or a failed request, since an arcade-social from before the
+     route answers its 404 without CORS headers and the page sees only a network
+     error. false when the service answered but failed (429, 5xx, bad JSON). */
+  async function loadAll(api, slugs) {
+    const {status, body} = await request(api, "/v1/boards/top");
+    if (status === 404 || status === 0) return null;
+    if (!body || !Array.isArray(body.boards)) return false;
+    const wanted = new Set(slugs);
+    return body.boards.filter((f) => f && typeof f.slug === "string" && wanted.has(f.slug) && f.board
+      && typeof f.board.id === "string" && BOARD.test(f.board.id))
+      .map((f) => ({slug: f.slug, board: boardOf(f.board), top: topOf(f.top)}));
+  }
+
+  // Before /v1/boards/top: each game's boards, then each board's #1, a few at a time.
+  async function loadEach(api, slugs) {
     const decl = await pool(slugs, (s) => getJson(api, `/v1/games/${s}/boards`));
-    if (decl.every((d) => d === null)) return {at: Date.now(), found: [], games: [], off: true};
+    if (decl.every((d) => d === null)) return false;
     const boards = [];
     decl.forEach((d, k) => {
       for (const b of (d && Array.isArray(d.boards) ? d.boards : [])) {
@@ -172,12 +193,18 @@
       }
     });
     const tops = await pool(boards, (b) => getJson(api, `/v1/boards/${b.slug}/${b.board.id}?limit=1`));
-    const found = boards.map((b, k) => {
-      const e = tops[k] && Array.isArray(tops[k].entries) ? tops[k].entries[0] : null;
-      return {slug: b.slug, board: {id: b.board.id, title: b.board.title, unit: b.board.unit, integer: !!b.board.integer},
-        top: e ? {displayName: e.displayName, value: e.value} : null};
-    });
-    const doc = {at: Date.now(), found, games: [...new Set(boards.map((b) => b.slug))], off: false};
+    return boards.map((b, k) => ({slug: b.slug, board: boardOf(b.board),
+      top: topOf(tops[k] && Array.isArray(tops[k].entries) ? tops[k].entries[0] : null)}));
+  }
+
+  async function load(api, cabinets, store) {
+    const hit = store && cached(store);
+    if (hit) return hit;
+    const slugs = cabinets.filter((c) => c.deployed && SLUG.test(c.slug)).map((c) => c.slug);
+    let found = await loadAll(api, slugs);
+    if (found === null) found = await loadEach(api, slugs);
+    if (found === false) return {at: Date.now(), found: [], games: [], off: true};
+    const doc = {at: Date.now(), found, games: [...new Set(found.map((f) => f.slug))], off: false};
     try { if (store) store.setItem(KEY, JSON.stringify(doc)); } catch (e) { /* private window */ }
     return doc;
   }

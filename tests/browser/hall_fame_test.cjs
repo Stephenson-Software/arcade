@@ -64,14 +64,15 @@ async function test(name, fn) {
     return async (url, opts) => {
       seen.push([url, opts && opts.credentials]);
       const body = routes[url.replace("https://api.example", "")];
-      if (body === undefined) return {ok: false, json: async () => ({})};
-      return {ok: true, json: async () => body};
+      if (body === undefined) return {ok: false, status: 404, json: async () => ({})};
+      if (typeof body === "number") return {ok: body < 300, status: body, json: async () => ({})};
+      return {ok: true, status: 200, json: async () => body};
     };
   }
   function store() { const m = new Map(); return {getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v))}; }
   const deployed = cabs.map((c) => Object.assign({deployed: true}, c)).concat([{slug: "soon", title: "Soon", deployed: false}]);
 
-  await test("load asks for each deployed game's boards, then each board's top, without credentials, once a session", async () => {
+  await test("before /v1/boards/top exists (404), load asks each deployed game's boards, then each board's top", async () => {
     const seen = [], s = store();
     globalThis.fetch = fakeFetch({
       "/v1/games/roam/boards": {boards: [{id: "most-days", title: "Most days", unit: "days", integer: true}, {id: "../x"}]},
@@ -85,11 +86,64 @@ async function test(name, fn) {
     assert.strictEqual(doc.off, false);
     assert.deepStrictEqual(F.champions(doc.found, cabs), [{game: "Roam", board: "Most days", name: "Bo", value: "40 days"}]);
     assert.ok(seen.every(([u, c]) => c === "omit" && !u.includes("soon") && !u.includes("..")), JSON.stringify(seen));
-    assert.strictEqual(seen.length, 5);
+    assert.strictEqual(seen[0][0], "https://api.example/v1/boards/top");
+    assert.strictEqual(seen.length, 6);
     assert.deepStrictEqual(F.open(doc.found, cabs), ["Frog Hopper"]);
     const again = await F.load("https://api.example", deployed, s);
-    assert.strictEqual(seen.length, 5, "kept for the session");
+    assert.strictEqual(seen.length, 6, "kept for the session");
     assert.deepStrictEqual(again.games, doc.games);
+  });
+
+  const TOP = {verified: false, notice: "not verified", boards: [
+    {slug: "tidewater", board: {id: "fewest-days", title: "Fewest days"}, top: {displayName: "Zed", value: 3, achievedAt: "2026-10-30T00:00:00Z"}},
+    {slug: "roam", board: {id: "most-days", title: "Most days", unit: "days", integer: true, order: "desc"},
+      top: {displayName: "Bo", value: 40, achievedAt: "2026-10-30T00:00:00Z"}},
+    {slug: "roam", board: {id: "../x", title: "Bad"}, top: {displayName: "Evil", value: 1}},
+    {slug: "rock-paper-scissors", board: {id: "best-streak", title: "Best streak", unit: "wins", integer: true}, top: null},
+    {slug: "soon", board: {id: "b", title: "B"}, top: {displayName: "Early", value: 1}},
+    {slug: "frog-hopper", board: {id: "fastest-crossing", title: "Fastest crossing", unit: "seconds"}, top: null},
+    null, {slug: "frog-hopper"},
+  ]};
+
+  await test("load reads every board's #1 in one request, kept to the deployed cabinets", async () => {
+    const seen = [], s = store();
+    globalThis.fetch = fakeFetch({"/v1/boards/top": TOP}, seen);
+    const doc = await F.load("https://api.example", deployed, s);
+    assert.deepStrictEqual(seen, [["https://api.example/v1/boards/top", "omit"]]);
+    assert.strictEqual(doc.off, false);
+    // tidewater is not a cabinet here and "soon" is not deployed: neither is shown.
+    assert.deepStrictEqual(doc.games, ["roam", "rock-paper-scissors", "frog-hopper"]);
+    assert.deepStrictEqual(doc.found[0], {slug: "roam", board: {id: "most-days", title: "Most days", unit: "days", integer: true},
+      top: {displayName: "Bo", value: 40}});
+    assert.deepStrictEqual(F.champions(doc.found, cabs), [{game: "Roam", board: "Most days", name: "Bo", value: "40 days"}]);
+    assert.deepStrictEqual(F.open(doc.found, cabs), ["Rock Paper Scissors", "Frog Hopper"]);
+    await F.load("https://api.example", deployed, s);
+    assert.strictEqual(seen.length, 1, "kept for the session");
+  });
+
+  await test("an unreadable 404 (no CORS headers) also falls back; a 5xx or 429 does not", async () => {
+    const seen = [];
+    globalThis.fetch = async (url, opts) => {
+      seen.push(url);
+      if (url.endsWith("/v1/boards/top")) throw new TypeError("Failed to fetch");
+      return fakeFetch({"/v1/games/roam/boards": {boards: [{id: "most-days", title: "Most days"}]},
+        "/v1/boards/roam/most-days?limit=1": {entries: [{displayName: "Bo", value: 40}]}}, [])(url, opts);
+    };
+    const doc = await F.load("https://api.example", deployed, store());
+    assert.deepStrictEqual(F.champions(doc.found, cabs).map((r) => r.name), ["Bo"]);
+    assert.ok(seen.length > 1);
+    for (const code of [429, 500, 503]) {
+      const asked = [];
+      globalThis.fetch = fakeFetch({"/v1/boards/top": code}, asked);
+      const off = await F.load("https://api.example", deployed, store());
+      assert.strictEqual(off.off, true, String(code));
+      assert.strictEqual(asked.length, 1, "no fallback storm on " + code);
+    }
+    // An answer without a boards list is a failure too, and is not kept.
+    const s = store();
+    globalThis.fetch = fakeFetch({"/v1/boards/top": {boards: "nope"}}, []);
+    assert.strictEqual((await F.load("https://api.example", deployed, s)).off, true);
+    assert.strictEqual(s.getItem("arcade-hall.fame"), null);
   });
 
   await test("with the service down the board says so and likes are null", async () => {
