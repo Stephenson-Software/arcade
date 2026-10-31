@@ -235,3 +235,18 @@ def test_added_is_an_optional_day():
 def test_added_must_be_a_real_day(bad):
     with pytest.raises(registry.RegistryError, match="line 2: added for 'tidewater' must be a date"):
         registry.loads(registryText([game("tidewater", added=bad)]))
+
+
+def test_the_registry_module_is_self_contained():
+    # arcade-social vendors registry.py byte for byte, where there is no arcade
+    # package: it may import only the standard library.
+    import ast
+    import os
+
+    with open(os.path.join(os.path.dirname(registry.__file__), "registry.py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert node.module and not node.module.startswith("arcade"), node.module
+        if isinstance(node, ast.Import):
+            assert all(not alias.name.startswith("arcade") for alias in node.names)

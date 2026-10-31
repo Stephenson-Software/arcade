@@ -65,8 +65,6 @@ import datetime
 
 import re
 
-from arcade import filters
-
 SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 TOKEN_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 HOSTNAME_PATTERN = re.compile(
@@ -78,6 +76,21 @@ CANONICAL_PATTERN = re.compile(r"^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?$"
 
 # Labels the service itself uses or that would be confusing as a game.
 RESERVED_SLUGS = frozenset(("play", "www", "api", "arcade", "admin", "static"))
+
+# The engines `engine:` may name (arcade.filters labels them). Kept here, not
+# imported, so this file stays self-contained: arcade-social vendors it
+# byte for byte and has no arcade package to import from.
+ENGINES = ("strata", "tak", "sdl", "other")
+
+
+def default_engine(kind):
+    return "tak" if kind == "tak" else "other"
+
+
+def org_of(repo):
+    """The GitHub organisation (or user) a game's repository lives under."""
+    return (repo or "").split("/", 1)[0]
+
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
 OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added", "tags", "engine")
@@ -126,11 +139,11 @@ class Game(object):
         self.canonical = canonical
         self.added = added  # a datetime.date, or None
         self.tags = tuple(tags)
-        self.engine = engine or filters.default_engine(kind)
+        self.engine = engine or default_engine(kind)
 
     @property
     def org(self):
-        return filters.org_of(self.repo)
+        return org_of(self.repo)
 
     def __repr__(self):
         return "Game(%r)" % self.slug
@@ -342,10 +355,10 @@ def validate(entries, domain=None):
             raise RegistryError("line %d: %r has %d tags; at most %d" % (lineNumber, slug, len(tags), MAX_TAGS))
         engine = entry.get("engine")
         if engine is not None:
-            if engine not in filters.ENGINES:
+            if engine not in ENGINES:
                 raise RegistryError(
                     "line %d: engine %r for %r must be one of %s"
-                    % (lineNumber, engine, slug, ", ".join(filters.ENGINES))
+                    % (lineNumber, engine, slug, ", ".join(ENGINES))
                 )
             if kind == "tak" and engine != "tak":
                 raise RegistryError(

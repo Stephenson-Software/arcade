@@ -24,11 +24,12 @@ Standard library only: the server imports it.
 
 from urllib.parse import parse_qs, urlencode
 
+from arcade.registry import ENGINES, default_engine, org_of  # noqa: F401  (re-exported)
+
 # The engine a game runs on, as the registry's `engine:` names it. A `tak`
 # game is always tak's console runtime; a `static` game is `other` unless its
 # entry says which engine its build is (a static bundle does not say so itself:
 # a Strata build and an SDL build are both an Emscripten index.html).
-ENGINES = ("strata", "tak", "sdl", "other")
 ENGINE_LABELS = {
     "strata": "Strata 3D",
     "tak": "tak console",
@@ -41,15 +42,6 @@ SORT_LABELS = {"name": "A–Z", "plays": "Most played", "newest": "Newest"}
 # Longest value kept from a query: anything longer cannot be a tag, an
 # organisation or an engine, and is not echoed back into a page.
 MAX_VALUE = 64
-
-
-def org_of(repo):
-    """The GitHub organisation (or user) a game's repository lives under."""
-    return (repo or "").split("/", 1)[0]
-
-
-def default_engine(kind):
-    return "tak" if kind == "tak" else "other"
 
 
 def tag_label(tag):
