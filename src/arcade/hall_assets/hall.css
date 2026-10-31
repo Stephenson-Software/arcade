@@ -217,3 +217,27 @@ body.touch #people-settings .opt { min-height: 44px; }
 #help #today-btn { margin-right: 8px; }
 #help #today-btn[aria-pressed="true"] { background: var(--accent); color: #120c26; border-color: transparent; }
 @media (pointer: coarse) { #help .disclose { min-height: 44px; } #help .opt { min-height: 44px; } }
+
+/* The help panel never covers what plays (a phone): it scrolls within the
+   space above the stick and the play button, and while it is open the
+   cabinet card (under it, at the top) steps aside, as the map does; the
+   play button stays in sight and tappable. */
+body.touch #help { max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - 52px - max(24px, env(safe-area-inset-bottom)) - 152px); }
+body.touch #help:not([hidden]) ~ #card { visibility: hidden; }
+/* "This device is drawing slowly" (StrataLoader.slow, styled inline): on a
+   phone it sits above the stick and the play button, and the help ends above
+   it; on a wider screen it takes the bottom right corner, clear of the play
+   button in the middle. The hall's own toast goes above it. */
+.sk-slow span { flex: 1 1 auto; min-width: 0; }
+.sk-slow button { flex: none; white-space: nowrap; }
+body.touch .sk-slow { bottom: calc(max(24px, env(safe-area-inset-bottom)) + 140px) !important; z-index: 5 !important;
+  left: max(16px, env(safe-area-inset-left)) !important; right: max(16px, env(safe-area-inset-right)); transform: none !important;
+  max-width: 480px !important; flex-wrap: wrap; row-gap: 6px !important; }
+body.touch .sk-slow span { flex-basis: 100%; }
+body.touch .sk-slow button { min-height: 44px !important; min-width: 44px; }
+body.touch .sk-slow button:first-of-type { flex: 1 1 auto; }
+body.touch:has(.sk-slow) #help { max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - 52px - max(24px, env(safe-area-inset-bottom)) - 236px); }
+body.touch:has(.sk-slow) #toast { bottom: calc(max(24px, env(safe-area-inset-bottom)) + 236px); }
+body:not(.touch) .sk-slow { left: auto !important; transform: none !important; right: max(16px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom)) !important; max-width: min(460px, calc(50vw - 140px)) !important; }
+body:not(.touch):has(.sk-slow) #help { max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - 52px - max(24px, env(safe-area-inset-bottom)) - 96px); }
