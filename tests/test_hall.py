@@ -447,6 +447,8 @@ def test_the_hall_page_is_plain_unless_asked_to_be_isolated(running):
     assert res.getheader("Cross-Origin-Embedder-Policy") is None
     csp = res.getheader("Content-Security-Policy")
     assert "frame-src https://*.play.example.com" in csp and "'wasm-unsafe-eval'" in csp
+    # The card's likes and boards come from arcade-social, and from nowhere else.
+    assert "connect-src 'self' https://api.play.example.com;" in csp
     res, _ = get(port, "/hall/?isolated=1")
     assert res.getheader("Cross-Origin-Opener-Policy") == "same-origin"
     assert res.getheader("Cross-Origin-Embedder-Policy") == "require-corp"
@@ -734,7 +736,7 @@ def test_the_hall_page_loads_its_scripts_in_order():
     with open(os.path.join(hall.ASSETS, "index.html")) as f:
         page = f.read()
     order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall-controls.js", "hall.js"]
-    order.append("hall-share.js")
+    order += ["hall-share.js", "hall-social.js"]
     at = [page.index('src="%s"' % name) for name in order]
     assert at == sorted(at)
     assert 'id="sound"' in page and 'aria-pressed="false"' in page
@@ -995,6 +997,41 @@ def test_popularity_warmth_board_rows_and_values():
         pytest.skip("node is not installed")
     run = subprocess.run(
         [node, os.path.join(ROOT, "tests", "browser", "hall_fame_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_the_card_shows_likes_and_boards_from_arcade_social(running):
+    """tests/browser/hall_social_test.cjs (plain node) for the text; the page
+    names arcade-social's URL and the card has a place for its line."""
+    import shutil
+    import subprocess
+
+    res, body = get(running(), "/hall/")
+    page = body.decode("utf-8")
+    assert '<meta name="arcade-social" content="https://api.play.example.com">' in page
+    assert "<!--social-meta-->" not in page
+    assert 'id="card-social" hidden' in page
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        script = f.read()
+    assert 'new CustomEvent("hall:card"' in script
+    with open(os.path.join(hall.ASSETS, "hall-social.js")) as f:
+        social = f.read()
+    # Public reads go without credentials; only the session, "my likes" and the heart carry them.
+    assert social.count('credentials: "include"') == 2 and 'getJson("/v1/session", true)' in social
+    assert '"X-Play-Client": "1"' in social
+    # It reads the hall's state only through the event; it never moves or turns the view.
+    assert "__hall" not in social.replace("__hallSocial", "") and "cam.yaw" not in social
+    res, _ = get(running(), "/hall/hall-social.js")
+    assert res.status == 200 and res.getheader("Content-Type").startswith("text/javascript")
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_social_test.cjs")],
         capture_output=True,
         text=True,
         timeout=120,

@@ -453,11 +453,12 @@ def blurbs():
 
 def csp(domain):
     """The hall page's Content-Security-Policy: everything from this origin,
-    WebAssembly compiled from it, and frames only from a game's own host."""
+    WebAssembly compiled from it, frames only from a game's own host, and
+    requests to arcade-social (likes and boards on the card) at api.<domain>."""
     return (
         "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; connect-src 'self'; frame-src https://*.%s; base-uri 'none'; "
-        "form-action 'none'; object-src 'none'" % domain
+        "img-src 'self' data: blob:; connect-src 'self' https://api.%s; frame-src https://*.%s; base-uri 'none'; "
+        "form-action 'none'; object-src 'none'" % (domain, domain)
     )
 
 
@@ -544,6 +545,7 @@ def served_layout(games, embed, season=None, now=None, chosen=None):
 # The page, with its link-preview tags
 
 SHARE_MARK = "<!--share-meta-->"
+SOCIAL_MARK = "<!--social-meta-->"
 TITLE = "Arcade Hall"
 DESCRIPTION = (
     "Walk the arcade: one cabinet per browser game on play.danielstephenson.dev. Walk up to one and play it."
@@ -621,7 +623,13 @@ def share_meta(domain, slug=None, title=None):
     ) % values
 
 
+def social_meta(domain):
+    """Where hall-social.js finds arcade-social: https://api.<domain>."""
+    return '<meta name="arcade-social" content="https://api.%s">' % html.escape(domain)
+
+
 def page(domain, slug=None, title=None):
-    """index.html as UTF-8 bytes, its link-preview tags filled in."""
+    """index.html as UTF-8 bytes, its link-preview tags and arcade-social's URL filled in."""
     text = _read(os.path.join(ASSETS, "index.html"))[0].decode("utf-8")
-    return text.replace(SHARE_MARK, share_meta(domain, slug, title), 1).encode("utf-8")
+    text = text.replace(SHARE_MARK, share_meta(domain, slug, title), 1)
+    return text.replace(SOCIAL_MARK, social_meta(domain), 1).encode("utf-8")

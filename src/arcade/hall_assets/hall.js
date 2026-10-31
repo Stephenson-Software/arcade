@@ -1470,6 +1470,7 @@
   function showCard(c) {
     if (c === cardFor) return;
     cardFor = c;
+    document.dispatchEvent(new CustomEvent("hall:card", {detail: c ? c.slug : null}));
     const card = $("card");
     document.body.classList.toggle("at-cabinet", !!c);
     if (!c) { card.classList.remove("on"); return; }
