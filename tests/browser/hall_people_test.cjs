@@ -224,6 +224,93 @@ test("a hidden layer draws nothing until shown again", () => {
   assert.ok(out.items.length > 0);
 });
 
+/* --------------------------------------------- a tap on a figure */
+// The screen point of a world point under view(), as the page passes it to pick().
+const at = (v, p) => C.project(v, p, 50);
+test("pick: the figure under a point, nearest first, and nothing beside it", () => {
+  const c = P.crowd();
+  c.set("presence", [person("near", 0, 3, {label: "Near"}), person("far", 0, -4, {label: "Far"})], 0);
+  c.set("ghosts", [person("g", 2.5, 1)], 0);
+  const v = view({height: 720});
+  c.frame(v, 5);
+  // On the body of the near one (the far one is straight behind it): the near one.
+  let q = at(v, [0, 0.9, 3]);
+  assert.deepStrictEqual((({layer, id}) => ({layer, id}))(c.pick(v, q.nx, q.ny, 18)), {layer: "presence", id: "near"});
+  assert.ok(c.pick(v, q.nx, q.ny, 18).dist < 4);
+  // Its head, too; and the ghost, hovering.
+  q = at(v, [0, 1.45, 3]);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 18).id, "near");
+  q = at(v, [2.5, 0.7, 1]);
+  assert.deepStrictEqual(c.pick(v, q.nx, q.ny, 18).layer, "ghosts");
+  // Well beside every figure, and above the near one's head: nothing.
+  q = at(v, [-2, 0.9, 3]);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 18), null);
+  q = at(v, [0, 2.6, 3]);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 18), null);
+  // A wider hit radius reaches a figure a little to the side.
+  q = at(v, [0.5, 0.9, 3]);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 4), null);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 120).id, "near");
+  // A hidden layer is not drawn, so it cannot be picked.
+  c.hide("ghosts", true);
+  c.frame(v, 5.1);
+  q = at(v, [2.5, 0.7, 1]);
+  assert.strictEqual(c.pick(v, q.nx, q.ny, 18), null);
+  // The pure function, for nothing drawn or no projection.
+  assert.strictEqual(P.pickFigure([], v, 0, 0, 18), null);
+  assert.strictEqual(P.pickFigure([{layer: "ghosts", id: "x", x: 0, y: 0, z: 3}], Object.assign({}, v, {project: null}), 0, 0, 18), null);
+});
+
+test("reveal: a tapped figure's caption, beyond the labels' range and count, for a few seconds", () => {
+  const c = P.crowd();
+  // Seven named people nearby (six labels at most), one named far away (past 14 m), a ghost and a replay.
+  const ps = Array.from({length: 7}, (_, i) => person("p" + i, (i % 3 - 1) * 0.8, 3 - i * 0.6, {label: "N" + i}));
+  ps.push(person("far", 0, -14, {label: "Faraway"}));
+  c.set("presence", ps, 0);
+  c.set("ghosts", [person("g", 2, -2, {label: "ignored"})], 0);
+  c.set("replays", [person("r", -2, -2)], 0);
+  let out = c.frame(view(), 5);
+  assert.ok(!out.labels.some((l) => l.text === "Faraway"), "too far for a label of its own");
+  assert.ok(!out.labels.some((l) => l.text === "N6"), "past the six");
+  c.reveal("presence", "far", 5);
+  out = c.frame(view(), 5.1);
+  const far = out.labels.find((l) => l.text === "Faraway");
+  assert.ok(far && far.pinned && far.opacity >= 0.6, JSON.stringify(out.labels));
+  assert.strictEqual(out.labels.filter((l) => !l.pinned).length, 6, "the usual six stay");
+  // A tap on someone else replaces it; a ghost and a replay say only what they are.
+  c.reveal("ghosts", "g", 5.2);
+  out = c.frame(view(), 5.3);
+  assert.deepStrictEqual(out.labels.filter((l) => l.pinned).map((l) => [l.text, l.layer]), [["A recent visitor", "ghosts"]]);
+  c.reveal("replays", "r", 5.4);
+  out = c.frame(view(), 5.5);
+  assert.deepStrictEqual(out.labels.filter((l) => l.pinned).map((l) => l.text), ["A walk from today"]);
+  assert.deepStrictEqual(c.revealed, ["replays:r"]);
+  // Gone after four seconds; the usual labels are untouched.
+  out = c.frame(view(), 9.5);
+  assert.strictEqual(out.labels.filter((l) => l.pinned).length, 0);
+  assert.deepStrictEqual(c.revealed, []);
+  assert.deepStrictEqual(out.labels.map((l) => l.text), ["N0", "N1", "N2", "N3", "N4", "N5"]);
+  // On a phone: three of the usual, and the one asked for besides.
+  c.reveal("presence", "p4", 9.6);
+  out = c.frame(view({lite: true}), 9.7);
+  assert.strictEqual(out.labels.length, 4);
+  assert.ok(out.labels.some((l) => l.text === "N4" && l.pinned));
+});
+
+test("hover: the caption while the mouse is over a figure, and not after", () => {
+  const c = P.crowd();
+  c.set("ghosts", [person("g", 0, 2)], 0);
+  let out = c.frame(view(), 5);
+  assert.strictEqual(out.labels.length, 0, "a ghost has no label of its own");
+  c.hover({layer: "ghosts", id: "g"}, 5);
+  out = c.frame(view(), 60);
+  assert.deepStrictEqual(out.labels.map((l) => l.text), ["A recent visitor"]);
+  c.hover(null, 60);
+  out = c.frame(view(), 60.1);
+  assert.strictEqual(out.labels.length, 0);
+  assert.deepStrictEqual(P.CAPTION, {ghosts: "A recent visitor", replays: "A walk from today"});
+});
+
 /* ---------------------------------------------------- hall-presence.js */
 test("the presence list keeps well-formed people only", () => {
   const body = {people: [

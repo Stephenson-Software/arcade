@@ -1633,14 +1633,26 @@
       after,
       // The hall's own keys are on window; Tab is left alone, so focus can leave the hall.
       onKey: (e) => e.key !== "Tab",
-      pick(x, y) {
-        const v = view();
-        return W.pick(v, x / canvas.clientWidth * 2 - 1, 1 - y / canvas.clientHeight * 2, layout);
+      pick(x, y, radius) {
+        const v = view(), nx = x / canvas.clientWidth * 2 - 1, ny = 1 - y / canvas.clientHeight * 2;
+        const hit = W.pick(v, nx, ny, layout);
+        // A figure (hall-people.js) in front of what is behind it: its caption, not a walk.
+        const P = window.HallPeople;
+        const who = P && P.pick ? P.pick(Object.assign(v, {height: canvas.clientHeight}), nx, ny, Math.min(radius || 18, 24)) : null;
+        if (who && !(hit && hit.cabinet && hit.t < who.dist - 0.4)) return {person: who};
+        return hit;
       },
-      idOf: (hit) => (hit.cabinet ? hit.cabinet.slug : "floor"),
+      idOf: (hit) => (hit.person ? `${hit.person.layer}:${hit.person.id}` : hit.cabinet ? hit.cabinet.slug : "floor"),
+      onHover(hit) {
+        const who = hit && hit.person && !(tr && tr.state !== "idle") ? hit.person : null;
+        canvas.classList.toggle("on-figure", !!who);
+        if (window.HallPeople && window.HallPeople.hover) window.HallPeople.hover(who);
+      },
       onTap(hit) {
         if (tr && tr.state !== "idle") { if (tr.state !== "playing") tr.skip(nowMs()); return; }
         if (!hit || document.pointerLockElement === canvas) return;
+        // A tap on someone shows who (or, for a ghost or a replay, what) they are; nothing else.
+        if (hit.person) { window.HallPeople.reveal(hit.person.layer, hit.person.id); state.revealed = `${hit.person.layer}:${hit.person.id}`; return; }
         clearFocus();
         if (hit.cabinet) {
           if (near === hit.cabinet) { play(hit.cabinet); return; }

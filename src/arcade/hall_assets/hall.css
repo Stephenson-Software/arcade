@@ -202,7 +202,12 @@ body.touch #card-social .heart { min-height: 44px; padding: 2px 14px; }
   border: 1px solid var(--who, var(--line)); color: var(--fg); font-size: 12px; font-weight: 600; line-height: 18px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
 .person-label::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--who, var(--accent)); }
-body.moving #people-labels, body.playing #people-labels, body.people-off #people-labels { visibility: hidden; }
+body.moving #people-labels, body.playing #people-labels { visibility: hidden; }
+body.people-off .person-label:not(.anon) { visibility: hidden; }
+/* A ghost's or a replay's caption, on a tap (hall-people.js reveal): anonymous, quieter. */
+.person-label.anon { font-weight: 500; font-style: italic; color: var(--muted); }
+/* Over a figure the mouse can click for its name. */
+#hall.on-figure { cursor: pointer; }
 /* Its settings (hall-presence.js), in the settings panel. */
 #people-settings { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
 #people-settings .people-head { margin: 4px 0 0; color: var(--fg); font-weight: 600; }
