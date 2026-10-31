@@ -311,6 +311,27 @@ test("hover: the caption while the mouse is over a figure, and not after", () =>
   assert.deepStrictEqual(P.CAPTION, {ghosts: "A recent visitor", replays: "A walk from today"});
 });
 
+test("dots for the map: everyone of a shown layer, wherever they are; leavers and hidden layers left out", () => {
+  const c = P.crowd();
+  c.set("presence", [person("a", 1, 2, {color: [1, 0, 0]}), person("far", 0, -60)], 0);
+  c.set("ghosts", [person("g", -3, 4)], 0);
+  c.set("replays", [person("r", 2, -1)], 0);
+  let d = c.dots(1);
+  assert.deepStrictEqual(d.map((x) => x.layer + ":" + x.x + "," + x.z),
+    ["ghosts:-3,4", "replays:2,-1", "presence:1,2", "presence:0,-60"], "live people last, drawn on top");
+  assert.deepStrictEqual(d.find((x) => x.x === 1).color, [1, 0, 0]);
+  // "See other people" off hides the layer; the ghosts setting off sends an empty list (they leave).
+  c.hide("presence", true);
+  c.set("ghosts", [], 2);
+  d = c.dots(2.1);
+  assert.deepStrictEqual(d.map((x) => x.layer), ["replays"]);
+  // A move is eased on the map as in the hall.
+  c.set("replays", [person("r", 2, -1)], 3);
+  c.set("replays", [person("r", 3, -1)], 4);
+  d = c.dots(4.5);
+  assert.ok(d[0].x > 2 && d[0].x < 3, JSON.stringify(d));
+});
+
 /* ---------------------------------------------------- hall-presence.js */
 test("the presence list keeps well-formed people only", () => {
   const body = {people: [

@@ -1411,9 +1411,19 @@
     if (e.key.toLowerCase() === "m" && !e.repeat && !typing(e) && !e.ctrlKey && !e.metaKey && !e.altKey
       && !(tr && tr.state !== "idle")) showMap(!mapOn, true);
   });
+  /* Others on the map (hall-people.js): a dot in their colour for each live
+     person, a faint one for each ghost or replayed walk, under the visitor's
+     own. Only what the hall shows: "See other people" and the ghosts setting
+     hide theirs here too. */
+  function mapPeople() {
+    const P = window.HallPeople;
+    return P && P.dots ? P.dots() : [];
+  }
   function drawMap() {
     if (!mapOn || !me || !layout) return;
-    const key = `${me.x.toFixed(2)},${me.z.toFixed(2)},${kit.cam.yaw.toFixed(2)},${near ? near.slug : ""}`;
+    const dots = mapPeople();
+    const key = `${me.x.toFixed(2)},${me.z.toFixed(2)},${kit.cam.yaw.toFixed(2)},${near ? near.slug : ""}|`
+      + dots.map((d) => `${d.layer[0]}${(d.x * 5).toFixed(0)},${(d.z * 5).toFixed(0)}`).join(";");
     if (key === mapDrawn) return;
     mapDrawn = key;
     const ctx = mapEl.getContext("2d"), r = layout.room, f = mapFrame(), w = mapEl.width, h = mapEl.height;
@@ -1437,6 +1447,14 @@
       ctx.fillStyle = lit(c) ? `rgb(${rgb255(c.colour)})` : `rgba(${rgb255(c.colour)}, .22)`; ctx.fill();
       if (c === near) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
     }
+    for (const d of dots) {
+      const [px, py] = f.toMap(d.x, d.z), c = rgb255(d.color), live = d.layer === "presence";
+      ctx.beginPath(); ctx.arc(px, py, live ? 3.2 : 2.2, 0, 2 * Math.PI);
+      ctx.fillStyle = live ? `rgb(${c})` : `rgba(${c}, .4)`; ctx.fill();
+      if (live) { ctx.strokeStyle = "rgba(18, 12, 38, .85)"; ctx.lineWidth = 1; ctx.stroke(); }
+    }
+    state.mapPeople = {presence: 0, replays: 0, ghosts: 0};
+    for (const d of dots) state.mapPeople[d.layer]++;
     // You: a dot and the way you look.
     const [mx, my] = f.toMap(me.x, me.z), yaw = kit.cam.yaw, lx = -Math.cos(yaw), lz = -Math.sin(yaw);
     ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.moveTo(mx, my);

@@ -32,6 +32,8 @@
                                        labels' usual range and count (a live person's name; "A
                                        recent visitor" for a ghost, "A walk from today" for a replay)
      HallPeople.hover(hit)            the same while the mouse is over it (hit: pick()'s, or null)
+     HallPeople.dots()                -> [{layer, id, x, z, color}]: everyone where they are now, for the
+                                       map (hall.js drawMap); hidden layers and leavers left out
      HallPeople.frame(view)           -> hall.js, every frame: {items, points, builds, poses, changed}
 
    A person with a cabinet (a slug in this hall) stands beside that cabinet,
@@ -391,6 +393,16 @@
       pick(view, nx, ny, px) { return pickFigure(drawn, view, nx, ny, px); },
       reveal(layer, id, now) { tapped = {key: layer + "\u0000" + id, until: now + REVEAL}; },
       hover(hit, now) { hovered = hit ? {key: hit.layer + "\u0000" + hit.id, until: Infinity} : null; },
+      // Every figure of a shown layer, wherever it is (the map shows the whole hall), live people first.
+      dots(now) {
+        const out = [];
+        for (const f of figs.values()) {
+          if (f.leaving != null || layers[f.layer].hidden) continue;
+          const s = sample(f, now);
+          out.push({layer: f.layer, id: f.id, x: s.x, z: s.z, color: f.color});
+        }
+        return out.sort((p, q) => LAYERS.indexOf(q.layer) - LAYERS.indexOf(p.layer));
+      },
       get revealed() {
         const t = lastFrame == null ? 0 : lastFrame;
         return [tapped, hovered].filter((p) => p && p.until > t).map((p) => p.key.replace("\u0000", ":"));
@@ -496,6 +508,7 @@
     reveal(layer, id) { crowdNow.reveal(layer, id, clock()); },
     hover(hit) { crowdNow.hover(hit || null, clock()); },
     get revealed() { return crowdNow.revealed; },
+    dots: () => crowdNow.dots(clock()),
     frame(view) {
       if (view.layout) crowdNow.setLayout(view.layout);
       const out = crowdNow.frame(Object.assign({project: root.HallControls && root.HallControls.project}, view), clock());
