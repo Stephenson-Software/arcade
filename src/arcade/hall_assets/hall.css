@@ -194,3 +194,21 @@ body.touch #card-social .heart { min-height: 44px; padding: 2px 14px; }
 #card-social .board .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 #card-social .board .v { font-variant-numeric: tabular-nums; }
 #card:not(.on) #card-social .heart, body.moving #card-social .heart { pointer-events: none; }
+
+/* People (hall-people.js): a name over each live player nearby, placed each frame. */
+#people-labels { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.person-label { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 5px;
+  max-width: 180px; padding: 2px 9px 2px 7px; border-radius: 999px; background: rgba(16, 12, 30, .72);
+  border: 1px solid var(--who, var(--line)); color: var(--fg); font-size: 12px; font-weight: 600; line-height: 18px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+.person-label::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--who, var(--accent)); }
+body.moving #people-labels, body.playing #people-labels, body.people-off #people-labels { visibility: hidden; }
+/* Its settings (hall-presence.js), in the settings panel. */
+#people-settings { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+#people-settings .people-head { margin: 4px 0 0; color: var(--fg); font-weight: 600; }
+#people-settings .hint { margin: 2px 0 0 28px; font-size: 13px; color: var(--muted); }
+#people-settings .hint:empty { display: none; }
+#people-settings .opt input:disabled { opacity: .5; }
+#show-me-signin { color: var(--accent); font-weight: 600; }
+body.touch #show-me-signin { display: inline-flex; align-items: center; min-height: 44px; }
+body.touch #people-settings .opt { min-height: 44px; }

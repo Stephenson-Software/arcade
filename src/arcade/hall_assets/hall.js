@@ -310,7 +310,29 @@
       scenePoints[c.glowPoint][8] = 0.16 * HallLife.pulse(t, i) * shade(c, DIM_LIGHT);
     });
     seasonLife(t);
-    rows(mod._hall_set_points, scenePoints);
+    pushPoints();
+  }
+  /* People (hall-people.js): figures other modules hand over, drawn as
+     primitives and glow points after the scene's own, every frame there are
+     any. They are not obstacles: the visitor walks through them. */
+  let sceneItems = [], peopleItems = [], peoplePoints = [];
+  function pushPoints() {
+    rows(mod._hall_set_points, peoplePoints.length ? scenePoints.concat(peoplePoints) : scenePoints);
+  }
+  function drawPeople() {
+    const P = window.HallPeople;
+    if (!P || !scenePoints || !kit) return;
+    const out = P.frame({x: kit.cam.tx, y: kit.cam.ty, z: kit.cam.tz, yaw: kit.cam.yaw, pitch: kit.cam.pitch, fov,
+      aspect: canvas.clientWidth / Math.max(canvas.clientHeight, 1), width: canvas.clientWidth, height: canvas.clientHeight,
+      lite: economy || touchFirst, reduced: reducedMotion, layout});
+    state.people = P.stats;
+    // Ghosts and fading people: translucent meshes, built once per slot and colour, then only moved.
+    for (const b of out.builds) mesh(b.slot, b.mesh, -1, 2 /* STRATA_MESH_TRANSLUCENT */);
+    if (out.poses.length) rows(mod._hall_pose_meshes, out.poses);
+    if (!out.changed) return;
+    peopleItems = out.items; peoplePoints = out.points;
+    rows(mod._hall_set_items, peopleItems.length ? sceneItems.concat(peopleItems) : sceneItems);
+    pushPoints();
   }
   function buildScene() {
     const accent = new MeshBuilder(), art = new MeshBuilder();
@@ -347,6 +369,7 @@
     mesh(ART_SLOT, art, ART_SLOT);
     buildRoom(points);
     buildSeason(points);
+    sceneItems = items;
     rows(mod._hall_set_items, items);
     rows(mod._hall_set_points, points);
     mod._hall_set_view(layout.room.style ? layout.room.style.ambient : 0.32, fov);
@@ -1142,6 +1165,9 @@
   }
   function tick(t, now, dt) {
     if (!me) return;
+    try { walk(t, now, dt); } finally { drawPeople(); }
+  }
+  function walk(t, now, dt) {
     life(t);
     if (tr) {
       const u = stepPlay(now);

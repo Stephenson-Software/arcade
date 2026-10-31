@@ -258,6 +258,32 @@ the portal keep their lists, and link here with "Walk the hall".
   becomes a heart button (and <kbd>L</kbd> likes): signed in it likes or unlikes the game, signed out it
   goes to the service's sign-in page and comes back to the same cabinet. Until then, or when the service
   is down, the card shows the count alone, or nothing.
+- **People in the hall** (`hall-people.js`, RFC 0030). Other modules hand it figures by layer
+  (`HallPeople.set("presence" | "replays" | "ghosts", people)`, positions in hall metres); it eases each
+  one between updates, turns it to face the way it walks, stands it beside a cabinet it is "at" (to one
+  side, so the visitor's view of the screen stays clear) and fades it in and out. Live players are solid
+  little people (the engine's capsule and sphere primitives) in a colour of their id, with their display
+  name above them; ghosts and replays are translucent arcade ghosts (a mesh from a pool of 12, built once
+  and then only moved by `hall_pose_meshes` in `hall3d/main.cpp`). At most 12 are drawn (6 on a phone or
+  in economy): live players first, then replays, then ghosts, nearest first; names for the nearest 6 (3)
+  within 14 m; nothing beyond 30 m. Figures are never obstacles, and under reduced motion they neither bob
+  nor sway.
+- **Seeing each other, opt-in** (`hall-presence.js`). Watching needs no account: while the hall is
+  visible and **See other people** (in the settings, on by default) is on, it asks arcade-social who is
+  here (`GET /v1/presence?layout=<key>`, without credentials): once a second while anyone is, every 10 s
+  while nobody is, at least every 3 s when the browser asks to save data, and never while the tab is
+  hidden or the setting is off. Being seen is **Show me in the hall**: off by default, per account (kept
+  by arcade-social), and only for a signed-in player; signed out, the setting links to the sign-in page,
+  which comes back to the same spot (and turns it on, if that is what was asked within 10 minutes). Only
+  while it is on and the hall is visible does the hall send `POST /v1/presence` once a second with
+  `{x, z, yaw, cabinet, layout}`: the position rounded to 0.25 m, the facing to 10 degrees, the cabinet
+  stood at or played (else `null`) and the layout key (a hash of the hall's cabinet order, so poses are
+  shared only between halls whose cabinets stand in the same places). arcade-social holds it in memory
+  for 10 s and shows it to others under the player's display name; nothing else about the visitor is sent,
+  and the hall stores nothing about other people (the only things kept in the browser are the "See other
+  people" choice in `localStorage` and, for 10 minutes around a sign-in, the wish to be shown in
+  `sessionStorage`). A visitor never sees their own figure. When arcade-social is down the hall is
+  exactly as it was, with nobody in it.
 - **Speed.** The kit's adaptive quality lowers the pixel density first and then the light budget
   (24, 12, 6 point lights; the nearest cabinets keep theirs). The room's carpet, walls and ceiling are
   drawn after the cabinets, so a software renderer never shades the floor a cabinet hides. `?quality=0..2` pins a tier, `?fps=1`

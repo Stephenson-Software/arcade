@@ -615,6 +615,7 @@ def test_the_committed_engine_is_what_build_sh_names():
         "_hall_set_lights",
         "_hall_set_view",
         "_hall_set_lods",
+        "_hall_pose_meshes",
     ):
         assert export in script
 
@@ -735,8 +736,8 @@ def test_the_hall_can_be_walked_by_keyboard_and_screen_reader():
 def test_the_hall_page_loads_its_scripts_in_order():
     with open(os.path.join(hall.ASSETS, "index.html")) as f:
         page = f.read()
-    order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall-controls.js", "hall.js"]
-    order += ["hall-share.js", "hall-social.js"]
+    order = ["strata-loader.js", "strata-kit.js", "hall-walk.js", "hall-play.js", "hall-life.js", "hall-controls.js"]
+    order += ["hall-people.js", "hall.js", "hall-share.js", "hall-social.js", "hall-presence.js"]
     at = [page.index('src="%s"' % name) for name in order]
     assert at == sorted(at)
     assert 'id="sound"' in page and 'aria-pressed="false"' in page
@@ -897,6 +898,41 @@ def test_the_card_shows_likes_and_boards_from_arcade_social(running):
         pytest.skip("node is not installed")
     run = subprocess.run(
         [node, os.path.join(ROOT, "tests", "browser", "hall_social_test.cjs")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_people_in_the_hall_and_opt_in_presence(running, tmp_path):
+    """tests/browser/hall_people_test.cjs (plain node): figures, easing,
+    budget and labels (hall-people.js), and the presence client's parsing,
+    rounding and polling (hall-presence.js)."""
+    import shutil
+    import subprocess
+
+    with open(os.path.join(hall.ASSETS, "hall-presence.js")) as f:
+        presence = f.read()
+    # Watching is anonymous; only the session, the opt-in and the pose carry credentials.
+    assert "fetch(API + path" in presence and "`/v1/presence?layout=${encodeURIComponent(key)}`)" in presence
+    assert presence.count('credentials: "include"') == 3
+    # It reads the hall's state; it never moves or turns the view.
+    assert "cam.yaw" not in presence and ".place(" not in presence
+    with open(os.path.join(hall.ASSETS, "hall.js")) as f:
+        script = f.read()
+    assert "try { walk(t, now, dt); } finally { drawPeople(); }" in script
+    for name in ("hall-people.js", "hall-presence.js"):
+        res, _ = get(running(), "/hall/" + name)
+        assert res.status == 200 and res.getheader("Content-Type").startswith("text/javascript")
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=i) for i in range(30)]
+    path = tmp_path / "layout.json"
+    path.write_text(json.dumps(hall.layout(games)))
+    run = subprocess.run(
+        [node, os.path.join(ROOT, "tests", "browser", "hall_people_test.cjs"), str(path)],
         capture_output=True,
         text=True,
         timeout=120,
