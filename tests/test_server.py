@@ -2,6 +2,7 @@ import datetime
 import http.client
 import json
 import os
+import socket
 import threading
 import time
 
@@ -436,6 +437,25 @@ def test_activity_publishes_only_a_coarse_level_over_seven_complete_days(arcade)
     assert [activity.level(n) for n in (0, 9, 10, 24, 25, 99, 100, 399, 400, 10 ** 6)] == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
     # Only on the API host: on a game's host the path is the game's.
     assert b'"levels"' not in request(arcade, "GET", TIDEWATER, "/api/activity")[1]
+
+
+def test_activity_answers_once_on_a_kept_alive_connection(arcade):
+    # One response per request. A raw socket, because http.client reads ahead and
+    # would silently drop a stray second response on the same connection.
+    with socket.create_connection(("127.0.0.1", arcade.port), timeout=10) as sock:
+        sock.sendall(
+            b"GET /api/activity HTTP/1.1\r\nHost: " + API.encode() + b"\r\n\r\n"
+            b"GET /version.json HTTP/1.1\r\nHost: " + API.encode() + b"\r\nConnection: close\r\n\r\n"
+        )
+        received = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            received += chunk
+    statuses = [line.rstrip(b"\r") for line in received.split(b"\n") if line.startswith(b"HTTP/1.1 ")]
+    assert statuses == [b"HTTP/1.1 200 OK", b"HTTP/1.1 200 OK"]
+    assert received.endswith(json.dumps({"version": arcade_version}).encode("utf-8"))
 
 
 def test_activity_may_be_cached_until_midnight_utc_at_most():

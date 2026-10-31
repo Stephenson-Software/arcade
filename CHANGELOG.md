@@ -112,6 +112,9 @@ All notable changes to this project are documented in this file. The format is b
   instead of a Python traceback, the same way an invalid registry already was.
 - `--help` for `routers`, `hosts` and `check-registry` now describes the registry argument and
   `--domain` (naming its default, `play.danielstephenson.dev`) instead of listing them bare.
+- `GET /api/activity` sends one response. It used to send a stray `404 not found` straight after
+  the levels, so the next request on the same kept-alive connection got that 404 instead of its
+  own answer.
 
 ## [0.6.0] - 2026-10-03
 

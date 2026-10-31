@@ -572,6 +572,7 @@ def makeHandler(arcade):
                     ("Cache-Control", "public, max-age=%d" % maxAge),
                 )
                 self._send(200, body, "application/json", headers=headers)
+                return
             if path == "/api/walks" and self.command == "POST":
                 self._leaveWalk()
                 return
