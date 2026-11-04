@@ -477,9 +477,10 @@ arcade keeps no access log (`log_message` is a no-op) and stores no IP address o
   identifier, no IP address, no user agent, no referrer, no account. The day's walks are stored
   shuffled, so their order says nothing about when each was left. At most 200 are kept a day, a uniform
   random sample of the `seen` walks accepted that day; only the last 7 UTC days' files, today's included,
-  are kept, and older ones are deleted on the next write. They are shown to everyone through `/api/walks/today`, and only once there are at least 10
-  in the pool, so one visitor on a quiet day is never on show alone. A walk carries no identifier, so it
-  cannot be found and deleted per visitor; the operator can delete a day by removing its file.
+  are kept, and older ones are deleted on the next write. They are shown to everyone through
+  `/api/walks/today`, and only once there are at least 10 in the pool, so one visitor on a quiet day is
+  never on show alone. A walk carries no identifier, so it cannot be found and deleted per visitor; the
+  operator can delete a day by removing its file.
 - **Rate limit memory.** To allow one walk per client per 10 minutes, arcade holds a keyed hash of the
   client's address (the key is random per process) in memory only, until its 10-minute window ends. It
   is never written down, and a restart forgets it.
