@@ -26,6 +26,7 @@ database.
 | `play.<base>` | the upload API (below); `/` is a landing page listing every game and `/hall/` the walkable hall (see below) |
 | `<slug>.play.<base>` | the game registered under that slug |
 | an alias from the registry | the same game, at an older hostname, so that origin's saves are kept |
+| `ARCADE_INTERNAL_HOST` (`arcade`) | `/traefik/dynamic.json` (see [Traefik routers](#traefik-routers-tls-option-b)); everything else but `/healthz` is 404 |
 | anything else | 404 |
 
 Game routes mirror `tak.web.serve` route for route, so a page built for a per-game container works
@@ -66,7 +67,9 @@ equally acceptable) and sent with `Content-Encoding`, `Vary: Accept-Encoding` an
 (`"<version>-<file>-gz"` or `-br`; the uncompressed file keeps its old tag). `Content-Type` is that
 of the original file, so a `.wasm` is still `application/wasm` and compiles while it streams. A
 response that already carries `Content-Encoding` is passed through untouched by a compressing proxy
-such as Traefik's `compress` middleware. `Range` requests are not supported; the whole file is sent.
+such as Traefik's `compress` middleware. A game's files do not answer `Range` requests; the whole file
+is sent. Only the hall's own files do (an uncompressed file, one range at a time; see *Live screens* in
+[The hall](#the-hall)).
 
 ## The registry
 
@@ -359,7 +362,7 @@ a snapshot of the live registry.
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
 | `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, added, tags, org, engine (see [The registry](#the-registry)), **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. `/api/games` takes the landing page's `?tag=`, `?org=`, `?engine=` and `?sort=` ([Filters](#filters)). **404** for an unknown slug. |
 | `GET` | `/api/activity` | `{"window_days": 7, "k": 10, "levels": {"<slug>": 0..4}}`: how busy each game has been lately, for the hall's ghosts (RFC 0030 §2.2). The level comes from the plays over the **seven complete UTC days before today**: **0** below k = 10 plays (RFC 0022 §4.2's k: nothing is shown for a game played a handful of times), **1** for 10 to 24, **2** for 25 to 99, **3** for 100 to 399, **4** for 400 or more. Only the level is served: never a count, a date or a time. Today is left out, so a level changes only at midnight UTC and never at the moment someone plays. `Cache-Control: public, max-age=` up to 3600, never past the next midnight UTC; readable cross-origin. Needs no token. |
-| `POST` | `/api/walks` | One walk for "the hall today" (opt-in in the hall), `{"layout": "<layoutKey>", "dt": 0.5, "points": [[x, z], ...], "visits": [{"slug", "at"}]}`, at most 16 KiB. Refused (**400**, with the reason) unless the layout key is one this process has served (the last 32), `dt` is 0.5, there are at least 4 points, every point is two finite numbers inside the room (1 m slack), no two points are further apart than a run covers in 0.5 s (plus rounding), and visits name cabinets in that layout with point indices in walking order. More than 120 points or 10 visits are truncated, not refused. Every point is rounded to 0.25 m and pushed out of the cabinets and walls, then kept (**202**). **413** over the size, **411** without a `Content-Length`, **429** for a second walk from the same client within 10 minutes. Needs no token. |
+| `POST` | `/api/walks` | One walk for "the hall today" (opt-in in the hall), `{"layout": "<layoutKey>", "dt": 0.5, "points": [[x, z], ...], "visits": [{"slug", "at"}]}`, at most 16 KiB. Refused (**400**, with the reason) unless it has no other fields, the layout key is one this process has served (the last 32), `dt` is 0.5, there are at least 4 points, every point is two finite numbers inside the room (1 m slack), no two points are further apart than a run covers in 0.5 s (plus rounding), and visits, at most 40 of them, name cabinets in that layout with point indices in walking order. More than 120 points or 10 visits are truncated, not refused. Every point is rounded to 0.25 m and pushed out of the cabinets and walls, then kept (**202**). **413** over the size, **411** without a `Content-Length`, **429** for a second walk from the same client within 10 minutes, **503** if the walk could not be written. Needs no token. |
 | `GET` | `/api/walks/today` | `{"dt": 0.5, "walks": [...]}`: up to 12 of today's walks (UTC) at random, with yesterday's pooled in when today has fewer than 10, and none at all when the pool is under 10. `Cache-Control: public, max-age=60`. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
 | `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. The picture is arcade cabinets rendered in 3D with [Strata](https://github.com/Preponderous-Software/strata), drawn from `og-card/card.json` (see `og-card/README.md`). Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
@@ -422,6 +425,9 @@ python -m arcade routers --registry games.yaml --check arcade.yml  # exit 1 when
 python -m arcade hosts --registry games.yaml [--games-only]        # one host per line (cert-check)
 ```
 
+These two and `check-registry` take `--domain play.<base>` for an arcade on another domain (default
+`play.danielstephenson.dev`; the command line does not read `ARCADE_DOMAIN`).
+
 **When migrating a game that already has its own container,** add its alias in the same gateway
 change that removes that container's router, or Traefik will see two routers for one host.
 
@@ -461,7 +467,8 @@ as for every trace client.
 arcade keeps no access log (`log_message` is a no-op) and stores no IP address or user agent.
 
 - **Plays.** `<data>/<slug>/plays` is one integer per game: page loads by people (crawlers and scripts
-  are told apart by User-Agent, which is read and not kept).
+  are told apart by User-Agent, which is read and not kept). `<data>/<slug>/.plays-daily` is the same
+  count per UTC day for the last 35 days, never served ([What is kept about plays](#the-api-on-playbase)).
 - **Walk replays (opt-in only).** When a visitor turns on *Share my walk anonymously* in the hall, one
   walk per visit is kept in `<data>/.hall-walks/<YYYY-MM-DD>.json` (UTC day):
   `{"seen": n, "walks": [{"layout", "points", "visits"}]}`. A walk is the layout key, its points
@@ -469,8 +476,8 @@ arcade keeps no access log (`log_message` is a no-op) and stores no IP address o
   with the index of the point where each was reached. Nothing else: no time of day, no session or device
   identifier, no IP address, no user agent, no referrer, no account. The day's walks are stored
   shuffled, so their order says nothing about when each was left. At most 200 are kept a day, a uniform
-  random sample of the `seen` walks accepted that day; day files older than 7 days are deleted on the
-  next write. They are shown to everyone through `/api/walks/today`, and only once there are at least 10
+  random sample of the `seen` walks accepted that day; only the last 7 UTC days' files, today's included,
+  are kept, and older ones are deleted on the next write. They are shown to everyone through `/api/walks/today`, and only once there are at least 10
   in the pool, so one visitor on a quiet day is never on show alone. A walk carries no identifier, so it
   cannot be found and deleted per visitor; the operator can delete a day by removing its file.
 - **Rate limit memory.** To allow one walk per client per 10 minutes, arcade holds a keyed hash of the

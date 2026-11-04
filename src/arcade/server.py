@@ -9,8 +9,12 @@ One process answers two kinds of host:
                             own version, {"version": "<x.y.z>"}, and the
                             landing page's /robots.txt and /og.png
   play.<base>/halloween     the landing page for one theme tag (landing.THEMES)
+  play.<base>/hall/         the walkable hall (arcade.hall)
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
   <alias>                   a game's old hostname (registry `aliases`)
+
+and a third, internal one: ARCADE_INTERNAL_HOST answers /traefik/dynamic.json,
+the routers Traefik polls (arcade.routers). /healthz answers on every host.
 
 Game routes mirror tak.web.serve exactly, so a page built for a per-game
 container works unchanged here:
@@ -25,8 +29,9 @@ path ending in / serve that directory's index.html.
 
 Every response - errors included - carries the three Cross-Origin headers the
 kit requires; without them the page is not cross-origin isolated and
-SharedArrayBuffer does not exist. The one exception is a `static` game with
-isolation off, whose responses carry none of the three.
+SharedArrayBuffer does not exist. The two exceptions, which carry none of the
+three, are a `static` game with isolation off and the hall's page without
+?isolated=1 (a plain page can frame games that an isolated one cannot).
 """
 
 import datetime
