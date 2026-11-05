@@ -8,6 +8,7 @@ import math
 import os
 import random
 import shutil
+import socket
 import subprocess
 import threading
 
@@ -164,6 +165,7 @@ def test_a_long_walk_is_truncated_not_refused():
         (lambda b: dict(b, points=b["points"] + [["1", 2]]), "point"),
         (lambda b: dict(b, points=b["points"] + [[float("nan"), 2]]), "point"),
         (lambda b: dict(b, points=b["points"] + [[True, 2]]), "point"),
+        (lambda b: dict(b, points=b["points"] + [[10**400, 2]]), "point"),
         (lambda b: dict(b, points=b["points"] + [[0, 2, 3]]), "point"),
         (lambda b: dict(b, points=[[0, 500]] * 5), "outside"),
         (lambda b: dict(b, points=b["points"][:5] + [[8, b["points"][4][1]]]), "further apart"),
@@ -314,6 +316,34 @@ def test_bad_walks_get_clear_errors(arcade):
     assert response.status == 400 and b"layout" in data
     response, _ = post(arcade, b"{" + b" " * walks.MAX_BODY + b"}")
     assert response.status == 413
+    assert not (arcade.data / ".hall-walks").exists()
+
+
+def test_a_walk_too_deeply_nested_to_parse_gets_a_400(arcade):
+    response, data = post(arcade, b"[" * (walks.MAX_BODY - 1))
+    assert response.status == 400 and b"walk" in data
+
+
+def test_a_coordinate_too_large_for_a_float_gets_a_400(arcade):
+    layout = served_layout(arcade)
+    response, data = post(arcade, dict(payload(layout), points=payload(layout)["points"] + [[10**400, 2]]))
+    assert response.status == 400 and b"point" in data
+    assert not (arcade.data / ".hall-walks").exists()
+
+
+@pytest.mark.parametrize("length", [b"-1", b"nope"])
+def test_a_walk_with_an_unusable_content_length_gets_a_411_and_a_closed_connection(arcade, length):
+    # The client keeps its end open: nothing may wait for a body with no known end.
+    head = b"POST /api/walks HTTP/1.1\r\nHost: %s\r\nContent-Length: %s\r\n\r\n" % (DOMAIN.encode(), length)
+    received = b""
+    with socket.create_connection(("127.0.0.1", arcade.port), timeout=10) as sock:
+        sock.sendall(head)
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            received += chunk
+    assert received.startswith(b"HTTP/1.1 411")
     assert not (arcade.data / ".hall-walks").exists()
 
 

@@ -684,7 +684,7 @@ def makeHandler(arcade):
             data = self.rfile.read(length)
             try:
                 payload = json.loads(data.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
+            except (UnicodeDecodeError, ValueError, RecursionError):
                 self._json(400, {"error": "expected a JSON walk"})
                 return
             key = payload.get("layout") if isinstance(payload, dict) else None
@@ -788,10 +788,20 @@ def makeHandler(arcade):
                 self.close_connection = True
 
         def _contentLength(self):
-            try:
-                return int(self.headers.get("Content-Length", ""))
-            except ValueError:
+            """The body's length, or None if there is no usable one. A value
+            that is there but unusable leaves the end of the body unknown, so
+            the connection cannot carry another request."""
+            value = self.headers.get("Content-Length")
+            if value is None:
                 return None
+            try:
+                length = int(value)
+            except ValueError:
+                length = -1
+            if length < 0:
+                self.close_connection = True
+                return None
+            return length
 
         def _upload(self, slug, version):
             game = self._authorise(slug)
@@ -851,7 +861,7 @@ def makeHandler(arcade):
                 version = payload["version"]
                 if not isinstance(version, str):
                     raise TypeError
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, RecursionError):
                 self._json(400, {"error": 'expected a JSON body {"version": "<version>"}'})
                 return
             try:
