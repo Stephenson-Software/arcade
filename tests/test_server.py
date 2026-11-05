@@ -371,6 +371,50 @@ def test_upload_needs_a_content_length(arcade):
     assert reply.startswith(b"HTTP/1.1 411")
 
 
+def _untilClosed(arcade, head):
+    # Every byte the server sends before it closes the connection. A server
+    # that keeps it open, or waits for more of the body, fails on the timeout.
+    received = b""
+    with socket.create_connection(("127.0.0.1", arcade.port), timeout=10) as sock:
+        sock.sendall(head)
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                return received
+            received += chunk
+
+
+@pytest.mark.parametrize("length", [b"-1", b"nope"])
+def test_upload_with_an_unusable_content_length_gets_a_411_and_a_closed_connection(arcade, length):
+    reply = _untilClosed(
+        arcade,
+        b"PUT /api/games/tidewater/versions/1 HTTP/1.1\r\nHost: %s\r\n"
+        b"Authorization: Bearer %s\r\nContent-Length: %s\r\n\r\n" % (API.encode(), TOKEN.encode(), length),
+    )
+    assert reply.startswith(b"HTTP/1.1 411")
+    assert reply.count(b"HTTP/1.1 ") == 1
+
+
+@pytest.mark.parametrize("length", [b"-1", b"nope"])
+def test_refused_token_with_an_unusable_content_length_closes_the_connection(arcade, length):
+    reply = _untilClosed(
+        arcade,
+        b"PUT /api/games/tidewater/versions/1 HTTP/1.1\r\nHost: %s\r\n"
+        b"Content-Length: %s\r\n\r\n" % (API.encode(), length),
+    )
+    assert reply.startswith(b"HTTP/1.1 401")
+
+
+@pytest.mark.parametrize("length", [b"-1", b"nope"])
+def test_rollback_with_an_unusable_content_length_gets_a_400_and_a_closed_connection(arcade, length):
+    reply = _untilClosed(
+        arcade,
+        b"POST /api/games/tidewater/current HTTP/1.1\r\nHost: %s\r\n"
+        b"Authorization: Bearer %s\r\nContent-Length: %s\r\n\r\n" % (API.encode(), TOKEN.encode(), length),
+    )
+    assert reply.startswith(b"HTTP/1.1 400")
+
+
 def test_versions_are_immutable_over_http(arcade):
     assert upload(arcade)[0].status == 201
     response, _ = upload(arcade)
@@ -750,6 +794,11 @@ def test_rollback_of_an_unknown_slug_looks_like_a_wrong_token(arcade):
     )
     assert response.status == 403
     assert json.loads(data)["error"] == "this token cannot deploy that game"
+
+
+def test_a_rollback_body_nested_too_deeply_to_parse_gets_a_400(arcade):
+    response, data = _rollback(arcade, b"[" * 4000, {"Authorization": "Bearer " + TOKEN})
+    assert response.status == 400 and b"version" in data
 
 
 def test_a_rollback_body_over_4_kib_is_refused(arcade):

@@ -125,6 +125,12 @@ All notable changes to this project are documented in this file. The format is b
 - `GET /api/activity` sends one response. It used to send a stray `404 not found` straight after
   the levels, so the next request on the same kept-alive connection got that 404 instead of its
   own answer.
+- Malformed requests get their documented 4xx instead of a hang or a dropped connection. A negative
+  `Content-Length` no longer skips the size cap and waits for the client to hang up: it counts as
+  absent (**411** from `PUT .../versions/<version>` and `POST /api/walks`, **400** from
+  `POST .../current`). A `Content-Length` that is there but unusable now always closes the connection,
+  since the end of the body is unknown. A JSON body nested too deeply to parse (`POST /api/walks`,
+  `POST .../current`) and a walk's coordinate too large for a float get a **400**.
 
 ## [0.6.0] - 2026-10-03
 
