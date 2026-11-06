@@ -10,7 +10,7 @@ be a blank page.
 
 A damaged archive is refused like any other bad upload, whether the damage
 shows when it is opened or only further in. zipfile and tarfile report damage
-with whatever their decompressors raise, so _UNREADABLE lists all of it.
+with whatever their decompressors raise, so _UNREADABLE lists many types.
 """
 
 import contextlib
@@ -31,8 +31,9 @@ TAK_ASSET_DIRECTORY = "src/tak/web/assets/"
 TAK_ASSETS = ("boot.js", "client.css", "client.js", "game-worker.js")
 
 # RuntimeError covers an encrypted zip member and NotImplementedError an
-# unsupported one; ValueError covers a bad central directory offset and a name
-# that is not UTF-8. BundleError is a ValueError too: see _readingMembers.
+# unsupported one; ValueError covers a central directory bigger than the file
+# and a name that is not UTF-8. BundleError is a ValueError too: see
+# _readingMembers.
 _UNREADABLE = (
     tarfile.TarError,
     zipfile.BadZipFile,
