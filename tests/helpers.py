@@ -47,9 +47,9 @@ def tarBundle(files, prefix="", compression="", extra=()):
     return out.getvalue()
 
 
-def zipBundle(files):
+def zipBundle(files, compression=zipfile.ZIP_STORED):
     out = io.BytesIO()
-    with zipfile.ZipFile(out, "w") as archive:
+    with zipfile.ZipFile(out, "w", compression=compression) as archive:
         for name, data in files.items():
             archive.writestr(name, data)
     return out.getvalue()

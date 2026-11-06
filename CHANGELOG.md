@@ -131,6 +131,10 @@ All notable changes to this project are documented in this file. The format is b
   `POST .../current`). A `Content-Length` that is there but unusable now always closes the connection,
   since the end of the body is unknown. A JSON body nested too deeply to parse (`POST /api/walks`,
   `POST .../current`) and a walk's coordinate too large for a float get a **400**.
+- A damaged upload gets a **400** saying so instead of a dropped connection. Only the opening of the
+  archive was guarded, and only partly: damage found further in (a bad checksum, a cut-off or corrupt
+  compressed stream, an encrypted or unsupported zip member), and some kinds found while opening it or
+  the `game.zip` inside it, stopped the handler with no response. Nothing was written in these cases.
 
 ## [0.6.0] - 2026-10-03
 

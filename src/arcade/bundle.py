@@ -7,17 +7,43 @@ fine). version.txt must agree with the version in the URL, and game.zip must
 be a zip carrying tak's four browser assets - arcade serves /tak/ out of each
 game's own bundle (RFC 0006 §5, decided v1.1), so a bundle without them would
 be a blank page.
+
+A damaged archive is refused like any other bad upload, whether the damage
+shows when it is opened or only further in. zipfile and tarfile report damage
+with whatever their decompressors raise, so _UNREADABLE lists many types.
 """
 
+import contextlib
 import io
 import posixpath
 import tarfile
 import zipfile
+import zlib
+
+try:
+    from lzma import LZMAError
+except ImportError:  # optional in a Python build, as it is to zipfile and tarfile
+    LZMAError = OSError
 
 from arcade.store import BUNDLE_FILES
 
 TAK_ASSET_DIRECTORY = "src/tak/web/assets/"
 TAK_ASSETS = ("boot.js", "client.css", "client.js", "game-worker.js")
+
+# RuntimeError covers an encrypted zip member and NotImplementedError an
+# unsupported one; ValueError covers a central directory bigger than the file
+# and a name that is not UTF-8. BundleError is a ValueError too: see
+# _readingMembers.
+_UNREADABLE = (
+    tarfile.TarError,
+    zipfile.BadZipFile,
+    EOFError,
+    OSError,
+    RuntimeError,
+    ValueError,
+    zlib.error,
+    LZMAError,
+)
 
 
 class BundleError(ValueError):
@@ -29,6 +55,17 @@ class BundleTooLarge(BundleError):
 
 
 DEFAULT_MAX_FILES = 10000
+
+
+@contextlib.contextmanager
+def _readingMembers():
+    """Turn damage found while walking an open archive into a BundleError."""
+    try:
+        yield
+    except BundleError:
+        raise
+    except _UNREADABLE as e:
+        raise BundleError("the upload is damaged and could not be read: %s" % e)
 
 
 def _normalise(name):
@@ -49,32 +86,33 @@ def _checkName(name):
 def _fromZip(data, maxBytes):
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
+    except _UNREADABLE:
         raise BundleError("the upload is not a readable zip")
     files = {}
     total = 0
-    for info in archive.infolist():
-        name = _normalise(info.filename)
-        if not name or name.endswith("/"):
-            continue  # directory entries
-        _checkName(name)
-        if name in files:
-            raise BundleError("%s appears twice" % name)
-        total += info.file_size
-        if total > maxBytes:
-            raise BundleTooLarge("the bundle unpacks to more than %d bytes" % maxBytes)
-        files[name] = archive.read(info)
+    with _readingMembers():
+        for info in archive.infolist():
+            name = _normalise(info.filename)
+            if not name or name.endswith("/"):
+                continue  # directory entries
+            _checkName(name)
+            if name in files:
+                raise BundleError("%s appears twice" % name)
+            total += info.file_size
+            if total > maxBytes:
+                raise BundleTooLarge("the bundle unpacks to more than %d bytes" % maxBytes)
+            files[name] = archive.read(info)
     return files
 
 
 def _fromTar(data, maxBytes):
     try:
         archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
-    except (tarfile.TarError, EOFError, OSError):
+    except _UNREADABLE:
         raise BundleError("the upload is neither a zip nor a readable tar")
     files = {}
     total = 0
-    with archive:
+    with archive, _readingMembers():
         for member in archive:
             name = _normalise(member.name)
             if member.isdir() and name in ("", "."):
@@ -112,7 +150,7 @@ def unpack(data, version, maxBytes):
     try:
         game = zipfile.ZipFile(io.BytesIO(files["game.zip"]))
         names = set(game.namelist())
-    except zipfile.BadZipFile:
+    except _UNREADABLE:
         raise BundleError("game.zip is not a readable zip")
     absent = [asset for asset in TAK_ASSETS if TAK_ASSET_DIRECTORY + asset not in names]
     if absent:
@@ -156,36 +194,37 @@ def checkSitePath(name):
 def _staticFromZip(data, maxBytes, maxFiles):
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
+    except _UNREADABLE:
         raise BundleError("the upload is not a readable zip")
     files = {}
     total = 0
-    for info in archive.infolist():
-        if info.filename.endswith("/"):
-            continue
-        # Unix mode bits live in the top half of external_attr: refuse links.
-        if (info.external_attr >> 16) & 0o170000 == 0o120000:
-            raise BundleError("%r is a link; links are refused" % info.filename)
-        name = checkSitePath(info.filename)
-        if name in files:
-            raise BundleError("%s appears twice" % name)
-        total += info.file_size
-        if total > maxBytes:
-            raise BundleTooLarge("the bundle unpacks to more than %d bytes" % maxBytes)
-        if len(files) >= maxFiles:
-            raise BundleTooLarge("the bundle has more than %d files" % maxFiles)
-        files[name] = archive.read(info)
+    with _readingMembers():
+        for info in archive.infolist():
+            if info.filename.endswith("/"):
+                continue
+            # Unix mode bits live in the top half of external_attr: refuse links.
+            if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                raise BundleError("%r is a link; links are refused" % info.filename)
+            name = checkSitePath(info.filename)
+            if name in files:
+                raise BundleError("%s appears twice" % name)
+            total += info.file_size
+            if total > maxBytes:
+                raise BundleTooLarge("the bundle unpacks to more than %d bytes" % maxBytes)
+            if len(files) >= maxFiles:
+                raise BundleTooLarge("the bundle has more than %d files" % maxFiles)
+            files[name] = archive.read(info)
     return files
 
 
 def _staticFromTar(data, maxBytes, maxFiles):
     try:
         archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
-    except (tarfile.TarError, EOFError, OSError):
+    except _UNREADABLE:
         raise BundleError("the upload is neither a zip nor a readable tar")
     files = {}
     total = 0
-    with archive:
+    with archive, _readingMembers():
         for member in archive:
             if member.isdir():
                 continue

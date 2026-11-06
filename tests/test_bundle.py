@@ -1,4 +1,5 @@
 import io
+import random
 import tarfile
 import zipfile
 
@@ -246,3 +247,120 @@ def test_static_zip_caps_count_bytes_and_files():
     with pytest.raises(bundle.BundleTooLarge, match="more than 2 files"):
         bundle.unpackStatic(zipBundle(_site()), "1", CAP, maxFiles=2)
     assert len(bundle.unpackStatic(zipBundle(_site()), "1", CAP, maxFiles=3)) == 3
+
+
+def _storedZipWithAlteredMember(files):
+    data = bytearray(zipBundle(files))
+    data[data.index(files["index.html"])] ^= 1
+    return bytes(data)
+
+
+def _zipWithBadStream(files, compression, offset=0):
+    data = bytearray(zipBundle(files, compression=compression))
+    first = zipfile.ZipFile(io.BytesIO(bytes(data))).infolist()[0]
+    data[first.header_offset + 30 + len(first.filename) + offset] = 0xFF
+    return bytes(data)
+
+
+def _centralDirectory(data):
+    return zipfile.ZipFile(io.BytesIO(data)).start_dir  # game.zip's is inside the bundle's stored data
+
+
+def _zipWithCentralByte(files, offset, value):
+    data = bytearray(zipBundle(files))
+    data[_centralDirectory(bytes(data)) + offset] = value
+    return bytes(data)
+
+
+def _zipWithImpossibleDirectorySize(files):
+    data = bytearray(zipBundle(files))
+    data[-10:-6] = b"\xff\xff\xff\x00"  # the end record's central directory size
+    return bytes(data)
+
+
+def _zipWithNameThatIsNotUtf8(files):
+    data = bytearray(zipBundle(files))
+    central = _centralDirectory(bytes(data))
+    data[central + 9] |= 0x08  # the general purpose flag saying the name is UTF-8
+    data[central + 46] = 0xFF
+    return bytes(data)
+
+
+def _cutInHalf(data):
+    return data[: len(data) // 2]
+
+
+def _largeXzTar(files):
+    # Big enough that the first header decompresses from what survives a cut.
+    files = dict(files, **{"index.html": bytes(random.Random(1).getrandbits(8) for _ in range(20000))})
+    return tarBundle(files, compression="xz")
+
+
+def _gzipTarWithBadFirstBlock(files):
+    data = bytearray(tarBundle(files, compression="gz"))
+    data[10] = 0xFF  # straight after the header: a reserved block type
+    return bytes(data)
+
+
+UNPACKERS = [bundle.unpack, bundle.unpackStatic]
+
+
+@pytest.mark.parametrize("unpacker", UNPACKERS, ids=["tak", "static"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        _storedZipWithAlteredMember,  # BadZipFile
+        lambda files: _zipWithBadStream(files, zipfile.ZIP_DEFLATED),  # zlib.error
+        lambda files: _zipWithBadStream(files, zipfile.ZIP_BZIP2),  # OSError
+        lambda files: _zipWithBadStream(files, zipfile.ZIP_LZMA, offset=4),  # LZMAError
+        lambda files: _zipWithCentralByte(files, 8, 0x01),  # RuntimeError: encrypted
+        lambda files: _zipWithCentralByte(files, 10, 99),  # NotImplementedError: unknown method
+        lambda files: tarBundle(files)[:520],  # tarfile.ReadError
+        lambda files: _cutInHalf(tarBundle(files, compression="gz")),  # EOFError
+        lambda files: _cutInHalf(_largeXzTar(files)),  # EOFError
+    ],
+    ids=[
+        "zip-crc",
+        "zip-deflate",
+        "zip-bz2",
+        "zip-lzma",
+        "zip-encrypted",
+        "zip-method",
+        "tar-cut",
+        "gz-cut",
+        "xz-cut",
+    ],
+)
+def test_refuses_an_archive_damaged_past_its_opening(unpacker, damage):
+    with pytest.raises(bundle.BundleError, match="damaged and could not be read"):
+        unpacker(damage(bundleFiles("1")), "1", CAP)
+
+
+@pytest.mark.parametrize("unpacker", UNPACKERS, ids=["tak", "static"])
+def test_refuses_a_zip_damaged_where_it_is_opened(unpacker):
+    for damage in (_zipWithImpossibleDirectorySize, _zipWithNameThatIsNotUtf8):
+        with pytest.raises(bundle.BundleError, match="not a readable zip"):
+            unpacker(damage(bundleFiles("1")), "1", CAP)
+
+
+@pytest.mark.parametrize("unpacker", UNPACKERS, ids=["tak", "static"])
+def test_refuses_a_compressed_tar_damaged_where_it_is_opened(unpacker):
+    with pytest.raises(bundle.BundleError, match="neither a zip nor a readable tar"):
+        unpacker(_gzipTarWithBadFirstBlock(bundleFiles("1")), "1", CAP)
+
+
+def test_refuses_a_game_zip_damaged_where_it_is_opened():
+    files = bundleFiles("1")
+    files["game.zip"] = _zipWithImpossibleDirectorySize({"a": b"b"})
+    with pytest.raises(bundle.BundleError, match="game.zip is not a readable zip"):
+        bundle.unpack(tarBundle(files), "1", CAP)
+
+
+def test_a_refusal_found_while_reading_keeps_its_own_message():
+    files = bundleFiles("1")
+    files["notes.txt"] = b"x"
+    with pytest.raises(bundle.BundleError, match="unexpected file 'notes.txt'") as caught:
+        bundle.unpack(zipBundle(files), "1", CAP)
+    assert "damaged" not in str(caught.value)
+    with pytest.raises(bundle.BundleTooLarge):
+        bundle.unpack(zipBundle(bundleFiles("1")), "1", 100)

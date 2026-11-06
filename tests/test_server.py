@@ -11,7 +11,17 @@ import pytest
 from arcade import __version__ as arcade_version
 from arcade import landing
 from arcade.server import ISOLATION_HEADERS, Arcade, Config, makeServer
-from helpers import ASSETS, OTHER_SHA, OTHER_TOKEN, TOKEN, bundleFiles, game, registryText, tarBundle
+from helpers import (
+    ASSETS,
+    OTHER_SHA,
+    OTHER_TOKEN,
+    TOKEN,
+    bundleFiles,
+    game,
+    registryText,
+    tarBundle,
+    zipBundle,
+)
 
 DOMAIN = "play.example.com"
 API = DOMAIN
@@ -338,6 +348,20 @@ def test_upload_validation_errors(arcade):
     response, data = upload(arcade, body=b"not an archive")
     assert response.status == 400
     assert arcade.store.current("tidewater") is None
+
+
+def test_a_damaged_upload_gets_a_400_and_the_live_version_stays(arcade):
+    assert upload(arcade, version="1.0.0")[0].status == 201
+    files = bundleFiles("2.0.0")
+    cutOff = tarBundle(files, compression="gz")
+    altered = bytearray(zipBundle(files))
+    altered[altered.index(files["index.html"])] ^= 1
+    for body in (cutOff[: len(cutOff) // 2], bytes(altered)):
+        response, data = upload(arcade, version="2.0.0", body=body)
+        assert response.status == 400
+        assert "could not be read" in json.loads(data)["error"]
+    assert arcade.store.current("tidewater") == "1.0.0"
+    assert arcade.store.versions("tidewater") == ["1.0.0"]
 
 
 def _raw(arcade, head):
