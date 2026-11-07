@@ -356,6 +356,61 @@ def test_refuses_a_game_zip_damaged_where_it_is_opened():
         bundle.unpack(tarBundle(files), "1", CAP)
 
 
+def _assetZip():
+    return {"src/tak/web/assets/" + name: data for name, data in ASSETS.items()}
+
+
+def _storedAssetZipWithAlteredMember(files):
+    data = bytearray(zipBundle(files))
+    data[data.index(ASSETS["boot.js"])] ^= 1
+    return bytes(data)
+
+
+DAMAGED_GAME_ZIPS = [
+    _storedAssetZipWithAlteredMember,  # BadZipFile
+    lambda files: _zipWithBadStream(files, zipfile.ZIP_DEFLATED),  # zlib.error
+    lambda files: _zipWithBadStream(files, zipfile.ZIP_BZIP2),  # OSError
+    lambda files: _zipWithBadStream(files, zipfile.ZIP_LZMA, offset=4),  # LZMAError
+    lambda files: _zipWithCentralByte(files, 8, 0x01),  # RuntimeError: encrypted
+    lambda files: _zipWithCentralByte(files, 10, 99),  # NotImplementedError: unknown method
+]
+DAMAGE_IDS = ["crc", "deflate", "bz2", "lzma", "encrypted", "method"]
+
+
+@pytest.mark.parametrize("damage", DAMAGED_GAME_ZIPS, ids=DAMAGE_IDS)
+def test_refuses_a_game_zip_with_an_asset_that_cannot_be_read(damage):
+    files = bundleFiles("1")
+    files["game.zip"] = damage(_assetZip())
+    with pytest.raises(bundle.BundleError, match="game.zip is damaged: src/tak/web/assets/boot.js") as caught:
+        bundle.unpack(tarBundle(files), "1", CAP)
+    assert not isinstance(caught.value, bundle.BundleTooLarge)
+
+
+def test_refuses_a_game_zip_whose_assets_unpack_past_the_cap():
+    files = bundleFiles("1")
+    files["game.zip"] = zipBundle(
+        dict(_assetZip(), **{"src/tak/web/assets/client.js": b"x" * 100000}),
+        compression=zipfile.ZIP_DEFLATED,
+    )
+    bundle.unpack(tarBundle(files), "1", 100000 + 1000)
+    with pytest.raises(bundle.BundleTooLarge, match="tak assets unpack to more than 50000 bytes"):
+        bundle.unpack(tarBundle(files), "1", 50000)
+
+
+@pytest.mark.parametrize("damage", DAMAGED_GAME_ZIPS, ids=DAMAGE_IDS)
+def test_read_asset_treats_a_stored_member_that_cannot_be_read_as_missing(damage, tmp_path):
+    path = tmp_path / "game.zip"
+    path.write_bytes(damage(_assetZip()))
+    assert bundle.readAsset(str(path), "boot.js") is None
+
+
+def test_read_asset_treats_a_stored_zip_that_cannot_be_opened_as_missing(tmp_path):
+    path = tmp_path / "game.zip"
+    for damage in (_zipWithImpossibleDirectorySize, _zipWithNameThatIsNotUtf8):
+        path.write_bytes(damage(_assetZip()))
+        assert bundle.readAsset(str(path), "boot.js") is None
+
+
 def test_a_refusal_found_while_reading_keeps_its_own_message():
     files = bundleFiles("1")
     files["notes.txt"] = b"x"

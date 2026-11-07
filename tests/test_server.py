@@ -1,10 +1,12 @@
 import datetime
 import http.client
+import io
 import json
 import os
 import socket
 import threading
 import time
+import zipfile
 
 import pytest
 
@@ -362,6 +364,34 @@ def test_a_damaged_upload_gets_a_400_and_the_live_version_stays(arcade):
         assert "could not be read" in json.loads(data)["error"]
     assert arcade.store.current("tidewater") == "1.0.0"
     assert arcade.store.versions("tidewater") == ["1.0.0"]
+
+
+def _gameZipWithBadStream():
+    assets = {"src/tak/web/assets/" + name: data for name, data in ASSETS.items()}
+    stored = zipBundle(assets, zipfile.ZIP_DEFLATED)
+    first = zipfile.ZipFile(io.BytesIO(stored)).infolist()[0]
+    damaged = bytearray(stored)
+    damaged[first.header_offset + 30 + len(first.filename)] = 0xFF  # a reserved deflate block type
+    return bytes(damaged)
+
+
+def test_a_game_zip_with_a_damaged_asset_gets_a_400_and_the_live_version_stays(arcade):
+    assert upload(arcade, version="1.0.0")[0].status == 201
+    files = dict(bundleFiles("2.0.0"), **{"game.zip": _gameZipWithBadStream()})
+    response, data = upload(arcade, version="2.0.0", body=tarBundle(files))
+    assert response.status == 400
+    assert "game.zip is damaged" in json.loads(data)["error"]
+    assert arcade.store.current("tidewater") == "1.0.0"
+    assert arcade.store.versions("tidewater") == ["1.0.0"]
+
+
+def test_a_stored_game_zip_with_a_damaged_asset_gets_an_isolated_404(arcade):
+    assert upload(arcade, version="1.0.0")[0].status == 201
+    with open(arcade.store.filePath("tidewater", "1.0.0", "game.zip"), "wb") as stored:
+        stored.write(_gameZipWithBadStream())
+    response, data = request(arcade, "GET", TIDEWATER, "/tak/boot.js")
+    assert (response.status, data) == (404, b"Not found\n")
+    assertIsolated(response)
 
 
 def _raw(arcade, head):

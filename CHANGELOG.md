@@ -135,6 +135,11 @@ All notable changes to this project are documented in this file. The format is b
   archive was guarded, and only partly: damage found further in (a bad checksum, a cut-off or corrupt
   compressed stream, an encrypted or unsupported zip member), and some kinds found while opening it or
   the `game.zip` inside it, stopped the handler with no response. Nothing was written in these cases.
+- A `game.zip` with one of tak's four assets damaged is refused with a **400** (or a **413** if the
+  four unpack past the size cap) instead of going live. Only the zip's list of names was checked, so
+  such an upload got a **201** and `GET /tak/<asset>` then dropped the connection for players. A stored
+  `game.zip` that cannot be read, as in a version uploaded before this check, now gets `/tak/`'s **404**
+  with the isolation headers.
 
 ## [0.6.0] - 2026-10-03
 
