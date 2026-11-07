@@ -4,13 +4,15 @@
 An upload is a .tar (optionally compressed) or .zip holding exactly
 index.html, game.zip and version.txt, at its top level (a leading "./" is
 fine). version.txt must agree with the version in the URL, and game.zip must
-be a zip carrying tak's four browser assets - arcade serves /tak/ out of each
-game's own bundle (RFC 0006 §5, decided v1.1), so a bundle without them would
-be a blank page.
+be a zip carrying tak's four browser assets, each one readable - arcade serves
+/tak/ out of each game's own bundle (RFC 0006 §5, decided v1.1), so a bundle
+without them would be a blank page.
 
 A damaged archive is refused like any other bad upload, whether the damage
 shows when it is opened or only further in. zipfile and tarfile report damage
-with whatever their decompressors raise, so _UNREADABLE lists many types.
+with whatever their decompressors raise, so _UNREADABLE lists many types. A
+stored game.zip that cannot be read (from before these checks, or spoiled on
+disk) is a missing asset to readAsset, so /tak/ still gets its 404.
 """
 
 import contextlib
@@ -158,7 +160,21 @@ def unpack(data, version, maxBytes):
             "game.zip has no %s under %s; arcade serves /tak/ from the game's own bundle"
             % (", ".join(absent), TAK_ASSET_DIRECTORY)
         )
+    _checkAssetsRead(game, maxBytes)
     return files
+
+
+def _checkAssetsRead(game, maxBytes):
+    """Read tak's assets as /tak/ will, so damage in one is the uploader's 400, not a player's 404."""
+    paths = [TAK_ASSET_DIRECTORY + asset for asset in TAK_ASSETS]
+    # zipfile stops at a member's stated size, so this caps what is read below.
+    if sum(game.getinfo(path).file_size for path in paths) > maxBytes:
+        raise BundleTooLarge("game.zip's tak assets unpack to more than %d bytes" % maxBytes)
+    for path in paths:
+        try:
+            game.read(path)
+        except _UNREADABLE as e:
+            raise BundleError("game.zip is damaged: %s could not be read: %s" % (path, e))
 
 
 def readAsset(gameZipPath, name):
@@ -168,7 +184,7 @@ def readAsset(gameZipPath, name):
     try:
         with zipfile.ZipFile(gameZipPath) as game:
             return game.read(TAK_ASSET_DIRECTORY + name)
-    except (KeyError, OSError, zipfile.BadZipFile):
+    except (KeyError,) + _UNREADABLE:
         return None
 
 
