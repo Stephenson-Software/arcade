@@ -3,10 +3,19 @@
 
 One small, self-contained HTML document, generated from the registry on each
 request (the registry is reloaded when its file changes, so the page follows
-it): no script, no stylesheet, font or image fetched from anywhere, light and
+it): no stylesheet, font, image or script fetched from anywhere, light and
 dark from the visitor's own setting, and laid out for a phone first. Its
 Content-Security-Policy (CSP below) forbids every external request, so a
-mistake here cannot add one silently.
+mistake here cannot add one silently; the one inline script (SCRIPT) runs
+only because the CSP names its hash.
+
+Everything works without script: the search box is a form the server answers
+(/?q=cat), "Random game" is a link to /random (a 302 to a game picked by the
+server), and "Most played this week" is rendered here. The script adds the
+rest: the list narrows as you type, "Random game" picks among what is shown,
+and "Continue playing" lists the games this browser opened last (their slugs
+in this browser's localStorage, RECENT_KEY, which the hall writes too; never
+sent anywhere). Without storage that row simply stays hidden.
 
 A game with nothing deployed yet is listed without a link, since its address
 would only answer 404.
@@ -18,13 +27,103 @@ any view is a link to share. /halloween is the page for one theme tag
 (THEMES), in the colours of the hall's season of the same name.
 """
 
+import base64
+import datetime
+import hashlib
 import html
+import json
 import os
 from urllib.parse import quote
 
 from arcade import filters, seasons
 
-CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+# The page's one script, inline. Standard ES5 plus closest(); every storage
+# access is in a try, so blocked storage (private windows, previews) only
+# hides "Continue playing".
+RECENT_KEY = "arcade.recent"
+RECENT_MAX = 6
+SCRIPT = r"""
+(function () {
+  "use strict";
+  var KEY = "%(key)s", MAX = %(max)d;
+  function read() {
+    try {
+      var list = JSON.parse(window.localStorage.getItem(KEY) || "[]");
+      return Array.isArray(list) ? list.filter(function (s) { return typeof s === "string"; }) : [];
+    } catch (e) { return []; }
+  }
+  function remember(slug) {
+    try {
+      var list = read().filter(function (s) { return s !== slug; });
+      list.unshift(slug);
+      window.localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
+    } catch (e) { /* storage blocked: nothing is remembered */ }
+  }
+  var games = {};
+  try { games = JSON.parse(document.getElementById("arcade-games").textContent) || {}; } catch (e) { games = {}; }
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest ? e.target.closest("a[data-play]") : null;
+    if (a) remember(a.getAttribute("data-play"));
+  });
+  var recent = document.getElementById("recent");
+  if (recent) {
+    var row = recent.querySelector("ul"), count = 0;
+    read().forEach(function (slug) {
+      var g = games[slug];
+      if (!g) return;
+      var li = document.createElement("li"), a = document.createElement("a"), t = document.createElement("span");
+      a.href = g[1]; a.setAttribute("data-play", slug); t.className = "title"; t.textContent = g[0];
+      a.appendChild(t); li.appendChild(a); row.appendChild(li); count++;
+    });
+    if (count) recent.hidden = false;
+  }
+  var tiles = document.querySelectorAll("#games li[data-slug]");
+  var random = document.getElementById("random");
+  if (random) random.addEventListener("click", function (e) {
+    var pool = [];
+    for (var i = 0; i < tiles.length; i++) {
+      var slug = tiles[i].getAttribute("data-slug");
+      if (!tiles[i].hidden && games[slug]) pool.push(slug);
+    }
+    if (!pool.length) return;
+    e.preventDefault();
+    var pick = pool[Math.floor(Math.random() * pool.length)];
+    remember(pick);
+    window.location.assign(games[pick][1]);
+  });
+  var q = document.getElementById("q"), heading = document.getElementById("games-h"), none = document.getElementById("no-match");
+  if (!q || !heading) return;
+  var total = heading.getAttribute("data-total") || "0", facets = heading.getAttribute("data-facets") || "";
+  function apply() {
+    var words = q.value.toLowerCase().split(/\s+/).filter(Boolean), n = 0;
+    for (var i = 0; i < tiles.length; i++) {
+      var text = tiles[i].getAttribute("data-search") || "", hit = true;
+      for (var k = 0; k < words.length; k++) if (text.indexOf(words[k]) < 0) { hit = false; break; }
+      tiles[i].hidden = !hit;
+      if (hit) n++;
+    }
+    if (none) none.hidden = n > 0 || !tiles.length;
+    document.body.classList.toggle("searching", words.length > 0);
+    var parts = facets ? [facets] : [];
+    if (words.length) parts.push("matching \u201c" + words.join(" ") + "\u201d");
+    var text = parts.join(", ");
+    if (text.indexOf("matching") === 0) text = "M" + text.slice(1);
+    heading.textContent = text ? text + " (" + n + " of " + total + ")" : "Games served here (" + total + ")";
+    try {
+      var url = new URL(window.location.href);
+      if (words.length) url.searchParams.set("q", words.join(" ")); else url.searchParams.delete("q");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    } catch (e) { /* the address just stays as it was */ }
+  }
+  q.addEventListener("input", apply);
+  q.form.addEventListener("submit", function (e) { e.preventDefault(); apply(); q.blur(); });
+})();
+""" % {"key": RECENT_KEY, "max": RECENT_MAX}
+SCRIPT_HASH = "sha256-" + base64.b64encode(hashlib.sha256(SCRIPT.encode("utf-8")).digest()).decode("ascii")
+CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src '%s'; base-uri 'none'; "
+    "form-action 'self'" % SCRIPT_HASH
+)
 
 # Already HTML-escaped; shared by <title>, the description and the share-preview
 # tags (og:* and twitter:*).
@@ -104,9 +203,10 @@ li { background: var(--card); border: 1px solid var(--line); border-radius: .6re
 li a, li span.soon { display: block; padding: .8rem 1rem; color: inherit; text-decoration: none;
   overflow-wrap: anywhere; }
 li a:hover .title { text-decoration: underline; }
-li a.cab { padding: 0 1rem .75rem; margin-top: -.4rem; font-size: .85rem; color: var(--accent); }
+li a.cab { display: flex; align-items: center; min-height: 44px; padding: 0 1rem; margin-top: -.4rem;
+  font-size: .85rem; color: var(--accent); }
 li a.cab:hover { text-decoration: underline; }
-.title { display: block; font-weight: 600; color: var(--accent); }
+.title { font-weight: 600; color: var(--accent); }
 .host { display: block; font-size: .85rem; color: var(--muted); }
 span.soon .title { color: var(--fg); }
 footer { margin-top: 2.5rem; font-size: .85rem; color: var(--muted); }
@@ -142,6 +242,30 @@ a.chip:focus-visible, a.clear:focus-visible, .shown a:focus-visible { outline: 3
   outline-offset: 3px; }
 a.clear { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 600; }
 .meta { display: block; font-size: .8rem; color: var(--muted); margin-top: .15rem; }
+.badge { display: inline-block; margin-left: .4rem; padding: 0 .45rem; border-radius: 999px; background: var(--accent);
+  color: var(--accent-fg); font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  vertical-align: .15em; }
+.tools { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1rem; }
+form.search { display: flex; flex: 1 1 16rem; min-width: 0; gap: .5rem; margin: 0; }
+form.search input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: .5rem .8rem; border: 1px solid var(--line);
+  border-radius: .6rem; background: var(--card); color: var(--fg); font: inherit; }
+form.search input:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+form.search button, a.random { display: inline-flex; align-items: center; justify-content: center; min-height: 44px;
+  min-width: 44px; padding: .5rem .9rem; border: 1px solid var(--accent); border-radius: .6rem; background: var(--card);
+  color: var(--accent); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+form.search button:focus-visible, a.random:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.strip { margin: 0 0 1.5rem; }
+.searching .strip { display: none; }
+ul.row { grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
+ul.row li a { display: flex; flex-direction: column; justify-content: center; min-height: 44px; padding: .55rem .8rem; }
+ul.row .title { font-size: .95rem; }
+details.notes { padding: 0 1rem .75rem; font-size: .9rem; }
+details.notes summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--accent);
+  font-weight: 600; }
+details.notes summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+details.notes p { margin: 0 0 .5rem; color: var(--fg); white-space: pre-line; overflow-wrap: anywhere; }
+details.notes a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
+[hidden] { display: none !important; }
 .shown { color: var(--muted); }
 .shown a { color: var(--accent); }
 """
@@ -228,11 +352,77 @@ def _palette(colours):
     return ":root, :root:not(#x) { color-scheme: dark; %s; }\n" % rules
 
 
+def _searchForm(escape, chosen):
+    """The search box: a GET form the server answers (?q=), which the script
+    turns into a filter as you type. The chips in force ride along."""
+    kept = "".join(
+        '<input type="hidden" name="%s" value="%s">' % (escape(name), escape(value))
+        for name, value in chosen.pairs(q=None)
+    )
+    return (
+        '<form class="search" role="search" action="/" method="get">'
+        '<label class="sr-only" for="q">Search games</label>'
+        '<input id="q" name="q" type="search" value="%s" placeholder="Search title, theme or engine" '
+        'autocomplete="off" enterkeyhint="search" maxlength="%d">%s'
+        '<button type="submit">Search</button></form>'
+        % (escape(chosen.q or ""), filters.MAX_VALUE, kept)
+    )
+
+
+def randomUrl(chosen=None):
+    """/random, with the chips in force: a 302 to one deployed game among them."""
+    extra = chosen.query(sort=None, q=None) if chosen is not None else ""
+    return "/random" + ("?" + extra if extra else "")
+
+
+def _strip(escape, ident, heading, entries, domain, hidden=False):
+    items = "".join(
+        '<li><a href="%s" data-play="%s"><span class="title">%s</span></a></li>'
+        % (escape(gameUrl(game, domain)), escape(game.slug), escape(title))
+        for game, title in entries
+    )
+    return (
+        '<section class="strip" id="%s" aria-labelledby="%s-h"%s><h2 id="%s-h">%s</h2>'
+        '<ul class="row">%s</ul></section>\n' % (ident, ident, " hidden" if hidden else "", ident, heading, items)
+    )
+
+
+# "Most played this week": at most this many games, each with at least
+# activity.K plays over the seven complete UTC days before today (the same
+# floor the hall's ghosts keep), in order, and never a count.
+WEEKLY_MAX = 5
+
+
+def _isNew(added, now):
+    from arcade import hall
+
+    return hall.is_new(added, now)
+
+
+def _notes(escape, notes):
+    if not notes or not notes.get("text"):
+        return ""
+    more = (
+        '<a href="%s">Full release notes</a>' % escape(notes["url"])
+        if notes.get("url", "") and str(notes["url"]).startswith("https://github.com/")
+        else ""
+    )
+    return '<details class="notes"><summary>What&rsquo;s new in %s</summary><p>%s</p>%s</details>' % (
+        escape(notes["version"]),
+        escape(notes["text"]),
+        more,
+    )
+
+
 def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda slug: 0,
-           added=lambda game: None, query="", theme=None):
+           added=lambda game: None, query="", theme=None, weekly=lambda slug: 0, notes=lambda game: None,
+           now=None):
     """The page as UTF-8 bytes. `deployed(slug)` says whether a game has a
     current version (only those are linked), `plays(slug)` how often it has
-    been played and `added(game)` when it joined (ISO 8601), for ?sort=.
+    been played and `added(game)` when it joined (ISO 8601), for ?sort= and
+    the New badge. `weekly(slug)` is its plays over the last seven complete
+    UTC days ("Most played this week") and `notes(game)` its release notes
+    ({"version", "text", "url"} or None, "What's new").
     `query` is the request's query string (arcade.filters). `theme`, a key of
     THEMES, renders that theme's page: the games with its tag, its heading
     and colours, and no other filters."""
@@ -240,7 +430,7 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
     themed = THEMES.get(theme) if theme else None
     chosen = filters.Filter.parse(query)
     if themed:
-        chosen = filters.Filter(tag=themed["tag"], sort=chosen.sort)
+        chosen = filters.Filter(tag=themed["tag"], sort=chosen.sort, q=chosen.q)
     byDict = {}
     everything = []
     for game in registry:
@@ -256,9 +446,14 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
         }
         byDict[game.slug] = game
         everything.append(entry)
-    shown = chosen.apply(everything)
+    # Every game the chips allow is in the list; a search only hides the ones
+    # it does not find, so the script can widen it again as the words change.
+    facetsOnly = filters.Filter(tag=chosen.tag, org=chosen.org, engine=chosen.engine, sort=chosen.sort)
+    candidates = facetsOnly.apply(everything)
     items = []
-    for entry in shown:
+    found = 0
+    live = {}
+    for entry in candidates:
         game = byDict[entry["slug"]]
         title = escape(entry["title"])
         host = escape("%s.%s" % (game.slug, domain))
@@ -266,19 +461,31 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
             [filters.tag_label(tag) for tag in entry["tags"]] + [filters.ENGINE_LABELS.get(entry["engine"], "")]
         )
         metaLine = '<span class="meta">%s</span>' % escape(meta) if meta else ""
+        hit = chosen.found(entry) if chosen.q else True
+        found += hit
+        attrs = ' data-slug="%s" data-search="%s"%s' % (
+            escape(game.slug), escape(filters.search_text(entry)), "" if hit else " hidden"
+        )
+        badge = '<span class="badge">New</span>' if _isNew(entry["added"], now) else ""
         if deployed(game.slug):
+            live[game.slug] = [entry["title"], gameUrl(game, domain)]
             items.append(
-                '<li><a href="%s"><span class="title">%s</span><span class="host">%s</span>%s</a>'
-                '<a class="cab" href="%s">Visit its cabinet in the hall &rarr;</a></li>'
-                % (escape(gameUrl(game, domain)), title, host, metaLine, escape(cabinetUrl(game, chosen)))
+                '<li%s><a href="%s" data-play="%s"><span class="title">%s</span>%s<span class="host">%s</span>%s</a>'
+                '<a class="cab" href="%s">Visit its cabinet in the hall &rarr;</a>%s</li>'
+                % (attrs, escape(gameUrl(game, domain)), escape(game.slug), title, badge, host, metaLine,
+                   escape(cabinetUrl(game, chosen)), _notes(escape, notes(game)))
             )
         else:
             items.append(
-                '<li><span class="soon"><span class="title">%s</span>'
-                '<span class="host">Coming soon</span>%s</span></li>' % (title, metaLine)
+                '<li%s><span class="soon"><span class="title">%s</span>%s'
+                '<span class="host">Coming soon</span>%s</span></li>' % (attrs, title, badge, metaLine)
             )
     if items:
-        listing = "\n".join(items)
+        noMatch = (
+            '<li id="no-match"%s><span class="soon">No games match. <a href="/">Show every game</a></span></li>'
+            % ("" if not found else " hidden")
+        )
+        listing = "\n".join(items + [noMatch])
     elif everything:
         listing = '<li><span class="soon">No games match these filters. <a href="/">Show every game</a></span></li>'
     else:
@@ -286,9 +493,14 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
     portal = escape(portalUrl)
     portalLabel = escape(portalUrl.split("://", 1)[-1].rstrip("/"))
     if chosen.active:
-        heading = "%s (%d of %d)" % (escape(chosen.summary()), len(shown), len(everything))
+        heading = "%s (%d of %d)" % (escape(chosen.summary()), found, len(everything))
     else:
         heading = "Games served here (%d)" % len(everything)
+    facetWords = escape(chosen.summary(search=False))
+    search = '<div class="tools">%s<a class="random" id="random" href="%s">Random game</a></div>\n' % (
+        _searchForm(escape, chosen), escape(randomUrl(chosen))
+    )
+    strips = ""
     if themed:
         title = "%s &mdash; Play" % escape(themed["heading"])
         description = escape(themed["intro"])
@@ -297,11 +509,16 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
             '<h1>%s</h1>\n<p>%s</p>\n'
             '<a class="browse" href="%s">Walk the hall with these cabinets lit &rarr;</a>\n'
             '<a class="hall" href="%s">Filter or sort them further, or see every game &rarr;</a>\n'
-            % (escape(themed["heading"]), description, escape(hallUrl(chosen)), escape(_here(chosen.query())))
+            % (escape(themed["heading"]), description, escape(hallUrl(chosen)),
+               escape(_here(chosen.query(q=None))))
         )
         panel = ""
+        search = '<div class="tools"><a class="random" id="random" href="%s">Random game</a></div>\n' % escape(
+            randomUrl(chosen)
+        )
         style = _STYLE + _palette(themed["colours"])
-        heading = "%s (%d)" % (escape(themed["heading"]), len(shown))
+        heading = "%s (%d)" % (escape(themed["heading"]), len(candidates))
+        facetWords = escape(themed["heading"])
     else:
         title = TITLE
         description = DESCRIPTION
@@ -318,6 +535,20 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
         )
         panel = _filterPanel(escape, filters.facets(everything), chosen)
         style = _STYLE
+        # Filled in by the script from this browser's own storage; hidden until then.
+        strips = _strip(escape, "recent", "Continue playing", [], domain, hidden=True)
+        if not chosen.facetsActive:
+            from arcade import activity
+
+            busy = sorted(
+                ((weekly(slug) or 0, entry) for slug, entry in ((e["slug"], e) for e in everything)
+                 if slug in live),
+                key=lambda pair: (-pair[0], pair[1]["title"].lower()),
+            )
+            top = [(byDict[e["slug"]], e["title"]) for n, e in busy if n >= activity.K][:WEEKLY_MAX]
+            if top:
+                strips += _strip(escape, "weekly", "Most played this week", top, domain)
+    data = json.dumps(live, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     document = """<!doctype html>
 <html lang="en">
 <head>
@@ -346,14 +577,16 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
 </head>
 <body>
 <main>
-%(intro)s%(panel)s
-<h2 class="shown" id="games-h" aria-live="polite">%(heading)s</h2>
-<ul aria-labelledby="games-h">
+%(intro)s%(search)s%(panel)s
+%(strips)s<h2 class="shown" id="games-h" aria-live="polite" data-total="%(total)d" data-facets="%(facetWords)s">%(heading)s</h2>
+<ul id="games" aria-labelledby="games-h">
 %(listing)s
 </ul>
 <footer>Served by <a href="https://github.com/Stephenson-Software/arcade">arcade</a>. Likes, scores and
 details for each game are on <a href="%(portal)s">%(portalLabel)s</a>.</footer>
 </main>
+<script type="application/json" id="arcade-games">%(data)s</script>
+<script>%(script)s</script>
 </body>
 </html>
 """ % {
@@ -367,10 +600,16 @@ details for each game are on <a href="%(portal)s">%(portalLabel)s</a>.</footer>
         "ogImageAlt": escape(OG_IMAGE_ALT),
         "style": style,
         "intro": intro,
+        "search": search,
         "panel": panel,
+        "strips": strips,
         "heading": heading,
+        "total": len(everything) if not themed else len(candidates),
+        "facetWords": facetWords,
         "portal": portal,
         "portalLabel": portalLabel,
         "listing": listing,
+        "data": data,
+        "script": SCRIPT,
     }
     return document.encode("utf-8")

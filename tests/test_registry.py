@@ -231,7 +231,25 @@ def test_added_is_an_optional_day():
     assert loaded.get("cave").added is None
 
 
-@pytest.mark.parametrize("bad", ["2026-13-01", "2026-02-30", "26-10-24", "2026-10-24T00:00:00Z", "yesterday"])
+def test_added_may_be_a_utc_time_backfilled_from_the_registry_history():
+    loaded = registry.loads(registryText([game("tidewater", added="2026-10-02T03:31:15Z")]))
+    added = loaded.get("tidewater").added
+    assert (added.isoformat(), added.utcoffset().total_seconds()) == ("2026-10-02T03:31:15+00:00", 0)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "2026-13-01",
+        "2026-02-30",
+        "26-10-24",
+        "2026-10-24T00:00:00",
+        "2026-10-24T25:00:00Z",
+        "2026-10-24 00:00:00Z",
+        "2026-10-24T00:00:00+02:00",
+        "yesterday",
+    ],
+)
 def test_added_must_be_a_real_day(bad):
     with pytest.raises(registry.RegistryError, match="line 2: added for 'tidewater' must be a date"):
         registry.loads(registryText([game("tidewater", added=bad)]))

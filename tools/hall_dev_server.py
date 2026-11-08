@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serves the walkable hall locally against a snapshot of the live registry.
 
-    python3 tools/hall_dev_server.py [--port 8790] [--snapshot games.json] [--embed on|off]
+    python3 tools/hall_dev_server.py [--port 8790] [--snapshot games.json] [--embed on|off] [--remote on|off]
 
 The registry and play counts come from https://play.danielstephenson.dev/api/games
 (or a saved copy of it, --snapshot), so the hall has the same cabinets in the
@@ -21,7 +21,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 from arcade import server  # noqa: E402
-from arcade.store import Store  # noqa: E402
+from arcade.store import VERSION_PATTERN, Store  # noqa: E402
 
 LIVE = "https://play.danielstephenson.dev/api/games"
 DOMAIN = "play.danielstephenson.dev"
@@ -33,6 +33,8 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--snapshot")
     ap.add_argument("--embed", default="on", choices=("on", "off"))
+    # on: look up trailer stills and release notes like production does (arcade.remote).
+    ap.add_argument("--remote", default="off", choices=("on", "off"))
     args = ap.parse_args()
     if args.snapshot:
         with open(args.snapshot) as f:
@@ -64,10 +66,12 @@ def main():
     store = Store(os.path.join(work, "data"))
     for g in games:
         if g.get("current"):
+            # Named like the live version, so --remote on looks up its release notes.
+            version = g["current"] if VERSION_PATTERN.match(g["current"]) else "0.0.0-dev"
             store.add(
                 g["slug"],
-                "0.0.0-dev",
-                {"index.html": b"placeholder", "version.txt": b"0.0.0-dev\n"},
+                version,
+                {"index.html": b"placeholder", "version.txt": version.encode("utf-8") + b"\n"},
                 static=True,
             )
         path = os.path.join(work, "data", g["slug"], "plays")
@@ -81,6 +85,7 @@ def main():
         registry,
         "https://danielstephenson.dev/play",
         hallEmbed=args.embed,
+        remoteFetch=args.remote,
     )
     arcade = server.Arcade(config)
     handler = server.makeHandler(arcade)

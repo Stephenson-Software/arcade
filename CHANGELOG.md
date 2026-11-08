@@ -7,6 +7,32 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Finding a game on the list page, all of it working without script: a search box (`/?q=cat`, a GET
+  form the server answers; with script the list narrows as you type) over title, slug, theme tags and
+  engine, which `/api/games` and the hall (`/hall/?q=`) take too; *Random game*, a link to the new
+  `GET /random` (a `302` to a deployed game among the chips in force; with script, among the games
+  shown); *Most played this week*, up to 5 deployed games over the seven complete UTC days before today
+  with the same k = 10 floor as `/api/activity` and no counts shown; and *Continue playing*, the games
+  this browser opened last from the list or the hall, kept as slugs in its own `localStorage`
+  (`arcade.recent`, every access in a try) and hidden when there are none. The page's one inline script
+  is allowed by its hash in the CSP, which now also has `form-action 'self'`. Every control is at least
+  44 px tall, and nothing scrolls sideways at 320 px.
+- A *New* badge on the list page for a game added in the last 14 days, as the hall's ribbon.
+- *What's new*: a deployed game whose current version is a release shows that GitHub release's notes,
+  folded, on its tile, and `/api/games` reports them as `notes`. `src/arcade/remote.py` looks them up in
+  a background thread, one unauthenticated request per new version (never for a `-SNAPSHOT` build), at
+  most 30 an hour and paused for an hour on a 403 or 429, and keeps them under `<data>/.remote/`. A
+  request never waits on GitHub, and a failure is silent.
+- New cabinets need no manual step: a game with no poster in `hall_assets/posters/` gets its trailer
+  still from `https://danielstephenson.dev/trailers/<repo-name>.jpg` once that answers (fetched in the
+  background, served at `/hall/fetched/<slug>.jpg`, refreshed weekly); until then its screen is a title
+  card with its organisation and tags. A game with no blurb takes the first sentence of its release
+  notes, else a line from its tags and engine. `ARCADE_REMOTE=off` turns the lookups off.
+- The registry's `added:` also takes a UTC time (`2026-10-02T03:31:15Z`), for dates backfilled from
+  the commit that first registered a game.
+- `tools/hall_dev_server.py --remote on` looks things up as production does, and names each game's
+  placeholder version like its live one.
+
 - Ghosts of recent visitors in the hall (RFC 0030 §2). arcade now also counts plays per UTC day
   (`<slug>/.plays-daily`, dates and counts only, the last 35 days, written atomically beside the
   unchanged all-time `plays`), and `GET /api/activity` publishes only a 0–4 level per game from the
@@ -61,27 +87,6 @@ All notable changes to this project are documented in this file. The format is b
   per-variant `ETag`, so a compressing proxy in front no longer compresses multi-MB `.wasm` on every
   response. Versions stored before this are backfilled lazily, one file at a time in a background
   thread, the first time each file is requested.
-- Share-preview metadata on the landing page: `og:type`, `og:site_name`, `og:title`,
-  `og:description`, `og:url` (`https://play.<base>/`) and a `twitter:card` with its title and
-  description, so a shared link to `play.<base>` unfurls with a title and description.
-- A share-preview image: `og:image` and `twitter:image` (`https://play.<base>/og.png`) with
-  `og:image:type`, `og:image:width` (1200), `og:image:height` (630) and alt text, and the Twitter
-  card is now `summary_large_image`. The image, `src/arcade/og.png`, is a 1200x630 PNG of the
-  page's name, description and domain in its dark colours. `GET /og.png` serves it as `image/png` on
-  the API host only, never on a game's host, so it cannot shadow a static game's own `/og.png`.
-- `GET /robots.txt` on `play.<base>`: `User-agent: *` / `Allow: /` as `text/plain`. Like
-  `/version.json`, it is answered on the API host only, never on a game's host, so it cannot shadow
-  a static game's own `/robots.txt`.
-
-- Optional `canonical:` registry field: the game's main public page, as an https URL. When it is set,
-  every HTML response for the game, on its slug host and on its aliases, carries
-  `Link: <url>; rel="canonical"`. Search engines then index one address for the game instead of
-  splitting it across `<slug>.play.<base>`, old alias hosts and the portal page that frames it.
-  Non-HTML files and games without the field send no Link header.
-- `GET /version.json` on `play.<base>`: `{"version": "<arcade.__version__>"}` with
-  `Content-Type: application/json` and `Cache-Control: no-store`, so a deploy can be verified by the
-  version it reports. It is answered on the API host only, never on a game's host, so it cannot
-  shadow a static game's own `/version.json`.
 
 - The hall's cabinets are real arcade cabinets (`src/arcade/hall_model.py`, shared by the page and the
   README picture): bevelled side panels with a T-molding edge in the organisation's colour, a sloped
@@ -94,6 +99,15 @@ All notable changes to this project are documented in this file. The format is b
   prizes on the prize shelves.
 
 ### Changed
+
+- A play is counted at most once per visitor per game per UTC day: reloads, second tabs and later
+  visits the same day no longer add to `plays`, `.plays-daily` or the `page-served` trace event. Whether
+  a visitor has played a game today is a keyed hash in memory (HMAC-SHA256 of the client address, the
+  last `X-Forwarded-For` hop, with the User-Agent and slug, under a random key replaced with every hash
+  at midnight UTC; at most 100,000 a day), never written or reported (`src/arcade/visits.py`). Counts
+  already kept are unchanged.
+- A User-Agent containing `arcade-watch` (the nightly health check's marker, on every profile, its
+  iPhone one included) is never a play.
 
 - The list page puts the games first: Filter and sort is folded into one line (a closed `<details>`)
   that names what is applied ("Halloween, Most played"), with Clear filters beside it, so a filtered
@@ -113,6 +127,12 @@ All notable changes to this project are documented in this file. The format is b
   allow) and is pre-rendered, so nothing 3D runs on the landing page.
 
 ### Fixed
+
+- The hall's bar no longer runs off a 320 px screen when the "Visible as" pill shows: under 390 px,
+  *All games* and *Sound* become their icons (named by `aria-label`), and the line saying where you are
+  gives up its letters.
+- On a phone, the heart on a cabinet's card can be tapped with the help panel open: the card stays (in
+  a shorter form) and the help opens under it, instead of the help hiding the card.
 
 - The tick on the chosen filter chip and order showed as stray characters ("¹3 A–Z"): the CSS escape
   `"\2713"` sat in a plain Python string, which read it as an octal escape. It is now escaped for CSS.
@@ -140,6 +160,36 @@ All notable changes to this project are documented in this file. The format is b
   such an upload got a **201** and `GET /tak/<asset>` then dropped the connection for players. A stored
   `game.zip` that cannot be read, as in a version uploaded before this check, now gets `/tak/`'s **404**
   with the isolation headers.
+
+## [0.6.2] - 2026-10-06
+
+### Added
+
+- Share-preview metadata on the landing page: `og:type`, `og:site_name`, `og:title`,
+  `og:description`, `og:url` (`https://play.<base>/`) and a `twitter:card` with its title and
+  description, so a shared link to `play.<base>` unfurls with a title and description.
+- A share-preview image: `og:image` and `twitter:image` (`https://play.<base>/og.png`) with
+  `og:image:type`, `og:image:width` (1200), `og:image:height` (630) and alt text, and the Twitter
+  card is now `summary_large_image`. The image, `src/arcade/og.png`, is a 1200x630 PNG of the
+  page's name, description and domain in its dark colours. `GET /og.png` serves it as `image/png` on
+  the API host only, never on a game's host, so it cannot shadow a static game's own `/og.png`.
+- `GET /robots.txt` on `play.<base>`: `User-agent: *` / `Allow: /` as `text/plain`. Like
+  `/version.json`, it is answered on the API host only, never on a game's host, so it cannot shadow
+  a static game's own `/robots.txt`.
+- Optional `canonical:` registry field: the game's main public page, as an https URL. When it is set,
+  every HTML response for the game, on its slug host and on its aliases, carries
+  `Link: <url>; rel="canonical"`. Search engines then index one address for the game instead of
+  splitting it across `<slug>.play.<base>`, old alias hosts and the portal page that frames it.
+  Non-HTML files and games without the field send no Link header.
+
+## [0.6.1] - 2026-10-04
+
+### Added
+
+- `GET /version.json` on `play.<base>`: `{"version": "<arcade.__version__>"}` with
+  `Content-Type: application/json` and `Cache-Control: no-store`, so a deploy can be verified by the
+  version it reports. It is answered on the API host only, never on a game's host, so it cannot
+  shadow a static game's own `/version.json`.
 
 ## [0.6.0] - 2026-10-03
 
