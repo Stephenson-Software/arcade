@@ -79,6 +79,116 @@ def test_choose_prefers_br_then_gzip_and_honours_q(tmp_path):
     assert precompress.choose(path, "br") == (path, None)
 
 
+def test_acceptable_falls_back_to_the_wildcard_only_for_an_unnamed_coding():
+    weights = precompress.parseAcceptEncoding("gzip;q=0, *;q=0.5")
+    assert precompress.acceptable(weights, "gzip") == 0.0  # named, so * does not apply
+    assert precompress.acceptable(weights, "br") == 0.5
+    assert precompress.acceptable(precompress.parseAcceptEncoding("gzip"), "br") == 0.0
+    assert precompress.acceptable({}, "gzip") == 0.0
+
+
+# --- content types and what is compressible --------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, contentType",
+    [
+        # The types README's "Compression" section names as compressible.
+        ("pkg/game.wasm", "application/wasm"),
+        ("index.html", "text/html"),
+        ("page.htm", "text/html"),
+        ("game.js", "text/javascript"),
+        ("module.mjs", "text/javascript"),
+        ("style.css", "text/css"),
+        ("notes.txt", "text/plain"),
+        ("data.json", "application/json"),
+        ("manifest.webmanifest", "application/manifest+json"),
+        ("icon.svg", "image/svg+xml"),
+        ("GAME.WASM", "application/wasm"),
+        # Not compressible: binary game data, packages, images, unknowns.
+        ("index.data", "application/octet-stream"),
+        ("rps.apk", "application/octet-stream"),
+        ("icon.png", "image/png"),
+        ("Makefile", "application/octet-stream"),
+        ("save.unknownext", "application/octet-stream"),
+    ],
+)
+def test_guess_type_names_each_file_as_it_is_served(name, contentType):
+    assert precompress.guessType(name) == contentType
+
+
+def test_only_the_documented_types_are_compressible():
+    compressible = [
+        "application/wasm",
+        "text/html",
+        "text/javascript",
+        "application/javascript",
+        "text/css",
+        "text/plain",
+        "application/json",
+        "application/manifest+json",
+        "image/svg+xml",
+    ]
+    assert all(precompress.compressible(t) for t in compressible)
+    # Parameters and case do not matter: the static path adds "; charset=utf-8".
+    assert precompress.compressible("text/html; charset=utf-8")
+    assert precompress.compressible("TEXT/CSS")
+    for contentType in ("application/octet-stream", "image/png", "application/zip", "", None):
+        assert not precompress.compressible(contentType), contentType
+
+
+def test_a_variant_name_is_typed_as_its_original():
+    # Characterization: mimetypes reads ".gz" as an encoding, so a variant asked
+    # for by name gets its original's type (see the by-name serving test below).
+    assert precompress.guessType("pkg/game.wasm.gz") == "application/wasm"
+    assert precompress.guessType("game.js.gz") == "text/javascript"
+
+
+def test_needs_gzip_starts_at_min_bytes(tmp_path):
+    under = tmp_path / "under.js"
+    under.write_bytes(b"x" * (precompress.MIN_BYTES - 1))
+    exact = tmp_path / "exact.js"
+    exact.write_bytes(b"x" * precompress.MIN_BYTES)
+    assert not precompress.needsGzip(str(under), "text/javascript")
+    assert precompress.needsGzip(str(exact), "text/javascript")
+
+
+def test_needs_gzip_is_false_for_a_variant_an_existing_sibling_a_binary_or_a_missing_file(tmp_path):
+    big = b"x" * (precompress.MIN_BYTES * 4)
+    for name in ("game.wasm.gz", "game.wasm.br", "done.js", "done.js.gz", "index.data"):
+        (tmp_path / name).write_bytes(big)
+    assert not precompress.needsGzip(str(tmp_path / "game.wasm.gz"), "application/wasm")
+    assert not precompress.needsGzip(str(tmp_path / "game.wasm.br"), "application/wasm")
+    assert not precompress.needsGzip(str(tmp_path / "done.js"), "text/javascript")
+    assert not precompress.needsGzip(str(tmp_path / "index.data"), "application/octet-stream")
+    assert not precompress.needsGzip(str(tmp_path / "gone.js"), "text/javascript")
+
+
+def test_precompress_tree_walks_subdirectories_and_skips_what_needs_nothing(tmp_path):
+    big = b"function f() { return 1; }\n" * 200
+    (tmp_path / "pkg" / "deep").mkdir(parents=True)
+    (tmp_path / "index.html").write_bytes(big)
+    (tmp_path / "pkg" / "deep" / "game.js").write_bytes(big)
+    (tmp_path / "pkg" / "tiny.css").write_bytes(b"a{}")
+    (tmp_path / "pkg" / "index.data").write_bytes(big)
+    (tmp_path / "pkg" / "own.js").write_bytes(big)
+    (tmp_path / "pkg" / "own.js.gz").write_bytes(b"the bundle's own")
+    precompress.precompressTree(str(tmp_path))
+    written = sorted(
+        os.path.relpath(os.path.join(directory, name), str(tmp_path))
+        for directory, _, names in os.walk(str(tmp_path))
+        for name in names
+        if name.endswith(".gz")
+    )
+    assert written == [
+        "index.html.gz",
+        os.path.join("pkg", "deep", "game.js.gz"),
+        os.path.join("pkg", "own.js.gz"),
+    ]
+    assert (tmp_path / "pkg" / "own.js.gz").read_bytes() == b"the bundle's own"
+    assert gzip.decompress((tmp_path / "pkg" / "deep" / "game.js.gz").read_bytes()) == big
+
+
 def test_write_gzip_is_level_9_deterministic_and_leaves_no_temporary(tmp_path):
     path = tmp_path / "game.wasm"
     path.write_bytes(WASM)
@@ -371,6 +481,18 @@ def test_backfill_never_compresses_a_variant_asked_for_by_name(arcade):
     assert response.status == 200
     arcade.backfill.wait()
     assert not os.path.exists(os.path.join(root, "pkg", "game.wasm.gz.gz"))
+
+
+def test_a_variant_asked_for_by_name_is_sent_as_stored_bytes_under_its_originals_type(arcade):
+    # Characterization of current behaviour (#85): the gzip bytes are sent as
+    # is, labelled with the original's type and with no Content-Encoding.
+    root = _deploy(arcade)
+    response, data = _get(arcade, "/pkg/game.wasm.gz", acceptEncoding="gzip, br")
+    assert response.status == 200
+    assert data == open(os.path.join(root, "pkg", "game.wasm.gz"), "rb").read()
+    assert gzip.decompress(data) == WASM
+    assert response.getheader("Content-Type") == "application/wasm"
+    assert response.getheader("Content-Encoding") is None
 
 
 def test_a_failed_backfill_is_not_retried(tmp_path):
