@@ -15,10 +15,10 @@
 <div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="pointer" hidden aria-hidden="true"></div>
 <header id="bar">
-  <a id="leave" href="../">&larr; All games</a>
+  <a id="leave" href="../" aria-label="All games"><span aria-hidden="true">&larr;</span><span class="label">&nbsp;All games</span></a>
   <a id="filtered" href="./" hidden><span id="filtered-what"></span><span class="x" aria-hidden="true">&times;</span></a>
   <span id="where" aria-live="polite"></span>
-  <button id="sound" type="button" aria-pressed="false" title="The hall's sound (off by default)">Sound off</button>
+  <button id="sound" type="button" aria-pressed="false" aria-label="Sound off" title="The hall's sound (off by default)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9z"/><path class="waves" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10"/></svg><span class="label">Sound off</span></button>
   <button id="look" type="button" title="Turn by moving the mouse (Esc to stop)">Mouse look</button>
   <button id="map-btn" type="button" aria-expanded="false" aria-controls="map" title="Map of the hall (M)">Map</button>
   <button id="help-btn" type="button" aria-expanded="false" aria-controls="help" aria-label="Help and settings" title="Help and settings">?</button>

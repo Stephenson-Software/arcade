@@ -42,8 +42,9 @@ engines see the same game at several addresses. When set, every HTML response
 for the game carries `Link: <url>; rel="canonical"`, which names one address
 as the original. Leave it out and no Link header is sent.
 
-added: the day (YYYY-MM-DD) the game joined the arcade. /api/games reports
-it as `added`, and the hall puts a NEW ribbon on a game added in the last
+added: when the game joined the arcade: a day (YYYY-MM-DD, read as midnight
+UTC) or a UTC time (YYYY-MM-DDTHH:MM:SSZ, for a date backfilled from the
+commit that first registered the game). /api/games reports it as `added`, and the hall puts a NEW ribbon on a game added in the last
 two weeks. Without it, arcade uses the time of the game's first upload,
 which it records itself (arcade.store.Store.added); for a game uploaded
 before arcade kept that record and since pruned to its last few versions,
@@ -97,7 +98,7 @@ OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added", 
 LIST_KEYS = ("aliases", "tags")
 TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,23}$")
 MAX_TAGS = 6
-ADDED_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ADDED_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}Z)?$")
 KINDS = ("tak", "static")
 _SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
 KNOWN_KEYS = REQUIRED_KEYS + OPTIONAL_KEYS
@@ -137,7 +138,7 @@ class Game(object):
         self.kind = kind
         self.isolation = (kind == "tak") if isolation is None else bool(isolation)
         self.canonical = canonical
-        self.added = added  # a datetime.date, or None
+        self.added = added  # a datetime.date, an aware UTC datetime.datetime, or None
         self.tags = tuple(tags)
         self.engine = engine or default_engine(kind)
 
@@ -337,10 +338,16 @@ def validate(entries, domain=None):
             try:
                 if not ADDED_PATTERN.match(entry["added"]):
                     raise ValueError(entry["added"])
-                added = datetime.date(*(int(part) for part in entry["added"].split("-")))
+                if "T" in entry["added"]:
+                    added = datetime.datetime.strptime(entry["added"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                        tzinfo=datetime.timezone.utc
+                    )
+                else:
+                    added = datetime.date(*(int(part) for part in entry["added"].split("-")))
             except ValueError:
                 raise RegistryError(
-                    "line %d: added for %r must be a date, YYYY-MM-DD, got %r" % (lineNumber, slug, entry["added"])
+                    "line %d: added for %r must be a date, YYYY-MM-DD, or a UTC time, YYYY-MM-DDTHH:MM:SSZ, got %r"
+                    % (lineNumber, slug, entry["added"])
                 )
         tags = entry.get("tags", [])
         for tag in tags:

@@ -10,6 +10,8 @@ One query string drives every view, so any combination is a link to share:
   org     the GitHub organisation, the part of `repo` before the slash
   engine  strata, tak, sdl or other (the registry's `engine:`, see below)
   sort    name (the default), plays (most played first) or newest (by `added`)
+  q       words to search for in a game's title, slug, theme tags and engine
+          (the landing page's search box; every word must appear)
 
 One value per facet; a game matches when it matches every facet given. Values
 are compared without regard to case. An unknown value is kept (it matches
@@ -61,13 +63,14 @@ def label_for(facet, value):
 class Filter(object):
     """The facets and the order a query asks for."""
 
-    __slots__ = ("tag", "org", "engine", "sort")
+    __slots__ = ("tag", "org", "engine", "sort", "q")
 
-    def __init__(self, tag=None, org=None, engine=None, sort="name"):
+    def __init__(self, tag=None, org=None, engine=None, sort="name", q=None):
         self.tag = tag
         self.org = org
         self.engine = engine
         self.sort = sort if sort in SORTS else "name"
+        self.q = " ".join(q.split()).lower() if q and q.split() else None
 
     @classmethod
     def parse(cls, query):
@@ -88,10 +91,16 @@ class Filter(object):
             org=first("org"),
             engine=engine.lower() if engine else None,
             sort=(first("sort") or "name").lower(),
+            q=first("q"),
         )
 
     @property
     def active(self):
+        return bool(self.q) or any(getattr(self, facet) for facet in FACETS)
+
+    @property
+    def facetsActive(self):
+        """Whether a chip (tag, org or engine) is applied, search aside."""
         return any(getattr(self, facet) for facet in FACETS)
 
     def get(self, facet):
@@ -106,7 +115,14 @@ class Filter(object):
             return False
         if self.engine and self.engine != (game.get("engine") or "other").lower():
             return False
+        if self.q and not self.found(game):
+            return False
         return True
+
+    def found(self, game):
+        """Whether every word of the search (q) is in the game's search text."""
+        text = search_text(game)
+        return all(word in text for word in (self.q or "").split())
 
     def order(self, games):
         """`games` (dicts) in this filter's order. Ties, and the default, go by title."""
@@ -124,11 +140,13 @@ class Filter(object):
     def pairs(self, **changes):
         """The query's (name, value) pairs, in a fixed order, with `changes`
         applied (None removes a facet; sort=name is the default and left out)."""
-        values = {name: getattr(self, name) for name in FACETS + ("sort",)}
+        values = {name: getattr(self, name) for name in FACETS + ("sort", "q")}
         values.update(changes)
         out = [(name, values[name]) for name in FACETS if values[name]]
         if values["sort"] and values["sort"] != "name":
             out.append(("sort", values["sort"]))
+        if values["q"]:
+            out.append(("q", values["q"]))
         return out
 
     def query(self, **changes):
@@ -141,9 +159,24 @@ class Filter(object):
         same = current is not None and current.lower() == value.lower()
         return self.query(**{facet: None if same else value})
 
-    def summary(self):
-        """Words for what is shown: "Halloween, Strata 3D", '' when nothing is filtered."""
-        return ", ".join(label_for(facet, getattr(self, facet)) for facet in FACETS if getattr(self, facet))
+    def summary(self, search=True):
+        """Words for what is shown: "Halloween, Strata 3D", '' when nothing is
+        filtered; with a search (and `search`), "Halloween, matching “cat”"."""
+        parts = [label_for(facet, getattr(self, facet)) for facet in FACETS if getattr(self, facet)]
+        if search and self.q:
+            parts.append("matching \u201c%s\u201d" % self.q)
+        text = ", ".join(parts)
+        return "M" + text[1:] if text.startswith("matching") else text
+
+
+def search_text(game):
+    """What the search box looks in: a game's title, slug, theme tags (as
+    chips name them too) and engine (its name and label), lower case."""
+    engine = (game.get("engine") or "other").lower()
+    tags = list(game.get("tags") or ())
+    parts = [game.get("title") or "", game.get("slug") or "", engine, ENGINE_LABELS.get(engine, "")]
+    parts += tags + [tag_label(tag) for tag in tags]
+    return " ".join(parts).lower()
 
 
 def facets(games):

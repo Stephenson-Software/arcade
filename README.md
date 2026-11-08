@@ -105,9 +105,11 @@ host, its aliases and the portal page that frames it; when `canonical` is set, e
 for the game names this one address with a `Link: <url>; rel="canonical"` header, so search engines
 index it once. Leave it out and no Link header is sent.
 
-`added` is the day (`YYYY-MM-DD`) the game joined the arcade. `/api/games` reports it as `added`
-(ISO 8601 UTC, `"2026-10-01T00:00:00Z"`, or `null` when unknown), and the hall puts a NEW ribbon on
-the marquee of a game added in the last 14 days. Without it, arcade uses the game's first upload,
+`added` is when the game joined the arcade: a day (`YYYY-MM-DD`, read as midnight UTC) or a UTC time
+(`YYYY-MM-DDTHH:MM:SSZ`, e.g. the time the commit that first registered the game landed).
+`/api/games` reports it as `added` (ISO 8601 UTC, `"2026-10-01T00:00:00Z"`, or `null` when unknown);
+the landing page orders by it (`?sort=newest`) and badges a game "New", and the hall puts a NEW ribbon on
+the marquee, for a game added in the last 14 days. Without it, arcade uses the game's first upload,
 which it records in `<data>/<slug>/.added` from now on; a game uploaded before that record existed
 uses its oldest stored version while none has been pruned, and is otherwise unknown (never NEW) until
 `added:` is given.
@@ -115,7 +117,7 @@ uses its oldest stored version while none has been pruned, and is otherwise unkn
 The parser is deliberately strict: it accepts only this subset of YAML, and it refuses unknown keys,
 duplicate slugs, reserved slugs (`play`, `www`, `api`, `arcade`, `admin`, `static`), malformed
 hashes, aliases under the arcade's own domain or claimed twice, an unknown `kind`, an `isolation`
-other than on/off (or off for a tak game), a `canonical` that is not an https URL, an `added` that is not a real day,
+other than on/off (or off for a tak game), a `canonical` that is not an https URL, an `added` that is not a real day or UTC time,
 a malformed or repeated tag, more than 6 tags, and an unknown `engine` (or one other than `tak` for a tak game), each with its
 line number. arcade picks up changes to the file without a restart. A file that stops parsing is
 logged and ignored, and the last good registry stays in force.
@@ -154,9 +156,30 @@ directory, caps the file count at 10,000, and is subject to the same byte cap as
 `https://play.<base>/` (and `/index.html`) is a small HTML page generated from the registry on each
 request: every game by title, linked to `https://<slug>.play.<base>/` (a game with nothing deployed is
 listed as "Coming soon", unlinked), and a prominent "Browse all games" link to `ARCADE_LANDING_URL`.
-It has no script and makes no external request (its `Content-Security-Policy` is
-`default-src 'none'; style-src 'unsafe-inline'; …`), follows the visitor's light/dark setting, is laid
-out for a phone first, and is sent with `Cache-Control: public, max-age=60`. Set
+It makes no external request (its `Content-Security-Policy` is `default-src 'none'; style-src
+'unsafe-inline'; script-src 'sha256-…'; form-action 'self'; …`: one inline script, allowed by its hash),
+follows the visitor's light/dark setting, is laid out for a phone first (no horizontal scroll at 320 px,
+44 px touch targets, nothing that needs a hover), and is sent with `Cache-Control: public, max-age=60`.
+
+Finding a game, all of it working without script:
+
+- **Search.** A search box (`/?q=cat`, a GET form the server answers) finds games by title, slug,
+  theme tag and engine; every word must match. With script the list narrows as you type and the
+  address follows (`history.replaceState`). Games the search hides stay in the page, hidden, so typing
+  can widen it again.
+- **Random game.** A link to `/random`, a `302` (`Cache-Control: no-store`) to one deployed game picked
+  at random among those the chips in force allow (`/random?tag=halloween`). With script it picks among
+  the games shown, the search included.
+- **Most played this week.** Up to 5 deployed games, most played first, over the seven complete UTC
+  days before today (the same window and the same k = 10 floor as `/api/activity`: a game with fewer
+  plays is not listed, and no count is shown). Shown when no chip is applied.
+- **Continue playing.** With script only: the games this browser opened last (from this page or the
+  hall), newest first, at most 6. Only their slugs are kept, in this browser's `localStorage`
+  (`arcade.recent`), and never sent anywhere; when storage is blocked the row stays hidden.
+- **What's new.** A deployed game whose current version is a release (`0.4.0+g1a2b3c4` is `0.4.0`; a
+  `-SNAPSHOT` or untagged build is not) shows *What's new in 0.4.0*, folded, with the start of that
+  GitHub release's notes and a link to them ([Looked up elsewhere](#looked-up-elsewhere)).
+- **New.** A game added in the last 14 days carries a *New* badge. Set
 `ARCADE_LANDING_MODE=redirect` to answer `/` with the old 302 to `ARCADE_LANDING_URL` instead.
 
 ### Filters
@@ -167,6 +190,8 @@ the filtered list (no script) and any combination is a link to share:
 
     /?tag=halloween
     /?org=Preponderous-Software&engine=strata&sort=plays
+
+`?q=` (the search box) narrows all three the same way: `/api/games?q=strata`, `/hall/?q=strata`.
 
 One value per facet; a game shows when it matches every facet given (case does not matter), and an
 unknown value matches nothing. The chip in force is marked `aria-current="true"` and links back to the
@@ -360,10 +385,11 @@ a snapshot of the live registry.
 |---|---|---|
 | `PUT` | `/api/games/<slug>/versions/<version>` | Body: a `.tar` (optionally compressed) or `.zip` holding the game's bundle: for a `tak` game exactly `index.html`, `game.zip`, `version.txt`; for a `static` game its tree (see [Bundle kinds](#bundle-kinds-rfc-0012)). It is validated before anything is written, then stored and made current unless `?activate=false`. Responses: **201**; **409** if the version exists (versions are immutable); **401/403** on a missing or wrong token; **411** without a usable `Content-Length`; **413** over the size cap (the upload, its unpacked contents, or tak's four assets unpacked from `game.zip`), or a `static` tree of more than 10,000 files; **400** for a malformed `<version>`, an upload that is neither a readable zip nor a readable tar (including one damaged partway through, or with an encrypted or unsupported zip member), a missing, extra or repeated file, a link or other non-regular file, a refused path (see [Bundle kinds](#bundle-kinds-rfc-0012)), a `version.txt` that is not UTF-8 or disagrees with `<version>`, or a `game.zip` that is unreadable, lacks tak's four assets, or has one that cannot be read. |
 | `POST` | `/api/games/<slug>/current` | `{"version": "…"}`: repoints the game to a stored version. This is rollback. Responses: **200**; **401/403** on a missing or wrong token; **400** for a body that is not that JSON; **413** for a body over 4 KiB; **404** for a version not on disk. |
-| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, added, tags, org, engine (see [The registry](#the-registry)), **plays** (page loads by people; crawlers and scripts are excluded by User-Agent). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. `/api/games` takes the landing page's `?tag=`, `?org=`, `?engine=` and `?sort=` ([Filters](#filters)). **404** for an unknown slug. |
+| `GET` | `/api/games`, `/api/games/<slug>` | slug, title, repo, url, aliases, kind, isolation, current, versions, added, tags, org, engine (see [The registry](#the-registry)), **plays** (page loads by people; crawlers and scripts are excluded by User-Agent, and one visitor counts once per game per UTC day: see below), **notes** (`{"version", "text", "url"}`: the current release's notes once arcade has looked them up, else `null`; [Looked up elsewhere](#looked-up-elsewhere)). Needs no token, never shows hashes, and is readable cross-origin (`Access-Control-Allow-Origin: *`) so the portal can show play counts. `/api/games` takes the landing page's `?tag=`, `?org=`, `?engine=`, `?q=` and `?sort=` ([Filters](#filters)). **404** for an unknown slug. |
 | `GET` | `/api/activity` | `{"window_days": 7, "k": 10, "levels": {"<slug>": 0..4}}`: how busy each game has been lately, for the hall's ghosts (RFC 0030 §2.2). The level comes from the plays over the **seven complete UTC days before today**: **0** below k = 10 plays (RFC 0022 §4.2's k: nothing is shown for a game played a handful of times), **1** for 10 to 24, **2** for 25 to 99, **3** for 100 to 399, **4** for 400 or more. Only the level is served: never a count, a date or a time. Today is left out, so a level changes only at midnight UTC and never at the moment someone plays. `Cache-Control: public, max-age=` up to 3600, never past the next midnight UTC; readable cross-origin. Needs no token. |
 | `POST` | `/api/walks` | One walk for "the hall today" (opt-in in the hall), `{"layout": "<layoutKey>", "dt": 0.5, "points": [[x, z], ...], "visits": [{"slug", "at"}]}`, at most 16 KiB. Refused (**400**, with the reason) unless it has no other fields, the layout key is one this process has served (the last 32), `dt` is 0.5, there are at least 4 points, every point is two finite numbers inside the room (1 m slack), no two points are further apart than a run covers in 0.5 s (plus rounding), and visits, at most 40 of them, name cabinets in that layout with point indices in walking order. More than 120 points or 10 visits are truncated, not refused. Every point is rounded to 0.25 m and pushed out of the cabinets and walls, then kept (**202**). **413** over the size, **411** without a usable `Content-Length`, **429** for a second walk from the same client within 10 minutes, **503** if the walk could not be written. Needs no token. |
 | `GET` | `/api/walks/today` | `{"dt": 0.5, "walks": [...]}`: up to 12 of today's walks (UTC) at random, with yesterday's pooled in when today has fewer than 10, and none at all when the pool is under 10. `Cache-Control: public, max-age=60`. |
+| `GET` | `/random` | A **302** to one deployed game, at random among those the query's `?tag=`, `?org=`, `?engine=` and `?q=` allow, with `Cache-Control: no-store`; to the list (`/?…`) when none is deployed. The landing page's *Random game*. |
 | `GET` | `/version.json` | `{"version": "<x.y.z>"}`: the version of arcade itself that is running (`arcade.__version__`), with `Cache-Control: no-store`, so a deploy can be verified by the version it reports. Needs no token. Answered on `play.<base>` only: on a game's host `/version.json` is the game's own path. |
 | `GET` | `/og.png` | The landing page's share-preview image (`og:image`, `twitter:image`): a 1200x630 PNG, `src/arcade/og.png`, with `Cache-Control: public, max-age=86400`. The picture is arcade cabinets rendered in 3D with [Strata](https://github.com/Preponderous-Software/strata), drawn from `og-card/card.json` (see `og-card/README.md`). Needs no token. Answered on `play.<base>` only: on a game's host `/og.png` is the game's own path. |
 | `GET` | `/robots.txt` | `User-agent: *` / `Allow: /` as `text/plain`, with `Cache-Control: public, max-age=3600`. Answered on `play.<base>` only: on a game's host `/robots.txt` is the game's own path. |
@@ -371,7 +397,14 @@ a snapshot of the live registry.
 **What is kept about plays.** For each game, `<data>/<slug>/plays` holds one all-time count and
 `<data>/<slug>/.plays-daily` holds a count per UTC day, `{"YYYY-MM-DD": n}`, for the last 35 days
 (older days are dropped on each write). Both are updated together, each written atomically, when a
-game's page is served to a person (crawlers and scripts are excluded by User-Agent). They hold dates
+game's page is served to a person (crawlers and scripts are excluded by User-Agent, and so is any
+User-Agent containing `arcade-watch`, the nightly health check's marker) **for the first time that UTC
+day**: a reload, a second tab or a later visit the same day by the same visitor is not another play.
+"The same visitor" is the client address (the last `X-Forwarded-For` hop) with its User-Agent, reduced
+in memory to a keyed hash (HMAC-SHA256 under a random key that is replaced, with every hash, at
+midnight UTC and never stored); at most 100,000 a day are held, and past that a day's new visitors are
+not counted. Nothing of it is written anywhere, and a restart forgets it (`src/arcade/visits.py`).
+Counts from before this change are kept as they were. They hold dates
 and counts only: no IP address, user agent, time of day or anything else about the visitor. The
 per-day counts are never served; `/api/activity` publishes only the coarse level above. Upgrading
 loses nothing: `plays` is unchanged, and per-day counts start on the day this ships (there is no
@@ -448,8 +481,30 @@ change that removes that container's router, or Traefik will see two routers for
 | `ARCADE_TRACE_PROGRAM` | `arcade` |
 | `ARCADE_INTERNAL_HOST` | `arcade` (the only host that may read `/traefik/dynamic.json`) |
 | `ARCADE_TRAEFIK_SERVICE` | `arcade@docker` |
+| `ARCADE_REMOTE` | `on`: look up trailer stills and release notes in the background ([Looked up elsewhere](#looked-up-elsewhere)); `off` never does (what is cached is still shown) |
 | `ARCADE_HALL_EMBED` | `off` (games open as their own page) or `on` (in a frame over the hall; needs the games' `frame-ancestors` to allow `play.<base>`) |
 | `ARCADE_TRAEFIK_MIDDLEWARES` | `secure-headers@file` (comma-separated; the gateway sets a set that lets the portal frame games) |
+
+### Looked up elsewhere
+
+With `ARCADE_REMOTE=on` (the default), arcade fetches two kinds of decoration in one background thread
+and keeps them under `<data>/.remote/` (written atomically; they survive restarts). A request never waits
+for either, and a failure (no network, a 404, a timeout, something that is not what was asked for) is
+silent and retried after six hours at the earliest (`src/arcade/remote.py`):
+
+- **Trailer stills.** A cabinet with no poster in `hall_assets/posters/` (a game registered since
+  `tools/make_hall_posters.py` last ran) gets `https://danielstephenson.dev/trailers/<repo-name>.jpg`
+  (or `<slug>.jpg`) once it answers 200 with a JPEG, served at `/hall/fetched/<slug>.jpg` and refreshed
+  weekly. Until then (or when there is none) its screen is a title card lettered with its title, its
+  organisation and its tags, and its card's line says what it is from its tags and engine.
+- **Release notes.** For a deployed game whose current version is a release, one unauthenticated
+  request to `https://api.github.com/repos/<repo>/releases` per new version (never for a `-SNAPSHOT`
+  or untagged build): the release tagged `<version>` or `v<version>`, its body cut to what a player
+  reads (up to the release tooling's own *Version* / *Verification* sections, links reduced to their
+  text, at most 600 characters). GitHub allows 60 such requests an hour per address; arcade makes at most
+  30 an hour, and a 403 or 429 pauses them for an hour. A version with no release is looked up once.
+  The notes are shown on the landing page (*What's new*), in `/api/games` (`notes`), and the first
+  sentence is the hall card's line for a game with no blurb in `hall_assets/blurbs.json`.
 
 ### Usage reporting
 
@@ -466,8 +521,9 @@ as for every trace client.
 
 arcade keeps no access log (`log_message` is a no-op) and stores no IP address or user agent.
 
-- **Plays.** `<data>/<slug>/plays` is one integer per game: page loads by people (crawlers and scripts
-  are told apart by User-Agent, which is read and not kept). `<data>/<slug>/.plays-daily` is the same
+- **Plays.** `<data>/<slug>/plays` is one integer per game: first page loads of the UTC day by people
+  (crawlers and scripts are told apart by User-Agent, which is read and not kept; whether a visitor has
+  already played a game today is a keyed hash in memory only, forgotten at midnight UTC). `<data>/<slug>/.plays-daily` is the same
   count per UTC day for the last 35 days, never served ([What is kept about plays](#the-api-on-playbase)).
 - **Walk replays (opt-in only).** When a visitor turns on *Share my walk anonymously* in the hall, one
   walk per visit is kept in `<data>/.hall-walks/<YYYY-MM-DD>.json` (UTC day):

@@ -144,9 +144,14 @@ def render(query="", theme=None, plays=None):
 
 
 def listed(page):
-    """The titles in the games list, in order."""
-    body = page.split('id="games-h"', 1)[1]
-    return [part.split("<", 1)[0] for part in body.split('<span class="title">')[1:]]
+    """The titles in the games list, in order (not the ones a search hides)."""
+    body = page.split('id="games-h"', 1)[1].split("</ul>", 1)[0]
+    out = []
+    for tile in body.split("<li")[1:]:
+        if tile.split(">", 1)[0].endswith(" hidden") or '<span class="title">' not in tile:
+            continue
+        out.append(tile.split('<span class="title">', 1)[1].split("<", 1)[0])
+    return out
 
 
 def test_the_landing_page_has_chips_for_every_facet_and_order():
@@ -193,7 +198,8 @@ def test_the_server_renders_the_filtered_list_without_script():
     # The hall link and each cabinet link carry the filter.
     assert 'href="/hall/?tag=halloween"' in page
     assert 'href="/hall/?at=familiar&amp;tag=halloween"' in page
-    assert "<script" not in page
+    # Served whole: the inline script only narrows a search as you type.
+    assert "<script src" not in page
     assert listed(render("tag=story&engine=tak")) == ["Tidewater"]
     assert listed(render("sort=plays", plays={"apex": 3, "tidewater": 9, "familiar": 1})) == [
         "Tidewater", "Apex", "Familiar"]
@@ -300,3 +306,49 @@ def test_hall_js_darkens_unlit_cabinets_and_keeps_the_filter():
         assert needle in js, needle
     with open(os.path.join(hall.ASSETS, "hall-share.js")) as f:
         assert '["tag", "org", "engine"]' in f.read()
+
+
+def test_random_sends_a_302_to_a_deployed_game_among_the_chips(running, tmp_path):  # noqa: F811
+    port = running(entries=ENTRIES)
+    # Nothing deployed: back to the list, with the chips kept.
+    res, _ = get(port, "/random?tag=story")
+    assert res.status == 302 and res.getheader("Location") == "/?tag=story"
+    for slug in ("familiar", "tidewater"):
+        current = tmp_path / "data" / slug
+        (current / "1").mkdir(parents=True)
+        (current / "1" / ".uploaded").write_text("1")
+        (current / "current").write_text("1\n")
+    seen = set()
+    for _ in range(30):
+        res, _ = get(port, "/random")
+        assert res.status == 302 and res.getheader("Cache-Control") == "no-store"
+        seen.add(res.getheader("Location"))
+    assert seen == {"https://familiar.play.example.com/", "https://tidewater.play.example.com/"}
+    assert {get(port, "/random?engine=tak")[0].getheader("Location") for _ in range(5)} == {
+        "https://tidewater.play.example.com/"}
+
+
+def test_api_games_carries_notes_once_looked_up(running, tmp_path):  # noqa: F811
+    port = running(entries=ENTRIES)
+    current = tmp_path / "data" / "rps"
+    (current / "0.2.0+gabc").mkdir(parents=True)
+    (current / "0.2.0+gabc" / ".uploaded").write_text("1")
+    (current / "current").write_text("0.2.0+gabc\n")
+    notes = tmp_path / "data" / ".remote" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "rps.json").write_text(json.dumps({"version": "0.2.0", "body": "## 0.2.0\n\nFaster rounds.",
+                                                "url": "https://github.com/o/rps/releases/tag/0.2.0"}))
+    one = json.loads(get(port, "/api/games/rps")[1])
+    assert one["notes"] == {"version": "0.2.0", "text": "Faster rounds.",
+                            "url": "https://github.com/o/rps/releases/tag/0.2.0"}
+    assert json.loads(get(port, "/api/games/tidewater")[1])["notes"] is None
+    page = get(port, "/")[1].decode("utf-8")
+    assert "What&rsquo;s new in 0.2.0" in page and "Faster rounds." in page
+
+
+def test_the_search_reaches_the_api_and_the_hall(running):  # noqa: F811
+    port = running(entries=ENTRIES)
+    assert [g["slug"] for g in json.loads(get(port, "/api/games?q=strata")[1])["games"]] == ["familiar"]
+    doc = json.loads(get(port, "/hall/layout.json?q=strata")[1])
+    assert {c["slug"]: c["lit"] for c in doc["cabinets"]} == {"familiar": True, "tidewater": False, "rps": False}
+    assert doc["filter"]["summary"] == "Matching “strata”"

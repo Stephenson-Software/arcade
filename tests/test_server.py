@@ -176,10 +176,10 @@ def test_the_api_host_serves_a_landing_page_listing_every_game(arcade):
     assert response.getheader("Content-Type") == "text/html; charset=utf-8"
     page = data.decode("utf-8")
     # A deployed game is linked at its own host; one with nothing deployed is listed, unlinked.
-    assert '<a href="https://tidewater.%s/">' % DOMAIN in page
+    assert '<a href="https://tidewater.%s/" data-play="tidewater">' % DOMAIN in page
     for slug in ("overwinter", "rps", "pthreads"):
         assert "https://%s.%s/" % (slug, DOMAIN) not in page
-    assert page.count("<li>") == 4
+    assert page.count("<li data-slug=") == 4
     assert "Coming soon" in page
     assert '<a class="browse" href="https://example.com/play">Browse all games' in page
     assert response.getheader("Cache-Control") == "public, max-age=60"
@@ -189,7 +189,8 @@ def test_the_api_host_serves_a_landing_page_listing_every_game(arcade):
 def test_the_landing_page_makes_no_external_requests(arcade):
     _, data = request(arcade, "GET", API, "/index.html")
     page = data.decode("utf-8")
-    assert "<script" not in page
+    # One inline script (allowed by its hash) and a JSON data block; nothing fetched.
+    assert "<script src" not in page and page.count("<script") == 2
     assert "<img" not in page
     assert 'rel="stylesheet"' not in page
     assert "@import" not in page and "url(" not in page
@@ -203,7 +204,7 @@ def test_the_landing_page_follows_the_registry(arcade):
     os.utime(str(arcade.registryFile), ns=(10**18, 10**18))
     arcade.registry.refresh()
     _, data = request(arcade, "GET", API, "/")
-    assert data.decode("utf-8").count("<li>") == 2
+    assert data.decode("utf-8").count("<li data-slug=") == 2
 
 
 def test_head_on_the_landing_page_has_no_body(arcade):

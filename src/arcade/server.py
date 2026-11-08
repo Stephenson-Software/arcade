@@ -40,12 +40,13 @@ import hmac
 import http.server
 import json
 import os
+import random
 import re
 import sys
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, activity, bundle, filters, hall, landing, precompress, registry as registryModule, routers, walks
+from arcade import __version__, activity, bundle, filters, hall, landing, precompress, registry as registryModule, remote, routers, visits, walks
 from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
@@ -65,11 +66,15 @@ LANDING_MODES = ("page", "redirect")
 DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 # User agents that are not a person opening a game: crawlers, link-preview
 # fetchers and scripts. Their page loads are not counted as plays.
+# `arcade-watch` is the nightly health check's own marker: it appends it to
+# every browser profile's User-Agent (its iPhone profile is otherwise a plain
+# Safari string), so its loads never count.
 _NOT_A_PERSON = re.compile(
     r"bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|curl|wget|python|"
-    r"go-http-client|java/|okhttp|headless|lighthouse|monitor|uptime",
+    r"go-http-client|java/|okhttp|headless|lighthouse|monitor|uptime|arcade-watch",
     re.I,
 )
+_FETCHED = re.compile(r"^fetched/([a-z0-9][a-z0-9-]{0,62})\.jpg$")
 _API_GAME = re.compile(r"^/api/games/([a-z0-9-]+)$")
 _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
 _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
@@ -123,6 +128,7 @@ class Config(object):
         traefikMiddlewares=("secure-headers@file",),
         landingMode="page",
         hallEmbed="off",
+        remoteFetch="off",
     ):
         self.domain = domain.lower().strip(".")
         self.dataDirectory = dataDirectory
@@ -140,6 +146,13 @@ class Config(object):
         # on: the hall plays a game in a frame over itself. Every game's host
         # must then let play.<base> frame it (the gateway's frame-ancestors).
         self.hallEmbed = hallEmbed == "on"
+        # on: look up trailer stills and release notes in the background
+        # (arcade.remote). Off by default here, so a test never reaches the
+        # network; ARCADE_REMOTE defaults to on.
+        remoteFetch = (remoteFetch or "off").strip().lower()
+        if remoteFetch not in ("on", "off"):
+            raise ValueError("ARCADE_REMOTE must be on or off, not %r" % remoteFetch)
+        self.remoteFetch = remoteFetch == "on"
         self.maxUploadBytes = maxUploadBytes
         self.keep = keep
         # The name other containers reach arcade by. Only a request addressed
@@ -158,6 +171,7 @@ class Config(object):
             landingUrl=environ.get("ARCADE_LANDING_URL", "https://danielstephenson.dev/play"),
             landingMode=environ.get("ARCADE_LANDING_MODE", "page"),
             hallEmbed=environ.get("ARCADE_HALL_EMBED", "off"),
+            remoteFetch=environ.get("ARCADE_REMOTE", "on"),
             maxUploadBytes=int(environ.get("ARCADE_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)),
             keep=int(environ.get("ARCADE_KEEP_VERSIONS", "5")),
             internalHost=environ.get("ARCADE_INTERNAL_HOST", "arcade"),
@@ -213,7 +227,10 @@ class RegistryHolder(object):
 
 def addedOf(game, store):
     """When the game joined the arcade, as an ISO 8601 UTC time ("...Z"), or
-    None: the registry's `added:` day if given, else its first upload."""
+    None: the registry's `added:` (a day, as its midnight UTC, or a time) if
+    given, else its first upload."""
+    if isinstance(game.added, datetime.datetime):
+        return game.added.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if game.added is not None:
         return game.added.isoformat() + "T00:00:00Z"
     stamp = store.added(game.slug)
@@ -244,6 +261,27 @@ class Arcade(object):
         self.walks = walks.Walks(os.path.join(config.dataDirectory, ".hall-walks"))
         self.layouts = walks.Layouts()
         self.walkLimit = walks.RateLimit()
+        # Which visitors have already played each game today: keyed hashes in
+        # memory only, forgotten at midnight UTC (arcade.visits).
+        self.visits = visits.Visits()
+        # Trailer stills and release notes, fetched in the background and
+        # kept beside the games (a dot name, so never a slug).
+        self.remote = remote.Remote(os.path.join(config.dataDirectory, ".remote"), enabled=config.remoteFetch)
+
+    def fetchedPoster(self, slug, urls):
+        """The hall URL of a cabinet's fetched trailer still, or None (arcade.remote)."""
+        path = self.remote.poster(slug, urls)
+        if path is None:
+            return None
+        try:
+            stamp = os.stat(path).st_mtime_ns
+        except OSError:
+            return None
+        return "fetched/%s.jpg?v=%x" % (slug, stamp)
+
+    def notesFor(self, game):
+        """"What's new" for the game's current version, or None (arcade.remote)."""
+        return self.remote.notes(game.slug, game.repo, self.store.current(game.slug))
 
     def gameForHost(self, host):
         """The Game a request's Host header names, or None."""
@@ -260,9 +298,14 @@ class Arcade(object):
         if self.reporter is not None:
             self.reporter.report(name, tags={"slug": slug})
 
-    def played(self, slug, userAgent):
-        """A person loaded the game's page: count it, and report it to trace."""
+    def played(self, slug, userAgent, client=None):
+        """A person loaded the game's page: count it, and report it to trace,
+        once per visitor (`client`, the address, with `userAgent`) per game
+        per UTC day (arcade.visits). Reloads and later visits that day are
+        not plays."""
         if not userAgent or _NOT_A_PERSON.search(userAgent):
+            return
+        if not self.visits.first(slug, client or "", userAgent):
             return
         try:
             self.store.addPlay(slug)
@@ -393,7 +436,7 @@ def makeHandler(arcade):
             if path in INDEX_PATHS:
                 self._file(game.slug, version, "index.html", "text/html; charset=utf-8")
                 if self.command == "GET":
-                    arcade.played(game.slug, self.headers.get("User-Agent"))
+                    arcade.played(game.slug, self.headers.get("User-Agent"), self._client())
                 return
             if path in WEB_FILES:
                 name = WEB_FILES[path]
@@ -428,7 +471,7 @@ def makeHandler(arcade):
             if not self._stream(stored, contentType, '"%s-%s"' % (version, tag)):
                 return
             if relative == "index.html" and self.command == "GET":
-                arcade.played(game.slug, self.headers.get("User-Agent"))
+                arcade.played(game.slug, self.headers.get("User-Agent"), self._client())
 
         def _file(self, slug, version, name, contentType):
             self._stream(arcade.store.filePath(slug, version, name), contentType, '"%s-%s"' % (version, name))
@@ -540,6 +583,9 @@ def makeHandler(arcade):
             if read and path == "/version.json":
                 self._version()
                 return
+            if read and path == "/random":
+                self._random()
+                return
             if read and (path == "/hall" or path.startswith("/hall/")):
                 self._hall(path)
                 return
@@ -644,7 +690,11 @@ def makeHandler(arcade):
                 season = parse_qs(query).get("season", [None])[0]
                 # ?tag=halloween (and org, engine): the cabinets that match stay lit, the rest go dark.
                 doc = hall.served_layout(
-                    games, config.hallEmbed, season=season, chosen=filters.Filter.parse(query)
+                    games,
+                    config.hallEmbed,
+                    season=season,
+                    chosen=filters.Filter.parse(query),
+                    fetched=arcade.fetchedPoster,
                 )
                 if season is None:
                     # A walk left in this hall is clamped against this room (a
@@ -652,6 +702,16 @@ def makeHandler(arcade):
                     arcade.layouts.remember(doc)
                 body = (json.dumps(doc, indent=1) + "\n").encode("utf-8")
                 self._send(200, body, "application/json", headers=(("Cache-Control", "no-cache"),))
+                return
+            fetched = _FETCHED.match(name)
+            if fetched:
+                # A trailer still arcade fetched itself (arcade.remote), for a
+                # cabinet with no poster in hall_assets/posters/.
+                stored = os.path.join(arcade.remote.root, "posters", fetched.group(1) + ".jpg")
+                if not os.path.isfile(stored):
+                    self._text(404, "Not found")
+                    return
+                self._stream(stored, "image/jpeg", '"%s"' % hall.etag(stored), backfill=False)
                 return
             stored = hall.asset_path(name)
             if stored is None:
@@ -663,13 +723,14 @@ def makeHandler(arcade):
 
         def _client(self):
             # Behind Traefik the client is the last address it appended; held
-            # only by the rate limit, hashed, in memory, for one window.
+            # only by the walk rate limit and the once-a-day play check,
+            # hashed, in memory (arcade.walks, arcade.visits).
             forwarded = [a.strip() for a in (self.headers.get("X-Forwarded-For") or "").split(",") if a.strip()]
             return forwarded[-1] if forwarded else self.client_address[0]
 
         def _currentLayout(self):
             games = [self._describe(game) for game in arcade.registry.registry]
-            return hall.served_layout(games, config.hallEmbed)
+            return hall.served_layout(games, config.hallEmbed, fetched=arcade.fetchedPoster)
 
         def _leaveWalk(self):
             length = self._contentLength()
@@ -728,6 +789,8 @@ def makeHandler(arcade):
                 added=lambda game: addedOf(game, arcade.store),
                 query=urlparse(self.path).query,
                 theme=theme,
+                weekly=lambda slug: arcade.store.recentPlays(slug, activity.WINDOW_DAYS),
+                notes=arcade.notesFor,
             )
             self._send(
                 200,
@@ -741,6 +804,24 @@ def makeHandler(arcade):
                     ("Cache-Control", "public, max-age=60"),
                 ),
             )
+
+        def _random(self):
+            """A 302 to one deployed game, picked at random among those the
+            query's chips allow (/random?tag=halloween): the landing page's
+            "Random game" without script. Back to the list if none is live."""
+            chosen = filters.Filter.parse(urlparse(self.path).query)
+            pool = []
+            for game in arcade.registry.registry:
+                if arcade.store.current(game.slug) is None:
+                    continue
+                if chosen.active and not chosen.matches(self._describe(game)):
+                    continue
+                pool.append(game)
+            if pool:
+                location = "https://%s.%s/" % (random.choice(pool).slug, config.domain)
+            else:
+                location = "/" + ("?" + chosen.query() if chosen.query() else "")
+            self._send(302, b"", headers=(("Location", location), ("Cache-Control", "no-store")))
 
         def _describe(self, game):
             return {
@@ -758,6 +839,9 @@ def makeHandler(arcade):
                 "tags": list(game.tags),
                 "org": game.org,
                 "engine": game.engine,
+                # "What's new" in the current version: the GitHub release's
+                # notes, once arcade has looked them up (arcade.remote).
+                "notes": arcade.notesFor(game),
             }
 
         def _authorise(self, slug):

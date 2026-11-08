@@ -1096,3 +1096,52 @@ def test_people_in_the_hall_and_opt_in_presence(running, tmp_path):
         timeout=120,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+# --- new cabinets with no hand-made media (arcade.remote) ------------------
+
+
+def test_a_cabinet_with_no_poster_uses_a_fetched_trailer_still():
+    asked = []
+
+    def fetched(slug, urls):
+        asked.append((slug, tuple(urls)))
+        return "fetched/%s.jpg?v=1" % slug if slug == "second-helping" else None
+
+    games = GAMES + [entry("second-helping", "Preponderous-Software/second-helping", 3),
+                     entry("slow-thing", "dmccoystephenson/SlowThing", 1)]
+    by = {c["slug"]: c for c in hall.served_layout(games, False, fetched=fetched)["cabinets"]}
+    assert by["second-helping"]["poster"] == "fetched/second-helping.jpg?v=1"
+    # No still anywhere: no poster, and hall.js letters a title card on the screen.
+    assert by["slow-thing"]["poster"] is None
+    # Asked for by the repository's name in kebab case first, then the slug.
+    urls = dict(asked)["slow-thing"]
+    assert urls[:2] == ("https://danielstephenson.dev/trailers/slow-thing.jpg",) * 2
+    # A cabinet with its own poster in hall_assets is never looked up.
+    assert "tidewater" not in dict(asked)
+
+
+def test_a_cabinet_with_no_blurb_takes_its_release_notes_first_line(monkeypatch, tmp_path):
+    monkeypatch.setattr(hall, "BLURBS", str(tmp_path / "absent.json"))
+    games = [dict(entry("second-helping", "Preponderous-Software/second-helping"),
+                  notes={"version": "0.1.0", "text": "First release: a harvest fair that teaches voting. More."}),
+             dict(entry("cave", "Stephenson-Software/Cave"), notes=None)]
+    by = {c["slug"]: c for c in hall.served_layout(games, False)["cabinets"]}
+    assert by["second-helping"]["blurb"] == "A harvest fair that teaches voting."
+    assert by["cave"]["blurb"] is None
+    assert "notes" not in by["cave"]
+
+
+def test_the_hall_serves_a_fetched_still_and_names_it_in_the_layout(running, tmp_path):
+    port = running(entries=[game("second-helping", repo="Preponderous-Software/second-helping")])
+    posters = tmp_path / "data" / ".remote" / "posters"
+    posters.mkdir(parents=True)
+    (posters / "second-helping.jpg").write_bytes(b"\xff\xd8\xff\xe0still")
+    doc = json.loads(get(port, "/hall/layout.json")[1])
+    poster = doc["cabinets"][0]["poster"]
+    assert re.match(r"^fetched/second-helping\.jpg\?v=[0-9a-f]+$", poster)
+    res, body = get(port, "/hall/" + poster)
+    assert res.status == 200 and body == b"\xff\xd8\xff\xe0still"
+    assert res.getheader("Content-Type") == "image/jpeg" and res.getheader("ETag")
+    for bad in ("/hall/fetched/nothing.jpg", "/hall/fetched/../games.yaml", "/hall/fetched/Second.jpg"):
+        assert get(port, bad)[0].status == 404, bad

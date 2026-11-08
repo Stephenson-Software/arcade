@@ -504,7 +504,17 @@ def is_new(added, now=None):
     return datetime.timedelta(0) <= age < datetime.timedelta(days=NEW_DAYS)
 
 
-def served_layout(games, embed, season=None, now=None, chosen=None):
+def notes_blurb(notes):
+    """A cabinet's line from its release notes ({"text": ...} or None), or None."""
+    if not isinstance(notes, dict) or not notes.get("text"):
+        return None
+    from arcade.remote import first_sentence
+
+    line = first_sentence(notes["text"], BLURB_MAX)
+    return trim_blurb(line) if line else None
+
+
+def served_layout(games, embed, season=None, now=None, chosen=None, fetched=None):
     """layout.json: the layout, plus each cabinet's poster when arcade has
     one, whether it is new (a NEW ribbon on its marquee: added in the last
     NEW_DAYS days, at `now`), and whether games are played in a frame (embed)
@@ -516,16 +526,26 @@ def served_layout(games, embed, season=None, now=None, chosen=None):
     each cabinet `lit` or not: hall.js darkens the ones that do not match. The
     layout itself never changes with it (no cabinet moves, no walkway
     narrows), so a filtered hall is the same room with some screens off.
-    doc["filter"] says what was asked for: None when nothing was."""
+    doc["filter"] says what was asked for: None when nothing was.
+
+    A cabinet registered since the hall's media tools last ran still gets a
+    screen and a line: `fetched(slug, urls)` (arcade.remote, through the
+    server) gives the URL of its trailer still fetched from
+    danielstephenson.dev, or None (hall.js then letters a title card), and a
+    game with no blurb takes the first sentence of its release notes (an
+    /api/games entry's `notes`), when it has some."""
     which = seasons.pick(now, season)
     doc = layout(games, seasons.style(which, STYLE))
     lines = blurbs()
+    notesBySlug = {game["slug"]: game.get("notes") for game in games}
     for cabinet in doc["cabinets"]:
         cabinet["new"] = is_new(cabinet.get("added"), now)
         cabinet["org"] = cabinet["repo"].split("/")[0]
-        cabinet["blurb"] = lines.get(cabinet["slug"])
+        cabinet["blurb"] = lines.get(cabinet["slug"]) or notes_blurb(notesBySlug.get(cabinet["slug"]))
         has = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".jpg"))
         cabinet["poster"] = "posters/%s.jpg" % cabinet["slug"] if has else None
+        if not has and fetched is not None:
+            cabinet["poster"] = fetched(cabinet["slug"], poster_urls(cabinet))
         # Its side art (tools/make_hall_posters.py), else the panels are its organisation's colour.
         side = os.path.isfile(os.path.join(POSTERS, cabinet["slug"] + ".side.jpg"))
         cabinet["side"] = "posters/%s.side.jpg" % cabinet["slug"] if side else None

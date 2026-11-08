@@ -167,14 +167,35 @@
     ctx.font = `bold ${floor}px "DejaVu Sans", Verdana, system-ui, sans-serif`;
   }
   function pixels(ctx, w, h) { return new Uint8Array(ctx.getImageData(0, 0, w, h).data.buffer); }
+  // What a game is, from its tags and engine ("Halloween · Strata 3D"): the
+  // card's line and the title card's when nothing better has been written.
+  const ENGINE_WORDS = {strata: "Strata 3D", tak: "tak console", sdl: "SDL"};
+  function aboutLine(c) {
+    const words = (c.tags || []).map((t) => t.replace(/-/g, " ")).map((t) => t[0].toUpperCase() + t.slice(1));
+    if (ENGINE_WORDS[c.engine]) words.push(ENGINE_WORDS[c.engine]);
+    return words.length ? words.join(" · ") : "";
+  }
   function titleCard(c) {
     const [w, h] = SCREEN_TEX, [, ctx] = canvas2d(w, h);
     ctx.fillStyle = `rgb(${rgb255(c.colour, 40)})`; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = `rgb(${rgb255(c.colour, 22)})`;
     for (let y = 0; y < h; y += 4) ctx.fillRect(0, y, w, 1);
+    // A game with no poster yet (none made, none fetched): its title, lettered
+    // on its organisation's colour, with a frame, the organisation over it and
+    // its tags under it, so a brand-new cabinet still reads as its game.
+    ctx.strokeStyle = `rgba(${rgb255(c.colour)},.85)`; ctx.lineWidth = 6; ctx.strokeRect(14, 14, w - 28, h - 28);
     fitFont(ctx, c.title, w - 60, 64);
     ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(c.title, w / 2, h / 2);
+    const org = c.org || (c.repo || "").split("/")[0];
+    ctx.font = `bold 18px "DejaVu Sans", Verdana, system-ui, sans-serif`;
+    ctx.fillStyle = `rgb(${c.colour.map((v) => Math.round(255 * (0.6 + 0.4 * v)))})`;
+    if (org) ctx.fillText(org.toUpperCase(), w / 2, 48);
+    const about = aboutLine(c);
+    if (about && c.deployed) {
+      ctx.font = `20px "DejaVu Sans", Verdana, system-ui, sans-serif`; ctx.fillStyle = "rgba(255,255,255,.75)";
+      ctx.fillText(about, w / 2, h - 46);
+    }
     if (!c.deployed) {
       ctx.font = `bold 22px system-ui, sans-serif`; ctx.fillStyle = "rgba(255,255,255,.7)";
       ctx.fillText("COMING SOON", w / 2, h - 40);
@@ -880,6 +901,15 @@
     url.searchParams.set("play", c.slug);
     return url.href;
   }
+  /* "Continue playing" on the list page (landing.py reads the same key):
+     the slugs of the games this browser opened last, newest first, kept in
+     this browser only. Blocked storage just means no row there. */
+  function rememberPlayed(slug) {
+    let old = [];
+    try { old = JSON.parse(StrataKit.store.get("arcade.recent") || "[]"); } catch (e) { /* unreadable: start again */ }
+    const list = [slug].concat(Array.isArray(old) ? old.filter((s) => typeof s === "string" && s !== slug) : []);
+    StrataKit.store.set("arcade.recent", JSON.stringify(list.slice(0, 6)));
+  }
   function play(c) {
     if (!c || !c.deployed || !c.url || !tr || tr.state !== "idle") return;
     // Reduce motion, if it changed since: the move into the game is a fade, the camera stays.
@@ -888,6 +918,7 @@
     clearFocus();
     const how = canFrame(c);
     state.lastPlay = {slug: c.slug, how};
+    rememberPlayed(c.slug);
     playing = c;
     keys.clear(); stickIn = {forward: 0, right: 0, run: false}; target = null;
     if (me) { me.vx = 0; me.vz = 0; me.speed = 0; }
@@ -982,7 +1013,9 @@
   const hum = HallLife.hum(), soundBtn = $("sound");
   function showSound() {
     soundBtn.setAttribute("aria-pressed", String(hum.on));
-    soundBtn.textContent = hum.on ? "Sound on" : "Sound off";
+    // The word, and the same as its name: on a narrow screen only the icon shows (hall.css).
+    soundBtn.querySelector(".label").textContent = hum.on ? "Sound on" : "Sound off";
+    soundBtn.setAttribute("aria-label", hum.on ? "Sound on" : "Sound off");
     $("set-hum").checked = hum.on;
     $("set-ghosts").checked = settings.ghosts;
   }
@@ -1231,7 +1264,22 @@
   }
 
   const helpBtn = $("help-btn");
-  function showHelp(on) { $("help").hidden = !on; helpBtn.setAttribute("aria-expanded", String(on)); }
+  function showHelp(on) {
+    $("help").hidden = !on;
+    helpBtn.setAttribute("aria-expanded", String(on));
+    document.body.classList.toggle("help-open", on);
+    placeHelp();
+  }
+  /* On a phone the card at a cabinet (with its heart) and the open help share
+     the top of the screen: the help starts under the card (hall.css), so both
+     stay in reach. The card's height changes as its social line arrives. */
+  function placeHelp() {
+    const card = $("card");
+    const bottom = card.classList.contains("on") ? Math.ceil(card.getBoundingClientRect().bottom) : 0;
+    document.body.style.setProperty("--card-bottom", bottom + "px");
+  }
+  if (window.ResizeObserver) new ResizeObserver(placeHelp).observe($("card"));
+  document.addEventListener("hall:card", () => requestAnimationFrame(placeHelp));
   helpBtn.addEventListener("click", () => showHelp($("help").hidden));
 
   /* Settings, in the "?" panel: look sensitivity, invert Y, field of view,
@@ -1523,8 +1571,11 @@
     if (!c) { card.classList.remove("on"); return; }
     $("card-org").textContent = c.org || c.repo.split("/")[0];
     $("card-title").textContent = c.title;
-    $("card-blurb").textContent = c.blurb || "";
-    $("card-blurb").hidden = !c.blurb;
+    // No line written for it yet (a game newer than blurbs.json, with no
+    // release notes either): what it is, from its tags and engine.
+    const line = c.blurb || aboutLine(c);
+    $("card-blurb").textContent = line;
+    $("card-blurb").hidden = !line;
     const plays = livePlays && livePlays[c.slug] != null ? livePlays[c.slug] : c.plays;
     $("card-plays").textContent = playsText(plays);
     card.style.setProperty("--org", `rgb(${rgb255(c.colour)})`);

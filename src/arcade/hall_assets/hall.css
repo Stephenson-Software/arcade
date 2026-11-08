@@ -228,7 +228,14 @@ body.touch #people-settings .opt { min-height: 44px; }
    cabinet card (under it, at the top) steps aside, as the map does; the
    play button stays in sight and tappable. */
 body.touch #help { max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - 52px - max(24px, env(safe-area-inset-bottom)) - 152px); }
-body.touch #help:not([hidden]) ~ #card { visibility: hidden; }
+/* At a cabinet with the help open, the card stays (its heart in reach) in a
+   shorter form, and the help starts just under it (hall.js placeHelp sets
+   --card-bottom), scrolling within what is left above the stick. */
+body.touch.help-open.at-cabinet #card-blurb, body.touch.help-open.at-cabinet #card-social .board { display: none; }
+body.touch.help-open.at-cabinet #help { top: calc(var(--card-bottom, 0px) + 8px);
+  max-height: calc(100dvh - var(--card-bottom, 0px) - 8px - max(24px, env(safe-area-inset-bottom)) - 152px); }
+body.touch.help-open.at-cabinet:has(.sk-slow) #help {
+  max-height: calc(100dvh - var(--card-bottom, 0px) - 8px - max(24px, env(safe-area-inset-bottom)) - 236px); }
 /* "This device is drawing slowly" (StrataLoader.slow, styled inline): on a
    phone it sits above the stick and the play button, and the help ends above
    it; on a wider screen it takes the bottom right corner, clear of the play
@@ -268,3 +275,20 @@ body.touch #bar #visible-pill { min-height: 44px; min-width: 44px; }
   body.visible-me #bar #leave { font-size: 13px; }
   body.visible-me #bar #sound, body.visible-me #bar #map-btn { font-size: 13px; }
 }
+
+/* A narrow phone (under 390 px: an iPhone SE, most small Androids): "All games"
+   and "Sound" become their icons (their names stay, as aria-label), so the
+   bar's six controls, the "Visible as" pill included, fit in 320 px. */
+#bar #sound { gap: 6px; }
+#bar #sound svg { display: none; flex: none; }
+#bar #sound[aria-pressed="false"] .waves { opacity: .35; }
+@media (max-width: 389px) {
+  #bar #leave, #bar #sound { padding: 0; width: 40px; justify-content: center; }
+  #bar #leave .label, #bar #sound .label { display: none; }
+  #bar #sound svg { display: block; }
+  body.touch #bar #leave, body.touch #bar #sound { width: 44px; min-height: 44px; }
+}
+/* There, the line saying where you are keeps its place as the bar's spacer but
+   shows no text (a few letters and an ellipsis say nothing); the card says it. */
+@media (max-width: 389px) { #where { font-size: 0; } }
+@media (max-width: 480px) { body.visible-me #where { font-size: 0; } }
