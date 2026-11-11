@@ -2,11 +2,9 @@
 most once per visitor per game per UTC day."""
 
 import datetime
-import json
-import time
 
 from arcade import visits
-from test_server import API, TIDEWATER, arcade, request, upload  # noqa: F401  (fixture)
+from test_server import TIDEWATER, arcade, plays, request, upload, waitFor  # noqa: F401  (fixture)
 
 DAY = datetime.date(2026, 11, 8)
 
@@ -50,17 +48,6 @@ def test_memory_is_bounded():
     assert v.first("cave", "10.0.0.0", "Safari", DAY) is False
 
 
-def plays(arcade, expect=None):  # noqa: F811
-    """The play count, once the last page load's count has landed (it is
-    counted after the response is sent)."""
-    for _ in range(50):
-        n = json.loads(request(arcade, "GET", API, "/api/games/tidewater")[1])["plays"]
-        if expect is None or n == expect:
-            return n
-        time.sleep(0.02)
-    return n
-
-
 def test_reloads_do_not_count_again(arcade):  # noqa: F811
     upload(arcade)
     phone = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1"}
@@ -73,8 +60,8 @@ def test_reloads_do_not_count_again(arcade):  # noqa: F811
         headers = dict(phone, **{"X-Forwarded-For": "10.9.9.9, " + client})
         request(arcade, "GET", TIDEWATER, "/", headers=headers)
     assert plays(arcade, 3) == 3
-    # The day's per-day count moves with the all-time one.
-    assert sum(arcade.store.daily("tidewater").values()) == 3
+    # The day's per-day count moves with the all-time one (written just after it).
+    assert waitFor(lambda: sum(arcade.store.daily("tidewater").values()) == 3)
 
 
 def test_the_monitor_marker_is_never_a_play(arcade):  # noqa: F811
@@ -86,10 +73,7 @@ def test_the_monitor_marker_is_never_a_play(arcade):  # noqa: F811
     )
     request(arcade, "GET", TIDEWATER, "/", headers={"User-Agent": "Mozilla/5.0 (a person)"})
     assert plays(arcade, 1) == 1  # only the person's
-    for _ in range(50):
-        if arcade.reporter.events:
-            break
-        time.sleep(0.02)
+    waitFor(lambda: arcade.reporter.events)
     assert arcade.reporter.events == [("page-served", {"slug": "tidewater"})]
 
 

@@ -1,6 +1,5 @@
 import gzip
 import hashlib
-import json
 import os
 import tracemalloc
 
@@ -9,7 +8,7 @@ import pytest
 from arcade import precompress
 from arcade.store import Store
 from helpers import bundleFiles
-from test_server import DOMAIN, arcade, request, tarBundle, upload  # noqa: F401 (arcade is a fixture)
+from test_server import DOMAIN, arcade, plays, request, tarBundle, upload  # noqa: F401 (arcade is a fixture)
 
 RPS = "rps." + DOMAIN
 TIDEWATER = "tidewater." + DOMAIN
@@ -301,9 +300,8 @@ def test_html_index_is_negotiated_and_still_counts_a_play(arcade):
     assert response.getheader("Content-Type") == "text/html; charset=utf-8"
     assert response.getheader("Link") == '<https://example.com/play/rps>; rel="canonical"'
     assert gzip.decompress(data).startswith(b"<html>site 0.1</html>")
-    # Counted after the response is sent; another request lets it land.
-    _, described = request(arcade, "GET", DOMAIN, "/api/games/rps")
-    assert json.loads(described)["plays"] == 1
+    # Counted after the response is sent, so wait for it to land.
+    assert plays(arcade, 1, slug="rps") == 1
 
 
 def test_a_tak_games_index_is_negotiated(arcade):
