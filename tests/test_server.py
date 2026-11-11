@@ -91,6 +91,32 @@ def upload(arcade, slug="tidewater", version="1.0.0", token=TOKEN, body=None, qu
     return request(arcade, "PUT", API, "/api/games/%s/versions/%s%s" % (slug, version, query), body, headers)
 
 
+def waitFor(check, seconds=5.0):
+    """Call check() until it returns something truthy or seconds pass, and
+    return its last result. A play is counted after the page's response is
+    sent, on the server's thread, so nothing orders it before a later request
+    on a new connection: a test that reads a count waits for it to land."""
+    deadline = time.time() + seconds
+    while True:
+        result = check()
+        if result or time.time() >= deadline:
+            return result
+        time.sleep(0.02)
+
+
+def plays(arcade, expect, slug="tidewater"):
+    """The game's play count from the API, once it has reached expect (or
+    whatever it is when waitFor gives up, so the assertion shows it)."""
+    seen = []
+
+    def reached():
+        seen.append(json.loads(request(arcade, "GET", API, "/api/games/" + slug)[1])["plays"])
+        return seen[-1] == expect
+
+    waitFor(reached)
+    return seen[-1]
+
+
 def assertIsolated(response):
     for name, value in ISOLATION_HEADERS:
         assert response.getheader(name) == value, name
@@ -710,6 +736,7 @@ def test_page_loads_are_counted_bots_are_not_and_the_api_shares_counts(arcade):
     request(arcade, "GET", TIDEWATER, "/web/game.zip")
     for bot in ("Googlebot/2.1", "facebookexternalhit/1.1", "curl/8.5", "Discordbot/2.0", ""):
         request(arcade, "GET", TIDEWATER, "/", headers={"User-Agent": bot})
+    assert plays(arcade, 2) == 2
     response, data = request(arcade, "GET", API, "/api/games/tidewater")
     assert json.loads(data)["plays"] == 2
     assert response.getheader("Access-Control-Allow-Origin") == "*"
