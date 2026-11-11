@@ -909,3 +909,44 @@ def test_games_report_when_they_joined_the_arcade(arcade):
     # The first upload, to the second, in UTC.
     moment = datetime.datetime.strptime(added, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
     assert before - 1 <= moment.timestamp() <= time.time() + 1
+
+
+def _members(data):
+    import io
+    import tarfile
+
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        return {member.name: archive.extractfile(member).read() for member in archive.getmembers()}
+
+
+def test_a_static_games_bundle_can_be_downloaded_as_uploaded(arcade):
+    upload(arcade, slug="rps", version="0.1", body=tarBundle(_site("0.1")))
+    # A gzip request may make arcade write a .gz sibling, which the bundle leaves out.
+    request(arcade, "GET", "rps." + DOMAIN, "/style.css", headers={"Accept-Encoding": "gzip"})
+    response, data = request(arcade, "GET", API, "/api/games/rps/bundle")
+    assert response.status == 200, data
+    assert response.getheader("Content-Type") == "application/x-tar"
+    assert response.getheader("X-Arcade-Version") == "0.1"
+    assert response.getheader("Access-Control-Allow-Origin") == "*"
+    assert _members(data) == _site("0.1")
+    assert arcade.reporter.events == []   # a download is not a play
+
+
+def test_a_tak_games_bundle_is_its_three_files(arcade):
+    upload(arcade)
+    response, data = request(arcade, "GET", API, "/api/games/tidewater/bundle")
+    assert response.status == 200
+    assert sorted(_members(data)) == ["game.zip", "index.html", "version.txt"]
+    assert _members(data) == bundleFiles("1.0.0")
+
+
+def test_a_bundle_needs_a_deployed_game_and_lives_on_the_api_host_only(arcade):
+    assert request(arcade, "GET", API, "/api/games/nope/bundle")[0].status == 404
+    response, data = request(arcade, "GET", API, "/api/games/overwinter/bundle")
+    assert response.status == 404 and json.loads(data)["error"] == "not deployed yet"
+    upload(arcade)
+    # On a game's host the path is the game's own.
+    assert request(arcade, "GET", TIDEWATER, "/api/games/tidewater/bundle")[0].status == 404
+    assert request(arcade, "POST", API, "/api/games/tidewater/bundle")[0].status == 404
+    response, data = request(arcade, "HEAD", API, "/api/games/tidewater/bundle")
+    assert response.status == 200 and data == b"" and int(response.getheader("Content-Length")) > 0

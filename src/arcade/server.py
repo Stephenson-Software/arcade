@@ -42,7 +42,9 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
+import tempfile
 import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -78,6 +80,7 @@ _FETCHED = re.compile(r"^fetched/([a-z0-9][a-z0-9-]{0,62})\.jpg$")
 _API_GAME = re.compile(r"^/api/games/([a-z0-9-]+)$")
 _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
 _API_CURRENT = re.compile(r"^/api/games/([a-z0-9-]+)/current$")
+_API_BUNDLE = re.compile(r"^/api/games/([a-z0-9-]+)/bundle$")
 
 # The Content-Types arcade adds to mimetypes (.wasm, .js, .data, ...) are
 # registered in arcade.precompress, which the store shares.
@@ -638,6 +641,10 @@ def makeHandler(arcade):
                     return
                 self._json(200, self._describe(game), public=True)
                 return
+            match = _API_BUNDLE.match(path)
+            if match and read:
+                self._bundle(match.group(1))
+                return
             match = _API_VERSION.match(path)
             if match and self.command == "PUT":
                 self._upload(match.group(1), match.group(2))
@@ -822,6 +829,30 @@ def makeHandler(arcade):
             else:
                 location = "/" + ("?" + chosen.query() if chosen.query() else "")
             self._send(302, b"", headers=(("Location", location), ("Cache-Control", "no-store")))
+
+        def _bundle(self, slug):
+            """The live version's files as one uncompressed tar, so a game can be kept
+            and played offline: what was uploaded, less arcade's own bookkeeping and
+            the gzip siblings it wrote. Public, like the game itself; not a play."""
+            game = arcade.registry.registry.get(slug)
+            version = arcade.store.current(slug) if game else None
+            if version is None:
+                self._json(404, {"error": "no such game" if game is None else "not deployed yet"})
+                return
+            with tempfile.TemporaryFile() as spool:
+                bundle.writeTar(arcade.store.versionDirectory(slug, version), spool)
+                size = spool.tell()
+                spool.seek(0)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-tar")
+                self.send_header("Content-Length", str(size))
+                self.send_header("Content-Disposition", 'attachment; filename="%s-%s.tar"' % (slug, version))
+                self.send_header("X-Arcade-Version", version)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                if self.command != "HEAD":
+                    shutil.copyfileobj(spool, self.wfile)
 
         def _describe(self, game):
             return {

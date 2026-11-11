@@ -7,6 +7,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `GET /api/games/<slug>/bundle` on the API host: a game's live version as a `.tar`, as it was uploaded
+  (less arcade's stamp files and the `.gz` siblings it wrote), so a game can be kept and played offline.
+  Public and cross-origin like `/api/games`, and not counted as a play.
 - Finding a game on the list page, all of it working without script: a search box (`/?q=cat`, a GET
   form the server answers; with script the list narrows as you type) over title, slug, theme tags and
   engine, which `/api/games` and the hall (`/hall/?q=`) take too; *Random game*, a link to the new

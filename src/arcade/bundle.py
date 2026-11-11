@@ -17,6 +17,7 @@ disk) is a missing asset to readAsset, so /tak/ still gets its 404.
 
 import contextlib
 import io
+import os
 import posixpath
 import tarfile
 import zipfile
@@ -286,3 +287,31 @@ def unpackStatic(data, version, maxBytes, maxFiles=DEFAULT_MAX_FILES):
     if stated != version:
         raise BundleError("version.txt says %r but the upload is for version %r" % (stated, version))
     return files
+
+
+def writeTar(versionDirectory, out):
+    """Write a stored version as an uncompressed tar, the shape it was uploaded in:
+    regular files only, sorted, with arcade's own stamp files (dotfiles at the top)
+    and the gzip siblings precompress wrote (`<name>.gz` beside `<name>`) left out.
+    A bundle's own `.gz` with no plain file beside it is kept."""
+    found = []
+    for directory, subdirectories, names in os.walk(versionDirectory, followlinks=False):
+        subdirectories.sort()
+        for name in names:
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, versionDirectory).replace(os.sep, "/")
+            if "/" not in relative and relative.startswith("."):
+                continue
+            if relative.endswith(".gz") and os.path.isfile(path[: -len(".gz")]):
+                continue
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            found.append((relative, path))
+    with tarfile.open(fileobj=out, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        for relative, path in sorted(found):
+            info = archive.gettarinfo(path, arcname=relative)
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            info.mode = 0o644
+            with open(path, "rb") as handle:
+                archive.addfile(info, handle)
