@@ -114,12 +114,15 @@ which it records in `<data>/<slug>/.added` from now on; a game uploaded before t
 uses its oldest stored version while none has been pruned, and is otherwise unknown (never NEW) until
 `added:` is given.
 
-The parser is deliberately strict: it accepts only this subset of YAML, and it refuses unknown keys,
-duplicate slugs, reserved slugs (`play`, `www`, `api`, `arcade`, `admin`, `static`), malformed
-hashes, aliases under the arcade's own domain or claimed twice, an unknown `kind`, an `isolation`
-other than on/off (or off for a tak game), a `canonical` that is not an https URL, an `added` that is not a real day or UTC time,
-a malformed or repeated tag, more than 6 tags, and an unknown `engine` (or one other than `tak` for a tak game), each with its
-line number. arcade picks up changes to the file without a restart. A file that stops parsing is
+The parser is deliberately strict: it accepts only this subset of YAML, and it refuses tabs, unknown
+keys, a key given twice in one entry, an entry missing `slug`, `title`, `repo` or `token_sha256`, a
+slug that does not match its pattern, duplicate slugs, reserved slugs (`play`, `www`, `api`,
+`arcade`, `admin`, `static`), a `token_sha256` that is not 64 lowercase hex characters, a `repo`
+that is not `owner/name`, an alias that is not a hostname, aliases under the arcade's own domain or
+claimed twice, an unknown `kind`, an `isolation` other than on/off (`true`/`yes` and `false`/`no`
+are read the same; off is refused for a tak game), a `canonical` that is not an https URL, an
+`added` that is not a real day or UTC time, a malformed or repeated tag, more than 6 tags, and an
+unknown `engine` (or one other than `tak` for a tak game), each with its line number. arcade picks up changes to the file without a restart. A file that stops parsing is
 logged and ignored, and the last good registry stays in force.
 
 ```sh
