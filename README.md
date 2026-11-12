@@ -122,8 +122,9 @@ that is not `owner/name`, an alias that is not a hostname, aliases under the arc
 claimed twice, an unknown `kind`, an `isolation` other than on/off (`true`/`yes` and `false`/`no`
 are read the same; off is refused for a tak game), a `canonical` that is not an https URL, an
 `added` that is not a real day or UTC time, a malformed or repeated tag, more than 6 tags, and an
-unknown `engine` (or one other than `tak` for a tak game), each with its line number. arcade picks up changes to the file without a restart. A file that stops parsing is
-logged and ignored, and the last good registry stays in force.
+unknown `engine` (or one other than `tak` for a tak game), each with its line number. arcade picks
+up changes to the file without a restart. A file that stops parsing is logged and ignored, and the
+last good registry stays in force.
 
 ```sh
 python -m arcade check-registry games.yaml
