@@ -2,6 +2,7 @@
 
 import json
 import os
+import urllib.error
 
 import pytest
 
@@ -213,3 +214,231 @@ def test_a_heading_that_only_repeats_the_version_is_dropped():
     )
     assert remote.release_text("## v1.2.0-rc.1\nFixes.") == "Fixes."
     assert remote.release_text("## New\n- A map.") == "New\n• A map."
+
+
+# --- httpGet, without the network ------------------------------------------
+
+
+class FakeResponse(object):
+    def __init__(self, status=200, contentType="image/jpeg", body=JPEG):
+        self.status = status
+        self.headers = {"Content-Type": contentType} if contentType is not None else {}
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, n):
+        return self.body[:n]
+
+
+def fakeUrlopen(monkeypatch, answer):
+    """Replaces urlopen with one that records its request and gives `answer`
+    (a FakeResponse, or an exception to raise)."""
+    seen = []
+
+    def urlopen(request, timeout=None):
+        seen.append((request, timeout))
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(remote.urllib.request, "urlopen", urlopen)
+    return seen
+
+
+def test_http_get_returns_the_type_and_body_and_names_itself(monkeypatch):
+    seen = fakeUrlopen(monkeypatch, FakeResponse(contentType="image/jpeg; charset=binary"))
+    assert remote.httpGet("https://example.com/x.jpg", 1024, "image/jpeg") == (
+        "image/jpeg; charset=binary",
+        JPEG,
+    )
+    ((request, timeout),) = seen
+    assert request.full_url == "https://example.com/x.jpg"
+    assert request.get_header("User-agent") == remote.USER_AGENT
+    assert request.get_header("Accept") == "image/jpeg"
+    assert timeout == remote.TIMEOUT
+
+
+def test_http_get_reads_a_missing_content_type_as_empty(monkeypatch):
+    fakeUrlopen(monkeypatch, FakeResponse(contentType=None))
+    assert remote.httpGet("https://example.com/x.jpg", 1024, "image/jpeg") == ("", JPEG)
+
+
+def test_http_get_takes_a_body_of_exactly_the_cap_and_refuses_one_byte_more(monkeypatch):
+    fakeUrlopen(monkeypatch, FakeResponse(body=b"x" * 10))
+    assert remote.httpGet("https://example.com/x", 10, "*/*")[1] == b"x" * 10
+    with pytest.raises(remote.Failed) as failed:
+        remote.httpGet("https://example.com/x", 9, "*/*")
+    assert str(failed.value) == "too large" and failed.value.status is None
+
+
+@pytest.mark.parametrize(
+    "answer, status",
+    [
+        (FakeResponse(status=204), 204),
+        (urllib.error.HTTPError("https://example.com/x", 404, "Not Found", {}, None), 404),
+        (urllib.error.HTTPError("https://example.com/x", 403, "Forbidden", {}, None), 403),
+        (urllib.error.URLError("no route to host"), None),
+        (OSError("connection reset"), None),
+        (ValueError("unknown url type"), None),
+    ],
+    ids=["not-200", "http-404", "http-403", "url-error", "os-error", "value-error"],
+)
+def test_http_get_turns_every_failure_into_failed_with_its_status(monkeypatch, answer, status):
+    fakeUrlopen(monkeypatch, answer)
+    with pytest.raises(remote.Failed) as failed:
+        remote.httpGet("https://example.com/x", 1024, "*/*")
+    assert failed.value.status == status
+
+
+# --- posters and the queue -------------------------------------------------
+
+
+def test_an_old_poster_is_still_served_while_it_is_fetched_again(tmp_path):
+    url = "https://example.com/x.jpg"
+    clock = Clock()
+    r, web = make(tmp_path, {url: ("image/jpeg", JPEG)}, clock)
+    r.poster("cave", (url,))
+    r.runPending()
+    path = r.poster("cave", (url,))
+    newer = b"\xff\xd8\xff\xe1" + b"\1" * 64
+    web.pages[url] = ("image/jpeg", newer)
+    clock.now = os.stat(path).st_mtime + remote.REFRESH_SECONDS + 1
+    # Past REFRESH_SECONDS: the old still is answered, and a fetch is queued.
+    assert r.poster("cave", (url,)) == path
+    assert open(path, "rb").read() == JPEG
+    r.runPending()
+    assert web.asked == [url, url]
+    assert open(path, "rb").read() == newer
+
+
+def test_a_lookup_already_queued_is_not_queued_twice(tmp_path):
+    r, web = make(tmp_path, {})
+    for _ in range(3):
+        r.poster("cave", ("https://example.com/x.jpg",))
+    r.runPending()
+    assert web.asked == ["https://example.com/x.jpg"]
+
+
+def test_the_queue_holds_at_most_queue_max_lookups(tmp_path):
+    r, web = make(tmp_path, {})
+    for i in range(remote.QUEUE_MAX + 5):
+        r.poster("g%d" % i, ("https://example.com/g%d.jpg" % i,))
+    r.runPending()
+    assert len(web.asked) == remote.QUEUE_MAX
+    assert "https://example.com/g%d.jpg" % (remote.QUEUE_MAX - 1) in web.asked
+    assert "https://example.com/g%d.jpg" % remote.QUEUE_MAX not in web.asked
+
+
+def test_a_lookup_that_raises_is_counted_as_failed_and_the_queue_goes_on(tmp_path):
+    clock = Clock()
+    asked = []
+
+    def get(url, maxBytes, accept):
+        asked.append(url)
+        if "boom" in url:
+            raise RuntimeError("unexpected")
+        return ("image/jpeg", JPEG)
+
+    r = remote.Remote(str(tmp_path / ".remote"), get=get, clock=clock, start=False)
+    r.poster("boom", ("https://example.com/boom.jpg",))
+    r.poster("cave", ("https://example.com/cave.jpg",))
+    r.runPending()
+    assert asked == ["https://example.com/boom.jpg", "https://example.com/cave.jpg"]
+    assert r.poster("cave", ("https://example.com/cave.jpg",)) is not None
+    # Like any other failure, it is not tried again until RETRY_SECONDS have passed.
+    r.poster("boom", ("https://example.com/boom.jpg",))
+    r.runPending()
+    assert len(asked) == 2
+    clock.now += remote.RETRY_SECONDS + 1
+    r.poster("boom", ("https://example.com/boom.jpg",))
+    r.runPending()
+    assert len(asked) == 3
+
+
+def test_a_write_that_fails_leaves_no_temporary_file(tmp_path, monkeypatch):
+    def replace(source, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(remote.os, "replace", replace)
+    directory = str(tmp_path / "posters")
+    with pytest.raises(OSError):
+        remote.Remote._write(directory, "cave.jpg", JPEG)
+    assert os.listdir(directory) == []
+
+
+# --- release notes ---------------------------------------------------------
+
+
+def test_a_draft_release_is_passed_over_and_a_non_github_link_dropped(tmp_path):
+    page = releases(
+        {"tag_name": "0.1.0", "draft": True, "body": "Not out yet.", "html_url": "https://github.com/o/r/d"},
+        {"tag_name": "v0.1.0", "body": "The published notes.", "html_url": "https://example.com/o/r/0.1.0"},
+    )
+    r, _ = make(tmp_path, {RELEASES: page})
+    args = ("second-helping", "Preponderous-Software/second-helping", "0.1.0")
+    r.notes(*args)
+    r.runPending()
+    assert r.notes(*args) == {"version": "0.1.0", "text": "The published notes.", "url": None}
+
+
+def test_a_releases_answer_that_is_not_a_list_is_silent_and_retried_later(tmp_path):
+    clock = Clock()
+    r, web = make(tmp_path, {RELEASES: ("application/json", b'{"message": "Not Found"}')}, clock)
+    args = ("second-helping", "Preponderous-Software/second-helping", "0.1.0")
+    r.notes(*args)
+    r.runPending()
+    assert r.notes(*args) is None
+    r.runPending()
+    assert web.asked == [RELEASES]
+    assert not os.path.exists(str(tmp_path / ".remote" / "notes" / "second-helping.json"))
+    clock.now += remote.RETRY_SECONDS + 1
+    r.notes(*args)
+    r.runPending()
+    assert web.asked == [RELEASES, RELEASES]
+
+
+def test_the_github_pause_lifts_after_the_back_off(tmp_path):
+    clock = Clock()
+    pages = {"https://api.github.com/repos/o/a/releases?per_page=30": remote.Failed("HTTP 429", 429)}
+    r, web = make(tmp_path, pages, clock)
+    r.notes("a", "o/a", "1.0.0")
+    r.runPending()
+    r.notes("b", "o/b", "1.0.0")
+    r.runPending()
+    assert len(web.asked) == 1
+    clock.now += remote.GITHUB_BACKOFF + 1
+    r.notes("c", "o/c", "1.0.0")
+    r.runPending()
+    assert web.asked[-1] == "https://api.github.com/repos/o/c/releases?per_page=30"
+
+
+def test_a_cached_notes_file_of_the_wrong_shape_reads_as_nothing(tmp_path):
+    r, _ = make(tmp_path, {})
+    notes = tmp_path / ".remote" / "notes"
+    os.makedirs(str(notes))
+    args = ("cave", "o/cave", "1.0.0")
+    for content in ('"just a string"', '{"version": "1.0.0", "body": 7}', '{"version": "1.0.0", "text": 7}'):
+        (notes / "cave.json").write_text(content)
+        assert r._readNotes("cave") is None, content
+        assert r.notes(*args) is None, content
+
+
+def test_first_sentence_skips_short_lines_and_lead_ins():
+    text = "Fixes:\n• Short one.\n• The lantern no longer flickers at dusk. Also more."
+    assert remote.first_sentence(text) == "The lantern no longer flickers at dusk."
+    assert remote.first_sentence("A line with no full stop at all") == "A line with no full stop at all"
+
+
+def test_first_sentence_is_none_when_nothing_qualifies():
+    for text in (None, "", "Fixes:\n• Tiny.\n\n"):
+        assert remote.first_sentence(text) is None, text
+
+
+def test_a_long_first_sentence_is_cut_at_a_word():
+    sentence = remote.first_sentence("word " * 50)
+    assert len(sentence) <= 140 and sentence.endswith("word…")
