@@ -224,6 +224,55 @@ def test_the_hall_today_needs_k_walks_and_pools_yesterday(tmp_path):
     assert store.clear(day) and store.sample(day) == []
 
 
+def test_clearing_a_day_with_no_file_says_so(tmp_path):
+    store = walks.Walks(str(tmp_path))
+    assert store.clear(datetime.date(2026, 10, 30)) is False
+    assert os.listdir(tmp_path) == []
+
+
+def test_pruning_deletes_only_old_day_files(tmp_path):
+    for name in ("2026-10-01.json", "2026-13-45.json", "notes.txt", "2026-10-01.json.bak"):
+        (tmp_path / name).write_text("{}")
+    store = walks.Walks(str(tmp_path), keep_days=7, rng=random.Random(3))
+    store.add({"layout": "k", "points": [[0, 0]], "visits": []}, datetime.date(2026, 10, 30))
+    # The old day goes; a name that is not a real date, or not a day file at all, is left alone.
+    assert sorted(os.listdir(tmp_path)) == [
+        "2026-10-01.json.bak",
+        "2026-10-30.json",
+        "2026-13-45.json",
+        "notes.txt",
+    ]
+
+
+def test_an_unreadable_day_file_counts_as_an_empty_day(tmp_path):
+    day = datetime.date(2026, 10, 30)
+    (tmp_path / "2026-10-30.json").write_text("not json")
+    (tmp_path / "2026-10-29.json").write_text('{"walks": [{"layout": "y"}, {"layout": "y"}]}')
+    store = walks.Walks(str(tmp_path), rng=random.Random(4))
+    assert store._load(day) == {"seen": 0, "walks": []}
+    assert store._load(day - datetime.timedelta(days=1))["seen"] == 2  # no "seen": the walks kept
+    store.add({"layout": "k", "points": [[0, 0]], "visits": []}, day)
+    doc = json.loads((tmp_path / "2026-10-30.json").read_text())
+    assert doc == {"seen": 1, "walks": [{"layout": "k", "points": [[0, 0]], "visits": []}]}
+
+
+def test_a_failed_write_keeps_the_day_as_it_was_and_leaves_no_temporary(tmp_path, monkeypatch):
+    day = datetime.date(2026, 10, 30)
+    store = walks.Walks(str(tmp_path), rng=random.Random(5))
+    store.add({"layout": "first", "points": [[0, 0]], "visits": []}, day)
+    before = (tmp_path / "2026-10-30.json").read_text()
+
+    def refuse(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(walks.os, "replace", refuse)
+    with pytest.raises(OSError):
+        store.add({"layout": "second", "points": [[0, 0]], "visits": []}, day)
+    monkeypatch.undo()
+    assert (tmp_path / "2026-10-30.json").read_text() == before
+    assert os.listdir(tmp_path) == ["2026-10-30.json"]
+
+
 def test_the_rate_limit_forgets_a_client_after_its_window():
     now = [0.0]
     limit = walks.RateLimit(window=600, cap=3, clock=lambda: now[0])
