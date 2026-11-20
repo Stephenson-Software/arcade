@@ -217,7 +217,8 @@ into the hall with only the Halloween cabinets lit.
 
 `https://play.<base>/hall/` is the README picture made walkable, drawn live by
 [Strata](https://github.com/Preponderous-Software/strata)'s web kit. It is opt-in: the landing page and
-the portal keep their lists, and link here with "Walk the hall".
+the portal keep their lists, and link here with "Walk the hall". `/hall` without the slash answers
+**301** to `/hall/`, keeping the query.
 
 - **The layout is shared with the picture.** `src/arcade/hall.py` lays out the floor like a real arcade: a
   roughly square room with islands of back-to-back cabinets either side of a centre walkway (walkways are
