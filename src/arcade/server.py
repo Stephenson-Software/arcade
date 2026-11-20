@@ -9,7 +9,8 @@ One process answers two kinds of host:
                             own version, {"version": "<x.y.z>"}, and the
                             landing page's /robots.txt and /og.png
   play.<base>/random        a 302 to one deployed game, at random among the
-                            ones the query's filters allow
+                            ones the query's filters allow (to the list
+                            when none is deployed)
   play.<base>/halloween     the landing page for one theme tag (landing.THEMES)
   play.<base>/hall/         the walkable hall (arcade.hall)
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
