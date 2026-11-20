@@ -8,6 +8,9 @@ One process answers two kinds of host:
                             the portal), /version.json: the running arcade's
                             own version, {"version": "<x.y.z>"}, and the
                             landing page's /robots.txt and /og.png
+  play.<base>/random        a 302 to one deployed game, at random among the
+                            ones the query's filters allow (to the list
+                            when none is deployed)
   play.<base>/halloween     the landing page for one theme tag (landing.THEMES)
   play.<base>/hall/         the walkable hall (arcade.hall)
   <slug>.play.<base>        a game, served the way tak.web.serve serves one
@@ -604,7 +607,7 @@ def makeHandler(arcade):
                 self._send(200, landing.ogImage(), "image/png", headers=headers)
                 return
             if read and path == "/api/games":
-                # ?tag=, ?org=, ?engine= narrow the list and ?sort= orders it, as on the landing page.
+                # ?tag=, ?org=, ?engine=, ?q= narrow the list and ?sort= orders it, as on the landing page.
                 chosen = filters.Filter.parse(urlparse(self.path).query)
                 described = [self._describe(game) for game in arcade.registry.registry]
                 if chosen.active:
