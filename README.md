@@ -556,6 +556,27 @@ arcade keeps no access log (`log_message` is a no-op) and stores no IP address o
 python3 -m pytest              # Python 3.8+, standard library only (pytest to run the tests)
 ```
 
+The server is laid out as ports and adapters. `src/arcade/server.py` is the HTTP adapter: it parses
+requests, streams files and maps outcomes to responses. The hosting policy behind it lives in
+`src/arcade/hosting/`:
+
+```
+server.py (HTTP) -> hosting/service.py (wiring) -> hosting/core.py (policy, no I/O)
+                                                       -> hosting/ports/* <- adapters
+```
+
+| Port | Production adapter | Test double (`tests/hosting_fakes.py`) |
+|---|---|---|
+| `GameCatalog` | `hosting/adapters/reloading_yaml_catalog.py` (games.yaml, reloaded on change) | `FakeCatalog` |
+| `VersionStore`, `PlayCounter` | `store.Store` (the data directory) | `FakeStore` |
+| `EventReporter` | `trace_client.TraceClient`, or `hosting/adapters/null_reporter.py` with no key | `Recorder` |
+| `ReleaseNotes` | `remote.Remote` (GitHub releases, cached) | `FakeNotes` |
+
+A new backend for a port is one new file in `hosting/adapters/`, one entry in that port's registry in
+`hosting/adapters/__init__.py`, and its fixture added to the port's contract test in
+`tests/test_hosting_contracts.py`. `tests/test_hosting_architecture.py` fails if `model`, `core` or a port
+imports an adapter, the service or the server.
+
 Play a real game locally. `*.localhost` resolves to loopback and counts as a secure context, so the
 page is cross-origin isolated over plain HTTP:
 
