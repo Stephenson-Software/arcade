@@ -39,7 +39,6 @@ three, are a `static` game with isolation off and the hall's page without
 
 import datetime
 import hashlib
-import hmac
 import http.server
 import json
 import os
@@ -48,11 +47,9 @@ import re
 import shutil
 import sys
 import tempfile
-import threading
 from urllib.parse import parse_qs, unquote, urlparse
 
-from arcade import __version__, activity, bundle, filters, hall, landing, precompress, registry as registryModule, remote, routers, visits, walks
-from arcade.store import VERSION_PATTERN, NoSuchVersion, Store, VersionExists
+from arcade import __version__, activity, bundle, filters, hall, hosting, landing, precompress, remote, routers, visits, walks
 
 INDEX_PATHS = ("/", "/play", "/play/", "/index.html")
 WEB_FILES = {"/web/game.zip": "game.zip", "/web/version.txt": "version.txt"}
@@ -69,16 +66,6 @@ ISOLATION_HEADERS = (
 )
 LANDING_MODES = ("page", "redirect")
 DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
-# User agents that are not a person opening a game: crawlers, link-preview
-# fetchers and scripts. Their page loads are not counted as plays.
-# `arcade-watch` is the nightly health check's own marker: it appends it to
-# every browser profile's User-Agent (its iPhone profile is otherwise a plain
-# Safari string), so its loads never count.
-_NOT_A_PERSON = re.compile(
-    r"bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|curl|wget|python|"
-    r"go-http-client|java/|okhttp|headless|lighthouse|monitor|uptime|arcade-watch",
-    re.I,
-)
 _FETCHED = re.compile(r"^fetched/([a-z0-9][a-z0-9-]{0,62})\.jpg$")
 _API_GAME = re.compile(r"^/api/games/([a-z0-9-]+)$")
 _API_VERSION = re.compile(r"^/api/games/([a-z0-9-]+)/versions/([^/]+)$")
@@ -190,74 +177,27 @@ class Config(object):
         )
 
 
-class RegistryHolder(object):
-    """The registry, reloaded when its file changes. A file that no longer
-    parses is logged and the last good registry stays in force."""
-
-    def __init__(self, path, domain):
-        self.path = path
-        self.domain = domain
-        self._lock = threading.Lock()
-        self._mtime = None
-        self._registry = registryModule.Registry([])
-        self.refresh(initial=True)
-
-    def refresh(self, initial=False):
-        try:
-            mtime = os.stat(self.path).st_mtime_ns
-        except OSError as e:
-            if initial:
-                raise
-            log("registry unreadable, keeping the last good one: %s" % e)
-            return
-        with self._lock:
-            if mtime == self._mtime:
-                return
-            try:
-                loaded = registryModule.load(self.path, domain=self.domain)
-            except (registryModule.RegistryError, OSError) as e:
-                if initial:
-                    raise
-                log("registry invalid, keeping the last good one: %s" % e)
-                self._mtime = mtime
-                return
-            self._registry = loaded
-            self._mtime = mtime
-            log("registry loaded: %d game(s): %s" % (len(loaded), ", ".join(g.slug for g in loaded)))
-
-    @property
-    def registry(self):
-        self.refresh()
-        return self._registry
-
-
-def addedOf(game, store):
-    """When the game joined the arcade, as an ISO 8601 UTC time ("...Z"), or
-    None: the registry's `added:` (a day, as its midnight UTC, or a time) if
-    given, else its first upload."""
-    if isinstance(game.added, datetime.datetime):
-        return game.added.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if game.added is not None:
-        return game.added.isoformat() + "T00:00:00Z"
-    stamp = store.added(game.slug)
-    if stamp is None:
-        return None
-    moment = datetime.datetime.fromtimestamp(stamp / 1e9, datetime.timezone.utc)
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def hashToken(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 class Arcade(object):
-    """The state one server process shares across requests."""
+    """The state one server process shares across requests: the hosting core
+    (arcade.hosting) and what the hall and the file server keep beside it."""
 
     def __init__(self, config, reporter=None):
         self.config = config
-        self.registry = RegistryHolder(config.registryPath, config.domain)
-        self.store = Store(config.dataDirectory, keep=config.keep)
+        # The caller's choice: None when trace is off (arcade.__main__).
         self.reporter = reporter
+        # Which visitors have already played each game today: keyed hashes in
+        # memory only, forgotten at midnight UTC (arcade.visits).
+        self.visits = visits.Visits()
+        # Trailer stills and release notes, fetched in the background and
+        # kept beside the games (a dot name, so never a slug).
+        self.remote = remote.Remote(os.path.join(config.dataDirectory, ".remote"), enabled=config.remoteFetch)
+        # Builds the registry first (a bad games.yaml raises here), then the store.
+        service = hosting.Service(config, notes=self.remote, visits=self.visits, log=log, reporter=reporter)
+        self.hosting = service.core
+        # The games.yaml adapter itself: tests call refresh() on it after
+        # rewriting the file.
+        self.registry = service.catalog
+        self.store = service.store
         # Versions stored before arcade wrote .gz siblings get theirs the
         # first time each file is asked for, one file at a time.
         self.backfill = precompress.Backfill()
@@ -267,12 +207,6 @@ class Arcade(object):
         self.walks = walks.Walks(os.path.join(config.dataDirectory, ".hall-walks"))
         self.layouts = walks.Layouts()
         self.walkLimit = walks.RateLimit()
-        # Which visitors have already played each game today: keyed hashes in
-        # memory only, forgotten at midnight UTC (arcade.visits).
-        self.visits = visits.Visits()
-        # Trailer stills and release notes, fetched in the background and
-        # kept beside the games (a dot name, so never a slug).
-        self.remote = remote.Remote(os.path.join(config.dataDirectory, ".remote"), enabled=config.remoteFetch)
 
     def fetchedPoster(self, slug, urls):
         """The hall URL of a cabinet's fetched trailer still, or None (arcade.remote)."""
@@ -284,40 +218,6 @@ class Arcade(object):
         except OSError:
             return None
         return "fetched/%s.jpg?v=%x" % (slug, stamp)
-
-    def notesFor(self, game):
-        """"What's new" for the game's current version, or None (arcade.remote)."""
-        return self.remote.notes(game.slug, game.repo, self.store.current(game.slug))
-
-    def gameForHost(self, host):
-        """The Game a request's Host header names, or None."""
-        registry = self.registry.registry
-        suffix = "." + self.config.domain
-        if host.endswith(suffix):
-            label = host[: -len(suffix)]
-            if "." not in label:
-                return registry.get(label)
-            return None
-        return registry.forAlias(host)
-
-    def report(self, name, slug):
-        if self.reporter is not None:
-            self.reporter.report(name, tags={"slug": slug})
-
-    def played(self, slug, userAgent, client=None):
-        """A person loaded the game's page: count it, and report it to trace,
-        once per visitor (`client`, the address, with `userAgent`) per game
-        per UTC day (arcade.visits). Reloads and later visits that day are
-        not plays."""
-        if not userAgent or _NOT_A_PERSON.search(userAgent):
-            return
-        if not self.visits.first(slug, client or "", userAgent):
-            return
-        try:
-            self.store.addPlay(slug)
-        except OSError as e:
-            log("could not count a play of %s: %s" % (slug, e))
-        self.report("page-served", slug)
 
 
 def makeHandler(arcade):
@@ -406,7 +306,7 @@ def makeHandler(arcade):
             if host == config.internalHost:
                 if read and path == "/traefik/dynamic.json":
                     document = routers.providerDocument(
-                        arcade.registry.registry,
+                        arcade.hosting.games(),
                         config.domain,
                         service=config.traefikService,
                         middlewares=config.traefikMiddlewares,
@@ -418,7 +318,7 @@ def makeHandler(arcade):
             if host == config.domain:
                 self._api(path, read)
                 return
-            game = arcade.gameForHost(host)
+            game = arcade.hosting.gameForHost(host)
             if game is None:
                 self._text(404, "No game is served at this address.")
                 return
@@ -442,7 +342,7 @@ def makeHandler(arcade):
             if path in INDEX_PATHS:
                 self._file(game.slug, version, "index.html", "text/html; charset=utf-8")
                 if self.command == "GET":
-                    arcade.played(game.slug, self.headers.get("User-Agent"), self._client())
+                    arcade.hosting.played(game.slug, self.headers.get("User-Agent"), self._client())
                 return
             if path in WEB_FILES:
                 name = WEB_FILES[path]
@@ -477,7 +377,7 @@ def makeHandler(arcade):
             if not self._stream(stored, contentType, '"%s-%s"' % (version, tag)):
                 return
             if relative == "index.html" and self.command == "GET":
-                arcade.played(game.slug, self.headers.get("User-Agent"), self._client())
+                arcade.hosting.played(game.slug, self.headers.get("User-Agent"), self._client())
 
         def _file(self, slug, version, name, contentType):
             self._stream(arcade.store.filePath(slug, version, name), contentType, '"%s-%s"' % (version, name))
@@ -609,7 +509,7 @@ def makeHandler(arcade):
             if read and path == "/api/games":
                 # ?tag=, ?org=, ?engine=, ?q= narrow the list and ?sort= orders it, as on the landing page.
                 chosen = filters.Filter.parse(urlparse(self.path).query)
-                described = [self._describe(game) for game in arcade.registry.registry]
+                described = [self._describe(game) for game in arcade.hosting.games()]
                 if chosen.active:
                     described = [game for game in described if chosen.matches(game)]
                 if chosen.sort != "name":
@@ -619,7 +519,7 @@ def makeHandler(arcade):
             if read and path == "/api/activity":
                 # The hall's ghosts: a 0..4 level per game, never a count (RFC 0030 §2.2).
                 doc = activity.document(
-                    [game.slug for game in arcade.registry.registry],
+                    [game.slug for game in arcade.hosting.games()],
                     lambda slug: arcade.store.recentPlays(slug, activity.WINDOW_DAYS),
                 )
                 body = (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -638,7 +538,7 @@ def makeHandler(arcade):
                 return
             match = _API_GAME.match(path)
             if match and read:
-                game = arcade.registry.registry.get(match.group(1))
+                game = arcade.hosting.games().get(match.group(1))
                 if game is None:
                     self._json(404, {"error": "no such game"})
                     return
@@ -675,7 +575,7 @@ def makeHandler(arcade):
                 self.isolate = params.get("isolated", [""])[0] == "1"
                 # A link to one cabinet (?at=<slug>) unfurls with that game's
                 # title and card; anything else with the hall's.
-                game = arcade.registry.registry.get(params.get("at", [""])[0])
+                game = arcade.hosting.games().get(params.get("at", [""])[0])
                 body = hall.page(config.domain, game.slug, game.title) if game else hall.page(config.domain)
                 tag = '"hall-page-%s-%s"' % (
                     hashlib.sha256(body).hexdigest()[:16],
@@ -694,7 +594,7 @@ def makeHandler(arcade):
                 self._send(200, body, "text/html; charset=utf-8", headers=headers)
                 return
             if name == "layout.json":
-                registry = arcade.registry.registry
+                registry = arcade.hosting.games()
                 games = [self._describe(game) for game in registry]
                 # ?season=halloween (or none) shows a season's decor on any date, for testing.
                 season = parse_qs(query).get("season", [None])[0]
@@ -739,7 +639,7 @@ def makeHandler(arcade):
             return forwarded[-1] if forwarded else self.client_address[0]
 
         def _currentLayout(self):
-            games = [self._describe(game) for game in arcade.registry.registry]
+            games = [self._describe(game) for game in arcade.hosting.games()]
             return hall.served_layout(games, config.hallEmbed, fetched=arcade.fetchedPoster)
 
         def _leaveWalk(self):
@@ -791,16 +691,16 @@ def makeHandler(arcade):
                 self._send(302, b"", headers=(("Location", config.landingUrl),))
                 return
             body = landing.render(
-                arcade.registry.registry,
+                arcade.hosting.games(),
                 config.domain,
                 config.landingUrl,
                 deployed=lambda slug: arcade.store.current(slug) is not None,
                 plays=arcade.store.plays,
-                added=lambda game: addedOf(game, arcade.store),
+                added=lambda game: hosting.addedOf(game, arcade.store),
                 query=urlparse(self.path).query,
                 theme=theme,
                 weekly=lambda slug: arcade.store.recentPlays(slug, activity.WINDOW_DAYS),
-                notes=arcade.notesFor,
+                notes=arcade.hosting.notesFor,
             )
             self._send(
                 200,
@@ -821,7 +721,7 @@ def makeHandler(arcade):
             "Random game" without script. Back to the list if none is live."""
             chosen = filters.Filter.parse(urlparse(self.path).query)
             pool = []
-            for game in arcade.registry.registry:
+            for game in arcade.hosting.games():
                 if arcade.store.current(game.slug) is None:
                     continue
                 if chosen.active and not chosen.matches(self._describe(game)):
@@ -837,7 +737,7 @@ def makeHandler(arcade):
             """The live version's files as one uncompressed tar, so a game can be kept
             and played offline: what was uploaded, less arcade's own bookkeeping and
             the gzip siblings it wrote. Public, like the game itself; not a play."""
-            game = arcade.registry.registry.get(slug)
+            game = arcade.hosting.games().get(slug)
             version = arcade.store.current(slug) if game else None
             if version is None:
                 self._json(404, {"error": "no such game" if game is None else "not deployed yet"})
@@ -858,41 +758,15 @@ def makeHandler(arcade):
                     shutil.copyfileobj(spool, self.wfile)
 
         def _describe(self, game):
-            return {
-                "slug": game.slug,
-                "title": game.title,
-                "repo": game.repo,
-                "url": "https://%s.%s/" % (game.slug, config.domain),
-                "aliases": list(game.aliases),
-                "kind": game.kind,
-                "isolation": game.isolation,
-                "current": arcade.store.current(game.slug),
-                "versions": arcade.store.versions(game.slug),
-                "plays": arcade.store.plays(game.slug),
-                "added": addedOf(game, arcade.store),
-                "tags": list(game.tags),
-                "org": game.org,
-                "engine": game.engine,
-                # "What's new" in the current version: the GitHub release's
-                # notes, once arcade has looked them up (arcade.remote).
-                "notes": arcade.notesFor(game),
-            }
+            return arcade.hosting.describe(game)
 
         def _authorise(self, slug):
             """The Game if the bearer token is right for it; otherwise None,
             with the error already sent."""
-            game = arcade.registry.registry.get(slug)
-            header = self.headers.get("Authorization") or ""
-            if not header.startswith("Bearer ") or not header[7:].strip():
+            game = arcade.hosting.authorise(slug, self.headers.get("Authorization"))
+            if isinstance(game, hosting.Denied):
                 self._drain()
-                self._json(401, {"error": "an Authorization: Bearer <token> header is required"})
-                return None
-            presented = hashToken(header[7:].strip())
-            expected = game.tokenSha256 if game else "0" * 64
-            if game is None or not hmac.compare_digest(presented, expected):
-                self._drain()
-                # Unknown slug and wrong token look the same from outside.
-                self._json(403, {"error": "this token cannot deploy that game"})
+                self._json(game.status, {"error": game.error})
                 return None
             return game
 
@@ -925,9 +799,10 @@ def makeHandler(arcade):
             game = self._authorise(slug)
             if game is None:
                 return
-            if not VERSION_PATTERN.match(version):
+            rejected = arcade.hosting.checkVersion(version)
+            if rejected is not None:
                 self._drain()
-                self._json(400, {"error": "bad version %r" % version})
+                self._json(rejected.status, {"error": rejected.error})
                 return
             length = self._contentLength()
             if length is None:
@@ -939,31 +814,8 @@ def makeHandler(arcade):
                 self._json(413, {"error": "uploads are capped at %d bytes" % config.maxUploadBytes})
                 return
             data = self.rfile.read(length)
-            static = game.kind == "static"
-            try:
-                if static:
-                    files = bundle.unpackStatic(data, version, config.maxUploadBytes)
-                else:
-                    files = bundle.unpack(data, version, config.maxUploadBytes)
-            except bundle.BundleTooLarge as e:
-                self._json(413, {"error": str(e)})
-                return
-            except bundle.BundleError as e:
-                self._json(400, {"error": str(e)})
-                return
             activate = parse_qs(urlparse(self.path).query).get("activate", ["true"])[0] != "false"
-            try:
-                arcade.store.add(slug, version, files, activate=activate, static=static)
-            except VersionExists:
-                self._json(409, {"error": "version %s already exists; versions are immutable" % version})
-                return
-            except (ValueError, OSError) as e:
-                # Validation should have caught it; if not, still answer.
-                log("%s %s upload could not be stored: %s" % (slug, version, e))
-                self._json(400, {"error": "the bundle could not be stored: %s" % e})
-                return
-            log("%s %s uploaded (%d bytes)%s" % (slug, version, length, " and made current" if activate else ""))
-            self._json(201, self._describe(game))
+            self._answer(arcade.hosting.deploy(game, version, data, activate, length))
 
         def _rollback(self, slug):
             game = self._authorise(slug)
@@ -982,13 +834,13 @@ def makeHandler(arcade):
             except (ValueError, KeyError, TypeError, RecursionError):
                 self._json(400, {"error": 'expected a JSON body {"version": "<version>"}'})
                 return
-            try:
-                arcade.store.setCurrent(slug, version)
-            except NoSuchVersion:
-                self._json(404, {"error": "version %r is not on disk" % version})
-                return
-            log("%s current set to %s" % (slug, version))
-            self._json(200, self._describe(game))
+            self._answer(arcade.hosting.rollback(game, version))
+
+        def _answer(self, outcome):
+            if isinstance(outcome, hosting.Deployed):
+                self._json(outcome.status, self._describe(outcome.game))
+            else:
+                self._json(outcome.status, {"error": outcome.error})
 
     return Handler
 

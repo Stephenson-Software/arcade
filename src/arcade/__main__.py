@@ -13,7 +13,8 @@ import os
 import sys
 
 from arcade import __version__, registry, routers
-from arcade.server import Arcade, Config, hashToken, log, makeServer
+from arcade.hosting import hashToken
+from arcade.server import Arcade, Config, log, makeServer
 
 DEFAULT_DOMAIN = "play.danielstephenson.dev"
 REGISTRY_HELP = "the games.yaml to read"

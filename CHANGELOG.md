@@ -103,6 +103,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
+- Internal: the server's hosting policy (which game a host names, `/api/games` descriptions, upload and
+  rollback, play counting) moved out of `server.py` into `src/arcade/hosting/`, a pure core behind small
+  ports (`GameCatalog`, `VersionStore`, `PlayCounter`, `EventReporter`, `ReleaseNotes`) with the
+  production adapters wired in `hosting/service.py`. No behaviour changed: every response, status, error
+  text and log line is the same (checked old against new over 2,352 generated requests).
 - A play is counted at most once per visitor per game per UTC day: reloads, second tabs and later
   visits the same day no longer add to `plays`, `.plays-daily` or the `page-served` trace event. Whether
   a visitor has played a game today is a keyed hash in memory (HMAC-SHA256 of the client address, the
