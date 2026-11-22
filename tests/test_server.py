@@ -977,3 +977,24 @@ def test_a_bundle_needs_a_deployed_game_and_lives_on_the_api_host_only(arcade):
     assert request(arcade, "POST", API, "/api/games/tidewater/bundle")[0].status == 404
     response, data = request(arcade, "HEAD", API, "/api/games/tidewater/bundle")
     assert response.status == 200 and data == b"" and int(response.getheader("Content-Length")) > 0
+
+
+def test_a_refused_post_does_not_poison_the_next_request_on_a_kept_alive_connection(arcade):
+    # A game that beacons to its own origin (Forward One POSTs to /api/river-log)
+    # gets a 405 from a game host. Its body must be read before the next request
+    # on the same connection, or the proxy's next request (a clip, a tile) is
+    # parsed starting at the JSON and answered 501.
+    upload(arcade)
+    body = b'{"kind":"visit","t":1}'
+    for host, method in ((TIDEWATER, "POST"), (TIDEWATER, "PUT"), ("nope." + DOMAIN, "POST")):
+        connection = http.client.HTTPConnection("127.0.0.1", arcade.port, timeout=10)
+        connection.request(method, "/api/river-log", body=body,
+                           headers={"Host": host, "Content-Type": "application/json"})
+        refused = connection.getresponse()
+        refused.read()
+        assert refused.status in (404, 405)
+        connection.request("GET", "/", headers={"Host": TIDEWATER})
+        after = connection.getresponse()
+        after.read()
+        assert after.status == 200, (host, method, after.status)
+        connection.close()

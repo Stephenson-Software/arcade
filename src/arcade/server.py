@@ -313,16 +313,26 @@ def makeHandler(arcade):
                     )
                     self._json(200, document)
                 else:
+                    if not read:
+                        self._drain()
                     self._text(404, "Not found")
                 return
             if host == config.domain:
                 self._api(path, read)
                 return
+            # Past here nothing reads a request body, so a POST or PUT is
+            # refused - but its body is still read first. Left unread on a
+            # kept-alive connection, it would be parsed as the start of the
+            # proxy's next request, and that request answered 501 (a game
+            # beaconing to its own origin broke the clip loaded after it).
             game = arcade.hosting.gameForHost(host)
             if game is None:
+                if not read:
+                    self._drain()
                 self._text(404, "No game is served at this address.")
                 return
             if not read:
+                self._drain()
                 self._text(405, "Games are read-only; uploads go to https://%s/api/" % config.domain)
                 return
             self._game(game, path)
