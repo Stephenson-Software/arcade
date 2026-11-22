@@ -8,8 +8,8 @@ read it, so the picture and the walk always show the same hall:
 
   - a roughly square arcade floor: islands of back-to-back cabinets either
     side of a centre walkway, a change and prize counter by the door;
-  - the featured game (Roam) stands alone on a raised, lit stage at the back
-    wall, in sight from the door;
+  - the featured games (the registry's `featured:`, in its order) stand side
+    by side on a raised, lit stage at the back wall, in sight from the door;
   - the rest are ordered by plays, most first, in the island nearest the door;
   - side panels are coloured by the GitHub organisation the game lives in;
   - each screen is the game's poster (https://danielstephenson.dev/trailers/
@@ -36,7 +36,6 @@ from arcade import filters, seasons
 
 from arcade import hall_model
 
-FEATURED = "roam"
 POSTER = "https://danielstephenson.dev/trailers/{}.jpg"
 # The trailer clip beside each poster: the screen plays it when a visitor is near.
 CLIP = "https://danielstephenson.dev/trailers/{}.mp4"
@@ -63,7 +62,7 @@ MARQUEE_TEX = (512, 112)
 # in the middle of the near wall (+z), with a change and prize counter beside
 # it. Short "islands" of cabinets stand back to back across the room, split
 # by a wide centre walkway that runs from the door to a raised stage at the
-# back wall, where the featured game stands alone. Walkways (across the room
+# back wall, where the featured games stand side by side. Walkways (across the room
 # between islands, down the middle and along the sides) are at least 2.5 m.
 ROW_PITCH = 1.16  # metres between cabinet centres along a row
 BACK_GAP = 0.04  # between the backs of two back-to-back cabinets
@@ -73,7 +72,10 @@ AISLE = 2.8  # between one island's back row and the next island's front row
 ENTRY = 5.0  # from the door wall to the first island's front
 STAGE_GAP = 2.8  # from the last island's back row to the stage
 STAGE_HEIGHT = 0.45
-STAGE_HALF_WIDTH = 3.0
+STAGE_HALF_WIDTH = 3.0  # the least: it widens for more than three featured games
+STAGE_PITCH = 1.4  # metres between featured cabinets' centres on the stage
+STAGE_MARGIN = 0.8  # from the outer featured cabinet's centre to the stage's end
+STAGE_FAN = 0.06  # radians per metre off centre: the outer featured cabinets turn in a little
 STAGE_DEPTH = 2.9
 HALL_HEIGHT = 4.2
 DOOR_HALF_WIDTH = 0.9
@@ -127,13 +129,43 @@ def org_colour(repo):
     return ORG_COLOURS.get(repo.split("/")[0], OTHER_COLOUR)
 
 
+def is_featured(game):
+    """Whether a /api/games entry is featured: its `featured` is its place (1 first)."""
+    rank = game.get("featured")
+    return isinstance(rank, int) and not isinstance(rank, bool) and rank > 0
+
+
 def order(games):
-    """The featured game first (on the stage), then by plays, most first."""
-    featured = [g for g in games if g["slug"] == FEATURED]
+    """The featured games first (on the stage), in their registry order, then
+    the rest by plays, most first."""
+    featured = sorted((g for g in games if is_featured(g)), key=lambda g: (g["featured"], g["slug"]))
     rest = sorted(
-        (g for g in games if g["slug"] != FEATURED), key=lambda g: (-(g.get("plays") or 0), g["slug"])
+        (g for g in games if not is_featured(g)), key=lambda g: (-(g.get("plays") or 0), g["slug"])
     )
     return featured + rest
+
+
+def centre_walk(featured):
+    """The centre walkway's width: CENTRE_WALK, or wider when the featured
+    cabinets spread wider than it, so that every one of them is in sight
+    down the walkway from the door."""
+    return max(CENTRE_WALK, (max(featured, 1) - 1) * STAGE_PITCH)
+
+
+def stage_half_width(featured):
+    """Half the stage's width for `featured` cabinets side by side."""
+    return max(STAGE_HALF_WIDTH, (max(featured, 1) - 1) * STAGE_PITCH / 2 + STAGE_MARGIN + -FOOTPRINT[0])
+
+
+def stage_spots(featured, z):
+    """(position, facing angle) for `featured` cabinets on the stage at depth
+    z: centred, left to right (as seen from the door) in their order, the
+    outer ones turned a little towards the middle of the room."""
+    out = []
+    for i in range(featured):
+        x = (i - (featured - 1) / 2) * STAGE_PITCH
+        out.append(((x, STAGE_HEIGHT, z), -x * STAGE_FAN))
+    return out
 
 
 def _lcg(seed):
@@ -195,14 +227,16 @@ def _row_offset():
     return BACK_GAP / 2 + -FOOTPRINT[1]
 
 
-def placements(count):
-    """(position, facing angle) for the featured cabinet then the rest, most
-    played first. The rest fill the island nearest the door first, its front
+def placements(count, featured=0):
+    """(position, facing angle) for the `featured` cabinets (on the stage)
+    then the rest, most played first. The rest fill the island nearest the door first, its front
     row (facing the door) then its back row, each row from the centre
     walkway outwards, alternating left and right."""
     if count <= 0:
         return []
-    rest = count - 1
+    featured = min(max(featured, 0), count)
+    rest = count - featured
+    walk = centre_walk(featured)
     islands, per = floor_plan(rest)
     spots = []
     for j in range(islands):
@@ -211,12 +245,11 @@ def placements(count):
             z = zc + facing * _row_offset()
             angle = 0.0 if facing > 0 else math.pi
             for k in range(per):
-                x = CENTRE_WALK / 2 + FOOTPRINT[2] + k * ROW_PITCH
+                x = walk / 2 + FOOTPRINT[2] + k * ROW_PITCH
                 for side in (-1, 1):
                     spots.append(((side * x, 0.0, z), angle))
     stage = _stage(islands)
-    out = [((0.0, STAGE_HEIGHT, stage["cabinetZ"]), 0.0)]
-    return out + spots[:rest]
+    return stage_spots(featured, stage["cabinetZ"]) + spots[:rest]
 
 
 def _stage(islands):
@@ -234,29 +267,31 @@ def _box(lo, hi, colour, unlit=False):
             "colour": [round(v, 4) for v in colour], "unlit": unlit}
 
 
-def room_for(count, style=None):
-    """The room around `count` cabinets: its size, props (plain boxes, drawn
+def room_for(count, style=None, featured=0):
+    """The room around `count` cabinets, `featured` of them on the stage: its size, props (plain boxes, drawn
     by both the README tool and the page), signs, lights, the obstacles a
     visitor collides with besides the cabinets, and where a visitor starts.
     `style` replaces STYLE (a season's tint: arcade.seasons.style)."""
     st = style or STYLE
-    islands, per = floor_plan(max(count - 1, 0))
-    half_width = CENTRE_WALK / 2 + max(per, 2) * ROW_PITCH + SIDE_WALK
+    featured = min(max(featured, 0), max(count, 0))
+    islands, per = floor_plan(max(count - featured, 0))
+    sx = stage_half_width(featured)
+    half_width = max(centre_walk(featured) / 2 + max(per, 2) * ROW_PITCH + SIDE_WALK, sx + 0.4 + SIDE_WALK)
     stage = _stage(islands)
     near, far, h = ENTRY, stage["wall"], HALL_HEIGHT
     # Square it up a little: never much narrower than it is deep.
     half_width = round(max(half_width, (near - far) * 0.42), 4)
     props, signs, lights, obstacles = [], [], [], []
 
-    # The stage: a raised, lit platform for the featured game, with a curtain behind.
-    sx = STAGE_HALF_WIDTH
+    # The stage: a raised, lit platform for the featured games, with a curtain behind.
     props.append(_box((-sx, 0, stage["back"]), (sx, STAGE_HEIGHT, stage["front"]), (0.36, 0.17, 0.12)))
     props.append(_box((-sx, STAGE_HEIGHT - 0.06, stage["front"]), (sx, STAGE_HEIGHT - 0.02, stage["front"] + 0.03),
                       (1.0, 0.72, 0.30), unlit=True))
     props.append(_box((-sx - 0.4, 0, far + 0.02), (sx + 0.4, 3.6, far + 0.12), (0.46, 0.08, 0.12)))
     obstacles.append([-sx, far - 1.0, sx, stage["front"]])  # to (and past) the wall: no way round behind
-    signs.append({"text": "FEATURED", "x": 0.0, "y": 3.25, "z": far + 0.14, "w": 2.6, "h": 0.5,
-                  "facing": 1, "colour": [1.0, 0.78, 0.36]})
+    if featured:
+        signs.append({"text": "FEATURED", "x": 0.0, "y": 3.25, "z": far + 0.14, "w": 2.6, "h": 0.5,
+                      "facing": 1, "colour": [1.0, 0.78, 0.36]})
 
     # The change and prize counter, left of the door, with a prize wall behind it.
     cx0, cx1 = -DOOR_HALF_WIDTH - 5.2, -DOOR_HALF_WIDTH - 1.4
@@ -322,13 +357,14 @@ def room_for(count, style=None):
     # the stage's spotlights, then the panels.
     fills = [[0.0, h - 0.4, near - 4.0, 16.0] + st["light"] + [0.8],
              [0.0, h - 0.4, (near + far) / 2 - 2.0, 16.0] + st["light"] + [0.8]]
-    spots = [[x, 3.4, stage["cabinetZ"] + 1.6, 5.0, 1.0, 0.85, 0.62, 2.2] for x in (-1.4, 1.4)]
+    spread = max(1.4, (featured - 1) * STAGE_PITCH / 2)
+    spots = [[x, 3.4, stage["cabinetZ"] + 1.6, 5.0, 1.0, 0.85, 0.62, 2.2] for x in (-spread, spread)]
     lights = fills + spots + lights
 
     # Stools, tucked under the control deck of every third cabinet. Each has
     # its own collider; the walkways stay at least 2.5 m wide.
-    for k, (pos, angle) in enumerate(placements(count)):
-        if k == 0 or k % 3 != 2:
+    for k, (pos, angle) in enumerate(placements(count, featured)):
+        if k < featured or (k - featured) % 3 != 1:
             continue
         f = (math.sin(angle), math.cos(angle))
         x, z = pos[0] + f[0] * hall_model.STOOL_Z, pos[2] + f[1] * hall_model.STOOL_Z
@@ -341,7 +377,7 @@ def room_for(count, style=None):
         "near": near,
         "far": round(far, 4),
         "door": [-DOOR_HALF_WIDTH, DOOR_HALF_WIDTH, DOOR_HEIGHT],
-        "stage": {"halfWidth": STAGE_HALF_WIDTH, "height": STAGE_HEIGHT,
+        "stage": {"halfWidth": round(sx, 4), "height": STAGE_HEIGHT,
                   "front": round(stage["front"], 4), "back": round(stage["back"], 4)},
         "spawn": {"x": 0.0, "z": round(near - 1.4, 4), "yaw": round(math.pi / 2, 6)},
         "props": props,
@@ -372,7 +408,8 @@ def layout(games, style=None):
     cabinet, in placement order. `games` are /api/games entries; `style`
     is passed to room_for."""
     ordered = order(games)
-    spots = placements(len(ordered))
+    featured = sum(1 for game in ordered if is_featured(game))
+    spots = placements(len(ordered), featured)
     cabinets = []
     for game, (pos, angle) in zip(ordered, spots):
         cabinets.append(
@@ -389,14 +426,14 @@ def layout(games, style=None):
                 "y": round(pos[1], 4),
                 "z": round(pos[2], 4),
                 "angle": round(angle, 6),
-                "featured": game["slug"] == FEATURED,
+                "featured": is_featured(game),
                 "added": game.get("added"),
                 "tags": list(game.get("tags") or ()),
                 "engine": game.get("engine") or "other",
             }
         )
     return {
-        "room": room_for(len(ordered), style),
+        "room": room_for(len(ordered), style, featured),
         "cabinet": {
             "model": hall_model.model(),
             "footprint": list(FOOTPRINT),

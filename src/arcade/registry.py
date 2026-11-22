@@ -21,6 +21,7 @@ database").
         added: 2026-10-01                    # optional (see below)
         tags: [story, puzzle]                # optional, flow list only (see below)
         engine: strata                       # optional (see below)
+        featured: 1                          # optional (see below)
 
 `games: []` is an empty registry.
 
@@ -60,6 +61,12 @@ WebGL 2 backend), tak (tak's console runtime), sdl (SDL through Emscripten) or
 other. A static bundle does not say which engine made it, so it is written
 here: a `tak` game is always `tak` (and may say nothing else), and a `static`
 game without it is `other`.
+
+featured: a positive whole number that puts the game among the featured games,
+in that order (1 first). /api/games reports it as `featured` (null when not
+set), and the hall stands the featured games side by side on its stage, in
+this order, left to right as seen from the door. Two games may not share a
+number. With no game featured the stage stands empty.
 """
 
 import datetime
@@ -94,10 +101,11 @@ def org_of(repo):
 
 
 REQUIRED_KEYS = ("slug", "title", "repo", "token_sha256")
-OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added", "tags", "engine")
+OPTIONAL_KEYS = ("owner", "aliases", "kind", "isolation", "canonical", "added", "tags", "engine", "featured")
 LIST_KEYS = ("aliases", "tags")
 TAG_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,23}$")
 MAX_TAGS = 6
+FEATURED_PATTERN = re.compile(r"^[1-9][0-9]{0,2}$")
 ADDED_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}Z)?$")
 KINDS = ("tak", "static")
 _SWITCH = {"on": True, "true": True, "yes": True, "off": False, "false": False, "no": False}
@@ -111,7 +119,7 @@ class RegistryError(ValueError):
 class Game(object):
     __slots__ = (
         "slug", "title", "repo", "owner", "tokenSha256", "aliases", "kind", "isolation", "canonical", "added",
-        "tags", "engine",
+        "tags", "engine", "featured",
     )
 
     def __init__(
@@ -128,6 +136,7 @@ class Game(object):
         added=None,
         tags=(),
         engine=None,
+        featured=None,
     ):
         self.slug = slug
         self.title = title
@@ -141,6 +150,7 @@ class Game(object):
         self.added = added  # a datetime.date, an aware UTC datetime.datetime, or None
         self.tags = tuple(tags)
         self.engine = engine or default_engine(kind)
+        self.featured = featured  # a positive int (its place among the featured games), or None
 
     @property
     def org(self):
@@ -276,6 +286,7 @@ def validate(entries, domain=None):
     games = []
     slugs = {}
     aliasOwners = {}
+    featuredOwners = {}
     for lineNumber, entry in entries:
         missing = [key for key in REQUIRED_KEYS if key not in entry]
         if missing:
@@ -372,6 +383,19 @@ def validate(entries, domain=None):
                     "line %d: %r is a tak game, which runs on tak's console runtime; its engine is tak, not %r"
                     % (lineNumber, slug, engine)
                 )
+        featured = None
+        if "featured" in entry:
+            if not FEATURED_PATTERN.match(entry["featured"]):
+                raise RegistryError(
+                    "line %d: featured for %r must be a whole number from 1, got %r"
+                    % (lineNumber, slug, entry["featured"])
+                )
+            featured = int(entry["featured"])
+            if featured in featuredOwners:
+                raise RegistryError(
+                    "line %d: featured %d for %r is already taken by %r" % (lineNumber, featured, slug, featuredOwners[featured])
+                )
+            featuredOwners[featured] = slug
         games.append(
             Game(
                 slug=slug,
@@ -386,6 +410,7 @@ def validate(entries, domain=None):
                 added=added,
                 tags=tags,
                 engine=engine,
+                featured=featured,
             )
         )
     return Registry(games)

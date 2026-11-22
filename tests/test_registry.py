@@ -268,3 +268,21 @@ def test_the_registry_module_is_self_contained():
             assert node.module and not node.module.startswith("arcade"), node.module
         if isinstance(node, ast.Import):
             assert all(not alias.name.startswith("arcade") for alias in node.names)
+
+
+def test_featured_is_an_optional_place_among_the_featured_games():
+    loaded = registry.loads(registryText([game("tidewater", featured="2"), game("cave", featured="1"), game("roam")]))
+    assert loaded.get("tidewater").featured == 2
+    assert loaded.get("cave").featured == 1
+    assert loaded.get("roam").featured is None
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "01", "1.5", "yes", "first", "1000"])
+def test_featured_must_be_a_whole_number_from_one(bad):
+    with pytest.raises(registry.RegistryError, match="line 2: featured for 'tidewater' must be a whole number from 1"):
+        registry.loads(registryText([game("tidewater", featured=bad)]))
+
+
+def test_two_games_may_not_share_a_featured_place():
+    with pytest.raises(registry.RegistryError, match="line 7: featured 1 for 'cave' is already taken by 'tidewater'"):
+        registry.loads(registryText([game("tidewater", featured="1"), game("cave", featured="1")]))

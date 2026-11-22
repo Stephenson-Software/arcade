@@ -10,8 +10,8 @@ game with no trailer yet, a picture from the game's own public repository
 over each screen carries the game's title. Side panels are coloured by the
 GitHub organisation the game lives in. The floor is laid out like a real
 arcade (src/arcade/hall.py): islands of back-to-back cabinets, the most played
-nearest the door, a change counter by the entrance, and Roam, the featured
-game, alone on a lit stage at the back wall.
+nearest the door, a change counter by the entrance, and the featured games
+(the registry's `featured:`) side by side on a lit stage at the back wall.
 
 Everything 3D, the screens and marquees included, is drawn by Strata v0.7.0
 through its Python binding, which fetches the released library and checks it
@@ -515,9 +515,9 @@ def main():
             "registry": REGISTRY,
             "read_at": read_at,
             "strata": RELEASE,
-            "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
+            "order": "featured games first (on the stage, in their registry order), then by plays at read_at, most first (nearest the door)",
             "cabinets": [{"slug": c["game"]["slug"], "title": c["game"]["title"], "repo": c["game"]["repo"],
-                          "plays": c["game"].get("plays"), "screen": c["source"] or "title card"}
+                          "plays": c["game"].get("plays"), **({"featured": c["game"]["featured"]} if hall.is_featured(c["game"]) else {}), "screen": c["source"] or "title card"}
                          for c in cabinets],
         }, f, indent=2)
         f.write("\n")

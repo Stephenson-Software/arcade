@@ -7,6 +7,12 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Several featured games, chosen in the registry: an optional `featured: <n>` per game in `games.yaml`
+  (a whole number from 1, its place among the featured games; two games may not share one), reported
+  by `/api/games` as `featured`. The hall's stage holds every featured game side by side in that order,
+  widening for more than three, instead of Roam alone (which was written into `hall.py`). With none
+  featured the stage stands empty.
+
 - `GET /api/games/<slug>/bundle` on the API host: a game's live version as a `.tar`, as it was uploaded
   (less arcade's stamp files and the `.gz` siblings it wrote), so a game can be kept and played offline.
   Public and cross-origin like `/api/games`, and not counted as a play.
