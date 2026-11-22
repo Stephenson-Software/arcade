@@ -241,6 +241,7 @@ a.chip[aria-current="true"]::before { content: "\\2713"; }
 a.chip:focus-visible, a.clear:focus-visible, .shown a:focus-visible { outline: 3px solid var(--accent);
   outline-offset: 3px; }
 a.clear { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 600; }
+.by { display: block; font-size: .8rem; margin-top: .15rem; }
 .meta { display: block; font-size: .8rem; color: var(--muted); margin-top: .15rem; }
 .badge { display: inline-block; margin-left: .4rem; padding: 0 .45rem; border-radius: 999px; background: var(--accent);
   color: var(--accent-fg); font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
@@ -443,6 +444,7 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
             "engine": getattr(game, "engine", None) or filters.default_engine(game.kind),
             "plays": plays(game.slug) or 0,
             "added": added(game),
+            "author": getattr(game, "author", None),
         }
         byDict[game.slug] = game
         everything.append(entry)
@@ -461,6 +463,8 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
             [filters.tag_label(tag) for tag in entry["tags"]] + [filters.ENGINE_LABELS.get(entry["engine"], "")]
         )
         metaLine = '<span class="meta">%s</span>' % escape(meta) if meta else ""
+        if entry["author"]:
+            metaLine = '<span class="by">by %s</span>' % escape(entry["author"]) + metaLine
         hit = chosen.found(entry) if chosen.q else True
         found += hit
         attrs = ' data-slug="%s" data-search="%s"%s' % (

@@ -104,6 +104,8 @@ class Hosting(object):
             "engine": game.engine,
             # Its place among the featured games (1 first), or None.
             "featured": game.featured,
+            # Who made it, when not the arcade's owner; None otherwise.
+            "author": game.author,
             # "What's new" in the current version: the GitHub release's
             # notes, once arcade has looked them up (arcade.remote).
             "notes": self.notesFor(game),

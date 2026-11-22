@@ -1224,3 +1224,11 @@ def test_the_hall_serves_a_fetched_still_and_names_it_in_the_layout(running, tmp
     assert res.getheader("Content-Type") == "image/jpeg" and res.getheader("ETag")
     for bad in ("/hall/fetched/nothing.jpg", "/hall/fetched/../games.yaml", "/hall/fetched/Second.jpg"):
         assert get(port, bad)[0].status == 404, bad
+
+
+def test_a_cabinet_carries_its_author_for_the_card():
+    glomus = dict(entry("glomus", "McElyea/Glomus"), author="Jon McElyea")
+    doc = hall.layout([glomus, entry("roam", "Preponderous-Software/roam")])
+    bySlug = {c["slug"]: c for c in doc["cabinets"]}
+    assert bySlug["glomus"]["author"] == "Jon McElyea"
+    assert bySlug["roam"]["author"] is None

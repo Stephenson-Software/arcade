@@ -430,6 +430,8 @@ def layout(games, style=None):
                 "added": game.get("added"),
                 "tags": list(game.get("tags") or ()),
                 "engine": game.get("engine") or "other",
+                # Who made it, when the registry names someone; the card says "by <author>".
+                "author": game.get("author"),
             }
         )
     return {

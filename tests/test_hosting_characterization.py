@@ -113,6 +113,7 @@ def test_upload_answers_201_with_the_full_description(arcade):
         "org": body(data)["org"],
         "engine": body(data)["engine"],
         "featured": None,
+        "author": None,
         "notes": None,
     }
     assert body(data)["added"].endswith("Z")
