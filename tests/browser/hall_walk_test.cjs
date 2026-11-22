@@ -153,14 +153,17 @@ test("the stick has a dead zone and runs at the rim", () => {
   assert.ok(Math.abs(right.right - 0.5) < 1e-9 && !right.run);
 });
 
-test("from the door, the featured cabinet on its stage is in plain sight", () => {
-  const s = W.spawn(layout), roam = layout.cabinets.find((c) => c.featured);
-  const p = W.frame(roam).p(0, 1.45, 0.3);
-  const dx = p[0] - s.x, dz = p[2] - s.z;
-  const yaw = Math.atan2(-dz, -dx), pitch = -Math.atan2(p[1] - W.EYE, Math.hypot(dx, dz));
-  const hit = W.pick({x: s.x, y: W.EYE, z: s.z, yaw, pitch, aspect: 16 / 9}, 0, 0, layout);
-  assert.ok(hit && hit.cabinet && hit.cabinet.slug === roam.slug, JSON.stringify(hit && (hit.cabinet ? hit.cabinet.slug : hit)));
-  assert.ok(roam.y > 0.2, "on a raised stage");
+test("from the door, every featured cabinet on its stage is in plain sight", () => {
+  const s = W.spawn(layout), featured = layout.cabinets.filter((c) => c.featured);
+  assert.ok(featured.length >= 1);
+  for (const cab of featured) {
+    const p = W.frame(cab).p(0, 1.45, 0.3);
+    const dx = p[0] - s.x, dz = p[2] - s.z;
+    const yaw = Math.atan2(-dz, -dx), pitch = -Math.atan2(p[1] - W.EYE, Math.hypot(dx, dz));
+    const hit = W.pick({x: s.x, y: W.EYE, z: s.z, yaw, pitch, aspect: 16 / 9}, 0, 0, layout);
+    assert.ok(hit && hit.cabinet && hit.cabinet.slug === cab.slug, cab.slug + " -> " + JSON.stringify(hit && (hit.cabinet ? hit.cabinet.slug : hit)));
+    assert.ok(cab.y > 0.2, "on a raised stage");
+  }
 });
 
 test("the stage and the counter cannot be walked into", () => {

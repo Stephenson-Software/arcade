@@ -90,6 +90,7 @@ games:
     added: 2026-10-01                    # optional: the day it joined the arcade
     tags: [story, puzzle]                # optional: theme tags, for the filters
     engine: tak                          # optional: strata, tak, sdl or other
+    featured: 1                          # optional: its place among the featured games
 ```
 
 `tags` are short lowercase theme tags (`halloween`, `story`, `puzzle`, `sim`, ...): at most 6, each
@@ -99,6 +100,12 @@ Emscripten) or `other`. A static bundle does not say which engine built it (a St
 build are both an Emscripten `index.html`), so it is stated here; a `tak` game is always `tak` and may
 not say otherwise, and a `static` game without `engine` is `other`. The organisation a game is
 filtered by is the part of `repo` before the slash. See [Filters](#filters).
+
+`featured` makes a game one of the featured games: a whole number from 1 that is its place among them
+(1 first), no two games sharing one. `/api/games` reports it as `featured` (`null` when not set). The
+hall stands the featured games side by side on its stage at the back wall, in this order from left to
+right as seen from the door; the stage widens for more than three. With none featured the stage stands
+empty, with no FEATURED sign. Which games are featured is a change to `games.yaml` alone.
 
 `canonical` is the game's main public page, as an https URL. A game can be reached at its slug
 host, its aliases and the portal page that frames it; when `canonical` is set, every HTML response
@@ -222,8 +229,9 @@ the portal keep their lists, and link here with "Walk the hall". `/hall` without
 
 - **The layout is shared with the picture.** `src/arcade/hall.py` lays out the floor like a real arcade: a
   roughly square room with islands of back-to-back cabinets either side of a centre walkway (walkways are
-  at least 2.5 m), a change and prize counter by the door, and Roam alone on a raised, lit stage at the
-  back wall, in sight from the door. It orders the cabinets (the most played in the island nearest the
+  at least 2.5 m), a change and prize counter by the door, and the featured games (`featured:` in
+  the registry) side by side on a raised, lit stage at the back wall, each in sight from the door, the
+  outer ones turned a little towards the room. It orders the cabinets (the most played in the island nearest the
   door, nearest the centre first), places them, lists the room's props, signs and warm lights, colours their side panels by GitHub
   organisation and describes a cabinet's parts. `tools/make_hall_media.py` draws the README picture from it,
   and `GET /hall/layout.json` hands the same data, built from the live registry and play counts, to the page.

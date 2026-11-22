@@ -56,6 +56,8 @@ def main():
         ]
         if g.get("added"):  # the day it joined, so NEW ribbons match the live hall
             lines.append("    added: %s" % g["added"][:10])
+        if g.get("featured"):  # so the same games stand on the stage
+            lines.append("    featured: %d" % g["featured"])
         if g.get("tags"):  # so ?tag= lights the same cabinets as the live hall
             lines.append("    tags: [%s]" % ", ".join(g["tags"]))
         if g.get("engine"):

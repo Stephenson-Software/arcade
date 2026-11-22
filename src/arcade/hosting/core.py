@@ -102,6 +102,8 @@ class Hosting(object):
             "tags": list(game.tags),
             "org": game.org,
             "engine": game.engine,
+            # Its place among the featured games (1 first), or None.
+            "featured": game.featured,
             # "What's new" in the current version: the GitHub release's
             # notes, once arcade has looked them up (arcade.remote).
             "notes": self.notesFor(game),

@@ -3,7 +3,7 @@
 
 A link to https://play.danielstephenson.dev/hall/ unfurls with cards/hall.jpg:
 the arcade floor seen from just inside the door, down the centre walkway to
-Roam on its stage. A link to one cabinet, /hall/?at=<slug>, unfurls with
+the featured games on their stage. A link to one cabinet, /hall/?at=<slug>, unfurls with
 cards/<slug>.jpg: that cabinet, its poster on the screen, seen as a visitor
 walking up to it sees it. arcade names the right one in the page's og:image
 (arcade.hall.share_meta); a game with no card yet gets the hall's.

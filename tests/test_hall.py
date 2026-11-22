@@ -15,8 +15,9 @@ from helpers import TOKEN_SHA, game, registryText
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
-def entry(slug, repo, plays=0, current="1.0.0", isolation=False):
+def entry(slug, repo, plays=0, current="1.0.0", isolation=False, featured=None):
     return {
+        "featured": featured,
         "slug": slug,
         "title": slug.title(),
         "repo": repo,
@@ -29,7 +30,7 @@ def entry(slug, repo, plays=0, current="1.0.0", isolation=False):
 
 GAMES = [
     entry("tidewater", "Stephenson-Software/Tidewater", 286, isolation=True),
-    entry("roam", "Preponderous-Software/roam", 220, isolation=True),
+    entry("roam", "Preponderous-Software/roam", 220, isolation=True, featured=1),
     entry("env-lib-cpp", "Preponderous-Software/env-lib-cpp", 374),
     entry("sdl-sketches", "dmccoystephenson/sdl-sketches", 113),
     entry("familiar", "Preponderous-Software/familiar", 95, current=None),
@@ -39,7 +40,7 @@ GAMES = [
 # ------------------------------------------------------------- the layout
 
 
-def test_roam_stands_at_the_end_and_the_rest_are_by_plays():
+def test_the_featured_game_stands_at_the_end_and_the_rest_are_by_plays():
     doc = hall.layout(GAMES)
     slugs = [c["slug"] for c in doc["cabinets"]]
     assert slugs == ["roam", "env-lib-cpp", "tidewater", "sdl-sketches", "familiar"]
@@ -58,7 +59,81 @@ def test_the_most_played_cabinets_are_nearest_the_door():
 
 def big_hall():
     games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=100 + i) for i in range(30)]
-    return hall.layout(games + [entry("roam", "Preponderous-Software/roam", 1, isolation=True)])
+    return hall.layout(games + [entry("roam", "Preponderous-Software/roam", 1, isolation=True, featured=1)])
+
+
+def four_featured_hall():
+    games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=100 + i) for i in range(30)]
+    picks = [
+        entry("roam", "Preponderous-Software/roam", 900, isolation=True, featured=4),
+        entry("beyond-nations", "Preponderous-Software/beyond-nations", 5, featured=1),
+        entry("primordial-rise", "Primordial-Rise/primordial-rise-client", 50, featured=3),
+        entry("frozen-star", "Preponderous-Software/frozen-star", 7, featured=2),
+    ]
+    return hall.layout(games + picks)
+
+
+def test_several_featured_games_stand_side_by_side_on_the_stage_in_their_order():
+    doc = four_featured_hall()
+    room, cabs = doc["room"], doc["cabinets"]
+    stage = [c for c in cabs if c["featured"]]
+    # In registry order, whatever their plays, and before every other cabinet.
+    assert [c["slug"] for c in cabs[:4]] == ["beyond-nations", "frozen-star", "primordial-rise", "roam"]
+    assert stage == cabs[:4]
+    # Left to right as seen from the door (-x is the visitor's left), centred, all at one depth, raised.
+    xs = [c["x"] for c in stage]
+    assert xs == sorted(xs) and abs(sum(xs)) < 1e-6
+    assert len({c["z"] for c in stage}) == 1 and all(c["y"] == hall.STAGE_HEIGHT for c in stage)
+    # Turned a little towards the middle of the room, never away from the door.
+    for c in stage:
+        assert abs(c["angle"]) < 0.3 and (c["angle"] == 0 or (c["angle"] > 0) == (c["x"] < 0))
+    # On the stage: inside its width and depth, with room to spare between neighbours.
+    fp = hall.FOOTPRINT
+    half = room["stage"]["halfWidth"]
+    assert all(abs(c["x"]) + fp[2] < half for c in stage)
+    assert room["stage"]["back"] < stage[0]["z"] < room["stage"]["front"]
+    assert all(b["x"] - a["x"] - (fp[2] - fp[0]) >= 0.3 for a, b in zip(stage, stage[1:]))
+    # The room is wide enough for the wider stage, with a side walkway either side of it.
+    assert room["halfWidth"] - (half + 0.4) >= hall.SIDE_WALK
+    # The centre walkway stays clear, as wide as the featured cabinets spread, and the floor is still laid out by plays.
+    rest = cabs[4:]
+    assert hall.centre_walk(4) > hall.CENTRE_WALK
+    assert all(abs(c["x"]) - fp[2] >= hall.centre_walk(4) / 2 - 1e-6 for c in rest)
+    assert hall.centre_walk(4) / 2 >= max(abs(c["x"]) for c in stage) - 1e-6
+    zs = [c["z"] for c in rest]
+    assert zs == sorted(zs, reverse=True)
+    assert sum(1 for s in room["signs"] if s["text"] == "FEATURED") == 1
+
+
+def test_from_the_door_every_featured_cabinet_is_in_sight():
+    doc = four_featured_hall()
+    room = doc["room"]
+    sp = room["spawn"]
+    rest = doc["cabinets"][4:]
+    for c in doc["cabinets"][:4]:
+        # The straight line from the spawn point to the cabinet's screen passes no floor cabinet.
+        for k in range(1, 50):
+            t = k / 50
+            x, z = sp["x"] + (c["x"] - sp["x"]) * t, sp["z"] + (c["z"] - sp["z"]) * t
+            blocked = [o["slug"] for o in rest if abs(x - o["x"]) < 0.54 and abs(z - o["z"]) < 0.72]
+            assert not blocked, (c["slug"], blocked)
+
+
+def test_with_no_featured_game_the_stage_stands_empty():
+    games = [dict(g, featured=None) for g in GAMES]
+    doc = hall.layout(games)
+    assert not any(c["featured"] for c in doc["cabinets"])
+    assert all(c["y"] == 0 for c in doc["cabinets"])
+    assert [c["slug"] for c in doc["cabinets"]] == ["env-lib-cpp", "tidewater", "roam", "sdl-sketches", "familiar"]
+    assert "FEATURED" not in {s["text"] for s in doc["room"]["signs"]}
+    assert doc["room"]["stage"]["halfWidth"] == hall.STAGE_HALF_WIDTH
+
+
+def test_featured_must_be_a_positive_whole_number_to_count():
+    for rank in (0, -1, True, "1", 1.0, None):
+        assert not hall.is_featured({"featured": rank})
+    assert hall.is_featured({"featured": 2})
+    assert not hall.is_featured({})
 
 
 def test_cabinets_stand_back_to_back_in_rows_facing_the_door_or_the_stage():
@@ -99,7 +174,7 @@ def test_the_room_is_roughly_square():
     assert 0.75 < width / depth < 1.33, (width, depth)
 
 
-def test_roam_stands_alone_on_a_raised_stage_at_the_back_in_sight_of_the_door():
+def test_one_featured_game_stands_alone_on_a_raised_stage_at_the_back_in_sight_of_the_door():
     doc = big_hall()
     roam, room = doc["cabinets"][0], doc["room"]
     assert roam["featured"] and roam["x"] == 0 and roam["y"] == hall.STAGE_HEIGHT > 0
@@ -347,7 +422,7 @@ def test_the_layout_matches_the_readme_picture():
     with open(os.path.join(ROOT, "docs", "media", "arcade-hall.sources.json")) as f:
         sources = json.load(f)
     games = [
-        {"slug": c["slug"], "title": c["title"], "repo": c["repo"], "plays": c["plays"]}
+        {"slug": c["slug"], "title": c["title"], "repo": c["repo"], "plays": c["plays"], "featured": c.get("featured")}
         for c in sources["cabinets"]
     ]
     games.reverse()  # any input order
@@ -620,8 +695,10 @@ def test_the_committed_engine_is_what_build_sh_names():
         assert export in script
 
 
-def test_the_walking_maths_hold_for_the_live_sized_hall(tmp_path):
-    """tests/browser/hall_walk_test.cjs (plain node) against a 31-cabinet hall."""
+@pytest.mark.parametrize("featured", [1, 4])
+def test_the_walking_maths_hold_for_the_live_sized_hall(tmp_path, featured):
+    """tests/browser/hall_walk_test.cjs (plain node) against a 30-odd-cabinet
+    hall, with one featured game on the stage and with four."""
     import shutil
     import subprocess
 
@@ -629,7 +706,9 @@ def test_the_walking_maths_hold_for_the_live_sized_hall(tmp_path):
     if node is None:
         pytest.skip("node is not installed")
     games = [entry("g%02d" % i, "Stephenson-Software/G%d" % i, plays=i) for i in range(30)]
-    games.append(entry("roam", "Preponderous-Software/roam", 1, isolation=True))
+    games.append(entry("roam", "Preponderous-Software/roam", 1, isolation=True, featured=1))
+    for k in range(2, featured + 1):
+        games.append(entry("pick%d" % k, "Preponderous-Software/pick%d" % k, 3, featured=k))
     path = tmp_path / "layout.json"
     path.write_text(json.dumps(hall.layout(games)))
     run = subprocess.run(

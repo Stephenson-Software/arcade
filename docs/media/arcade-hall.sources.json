@@ -2,13 +2,14 @@
   "registry": "https://play.danielstephenson.dev/api/games",
   "read_at": "2026-10-30T04:21:48Z",
   "strata": "0.7.0",
-  "order": "featured game first (on the stage), then by plays at read_at, most first (nearest the door)",
+  "order": "featured games first (on the stage, in their registry order), then by plays at read_at, most first (nearest the door)",
   "cabinets": [
     {
       "slug": "roam",
       "title": "Roam",
       "repo": "Preponderous-Software/roam",
       "plays": 226,
+      "featured": 1,
       "screen": "https://danielstephenson.dev/trailers/roam.jpg"
     },
     {
