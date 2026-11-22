@@ -47,11 +47,11 @@ def test_the_csp_names_the_inline_scripts_hash():
 def test_the_page_carries_share_preview_tags_on_its_own_domain():
     page = landing.render(games(("rps", "RPS")), "play.example.com", "https://example.com/play").decode("utf-8")
     for tag in (
-        '<meta name="description" content="Browser games by Daniel McCoy Stephenson',
+        '<meta name="description" content="Browser games by Daniel McCoy Stephenson and friends',
         '<link rel="canonical" href="https://play.example.com/">',
         '<meta property="og:type" content="website">',
-        '<meta property="og:title" content="Play &mdash; browser games by Daniel McCoy Stephenson">',
-        '<meta property="og:description" content="Browser games by Daniel McCoy Stephenson',
+        '<meta property="og:title" content="Play &mdash; browser games by Daniel McCoy Stephenson and friends">',
+        '<meta property="og:description" content="Browser games by Daniel McCoy Stephenson and friends',
         '<meta property="og:url" content="https://play.example.com/">',
         '<meta property="og:image" content="https://play.example.com/og.png">',
         '<meta property="og:image:type" content="image/png">',

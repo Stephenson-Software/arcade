@@ -127,8 +127,8 @@ CSP = (
 
 # Already HTML-escaped; shared by <title>, the description and the share-preview
 # tags (og:* and twitter:*).
-TITLE = "Play &mdash; browser games by Daniel McCoy Stephenson"
-DESCRIPTION = "Browser games by Daniel McCoy Stephenson, served by arcade. Nothing to install."
+TITLE = "Play &mdash; browser games by Daniel McCoy Stephenson and friends"
+DESCRIPTION = "Browser games by Daniel McCoy Stephenson and friends, served by arcade. Nothing to install."
 
 # The link-preview card named by og:image and twitter:image: og.png beside this
 # module, a 1200x630 picture of arcade cabinets rendered in 3D with Strata, with
@@ -533,7 +533,7 @@ def render(registry, domain, portalUrl, deployed=lambda slug: True, plays=lambda
             else "Walk the hall &rarr; every game as an arcade cabinet, in 3D"
         )
         intro = (
-            '<h1>Play</h1>\n<p>Browser games by Daniel McCoy Stephenson. Nothing to install: pick one and it runs '
+            '<h1>Play</h1>\n<p>Browser games by Daniel McCoy Stephenson and friends. Nothing to install: pick one and it runs '
             'in this tab.</p>\n<a class="browse" href="%s">Browse all games &rarr; %s</a>\n'
             '<a class="hall" href="%s">%s</a>\n' % (portal, portalLabel, escape(hallUrl(chosen)), hallLabel)
         )
