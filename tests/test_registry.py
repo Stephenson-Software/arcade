@@ -286,3 +286,15 @@ def test_featured_must_be_a_whole_number_from_one(bad):
 def test_two_games_may_not_share_a_featured_place():
     with pytest.raises(registry.RegistryError, match="line 7: featured 1 for 'cave' is already taken by 'tidewater'"):
         registry.loads(registryText([game("tidewater", featured="1"), game("cave", featured="1")]))
+
+
+def test_author_is_an_optional_name_to_credit():
+    loaded = registry.loads(registryText([game("tidewater", author="Jon McElyea"), game("roam")]))
+    assert loaded.get("tidewater").author == "Jon McElyea"
+    assert loaded.get("roam").author is None
+
+
+@pytest.mark.parametrize("bad", ["\"\"", "\"   \"", "x" * 81, "a\x7fb"])
+def test_author_must_be_a_short_plain_name(bad):
+    with pytest.raises(registry.RegistryError, match="line 2: author for 'tidewater' must be a name of 1 to 80"):
+        registry.loads(registryText([game("tidewater", author=bad)]))

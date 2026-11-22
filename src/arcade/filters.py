@@ -171,10 +171,12 @@ class Filter(object):
 
 def search_text(game):
     """What the search box looks in: a game's title, slug, theme tags (as
-    chips name them too) and engine (its name and label), lower case."""
+    chips name them too), engine (its name and label) and author, lower case."""
     engine = (game.get("engine") or "other").lower()
     tags = list(game.get("tags") or ())
     parts = [game.get("title") or "", game.get("slug") or "", engine, ENGINE_LABELS.get(engine, "")]
+    if game.get("author"):
+        parts.append(game["author"])
     parts += tags + [tag_label(tag) for tag in tags]
     return " ".join(parts).lower()
 

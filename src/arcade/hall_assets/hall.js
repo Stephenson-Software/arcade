@@ -1569,7 +1569,8 @@
     const card = $("card");
     document.body.classList.toggle("at-cabinet", !!c);
     if (!c) { card.classList.remove("on"); return; }
-    $("card-org").textContent = c.org || c.repo.split("/")[0];
+    const cardOrg = c.org || c.repo.split("/")[0];
+    $("card-org").textContent = c.author ? `${cardOrg} · by ${c.author}` : cardOrg;
     $("card-title").textContent = c.title;
     // No line written for it yet (a game newer than blurbs.json, with no
     // release notes either): what it is, from its tags and engine.

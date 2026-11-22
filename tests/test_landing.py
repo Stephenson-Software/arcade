@@ -304,3 +304,18 @@ def test_the_page_stays_phone_sized():
     # Nothing fixed-width wider than a 320 px screen: the rows and the search shrink.
     assert "min-width: 0" in css.split("form.search {", 1)[1].split("}", 1)[0]
     assert "repeat(auto-fill, minmax(9.5rem, 1fr))" in css
+
+
+def test_a_card_credits_its_author_escaped_and_the_search_finds_them():
+    reg = Registry([
+        Game("glomus", "Glomus", "McElyea/Glomus", "0" * 64, kind="static", author="Jon <McElyea>"),
+        Game("apex", "Apex", "Preponderous-Software/apex", "0" * 64, kind="static"),
+    ])
+    text = landing.render(reg, "play.example.com", "https://example.com/play").decode("utf-8")
+    assert '<span class="by">by Jon &lt;McElyea&gt;</span>' in text
+    assert "Jon <McElyea>" not in text
+    # Only the game with an author gets a byline.
+    apex = text.split('<li data-slug="apex"', 1)[1].split("</li>", 1)[0]
+    assert 'class="by"' not in apex
+    searched = landing.render(reg, "play.example.com", "https://example.com/play", query="q=mcelyea").decode("utf-8")
+    assert shown(searched) == ["glomus"]
